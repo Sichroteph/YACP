@@ -1,8 +1,18 @@
-# YACP
+<p align="center">
+  <img src="docs/images/yacp/logo.png" alt="YACP continuous reading path logo" width="144">
+</p>
 
-Yet Another CrossPoint.
+<h1 align="center">YACP</h1>
 
-YACP is a personal, opinionated firmware for Xteink X3 and X4 readers. It is built for my own use. Its main priorities are battery life and rendering efficiency. Reading statistics are the deliberate exception to an otherwise narrow feature policy.
+<p align="center"><em>Yet Another CrossPoint.</em></p>
+
+YACP is a personal, opinionated firmware for Xteink X3 and X4 readers. It is built for my own use. Its main priorities are battery life and rendering efficiency. Reading statistics and a small autonomy view are the deliberate exceptions to an otherwise narrow feature policy.
+
+The expected result is longer time between charges and more consistent performance in the normal reading path. The mechanisms are concrete: lower idle CPU frequency, fewer display synchronization passes, fewer SD-card scans and writes, deferred optional work, smaller caches, and reused allocations. YACP does not yet publish an end-to-end battery-life percentage because comparable hardware measurements are still needed.
+
+This direction has required substantial work across power handling, rendering, storage, memory use, and simulator validation. The hardware and the goal remain deliberately simple: this is firmware for reading books. Major breakthroughs should not be expected every week, and releases do not follow a fixed cadence. A change is released when it provides a relevant, explainable improvement.
+
+In parallel, long-running hardware current analysis remains active. Its purpose is to compare parameters and mechanisms under repeatable use, then keep only changes that measurably reduce battery use without weakening reliability. This is an iterative process, so further power-related changes are expected as the measurements mature.
 
 This is not a community project. Issues, pull requests, feature requests, support requests, and project contact are not accepted at this time. The source is public so the work can be inspected or forked.
 
@@ -14,7 +24,7 @@ YACP currently starts from [CrossInk 1.4.0](https://github.com/uxjulia/CrossInk)
 
 CrossPoint provides the core open source reader firmware and hardware support. CrossInk adds a broad reader feature set, typography work, statistics, synchronization, and many EPUB reliability fixes. YACP keeps that compatible architecture and narrows its direction around a smaller set of priorities.
 
-YACP does not follow either upstream automatically. Changes from CrossPoint or CrossInk are considered when they reduce energy use, reduce work, or make an operation complete faster. General feature growth is not a reason by itself.
+YACP does not follow either upstream automatically. CrossPoint, CrossInk, and other Xteink firmware projects are reviewed regularly. A change is considered when it reduces energy use, reduces work, improves rendering or reliability, or makes an operation complete faster. General feature growth is not a reason by itself.
 
 The existing `.crosspoint` SD-card layout and cache formats are intentionally retained where possible.
 
@@ -30,6 +40,26 @@ In order:
 
 There is no target feature count and no goal of serving every reading workflow.
 
+## Opinionated default path
+
+YACP assumes one current book is normally read in sequence until completion. A clean profile therefore uses the
+YACP theme: a rounded, typographic Home centered on that one book, its progress, reading time, and estimated time
+left. It deliberately omits the cover, thumbnail generation, and a Home cover cache. Confirm resumes directly;
+the other mapped buttons open Menu or move to the previous/next book in most-recent-first opening order without a
+Home-screen cursor. A direction with no book is left blank and does nothing. Recent Books and Reading Stats remain
+available from Menu. OPDS and saved-item probes happen only when the menu is requested; global statistics load only
+for that menu or the Reading Stats screen.
+Automatic sleep uses Quick Resume by default, while a deliberate manual sleep keeps its independently selected sleep
+screen.
+
+Text antialiasing is disabled by default to avoid the grayscale text pass; image rendering remains enabled. Lexend
+Deca and Bitter are the normal reader fonts. SD-card fonts remain available as a comfort option, but their directories
+and catalogue are loaded only after an SD family is selected or font management is explicitly opened.
+
+The next EPUB chapter is prepared near the end of the current chapter because sequential continuation is the expected
+path. Settings are assumed to be stable and rarely changed; YACP does not add write batching solely to optimize
+settings experimentation.
+
 ## Current YACP work
 
 ### Idle power and writes
@@ -39,18 +69,53 @@ There is no target feature count and no goal of serving every reading workflow.
 - X3 USB state checks are rate limited while idle instead of being repeated on every loop.
 - EPUB, TXT, and XTC progress writes are debounced. A position is persisted after 10 changes or 5 minutes, with the latest pending position flushed on normal reader exit.
 
-These mechanisms are implemented, but YACP does not currently publish a battery-life percentage claim. Hardware current and runtime measurements remain part of the validation work.
+The lower quiet frequency and reduced polling work should lower awake idle consumption. Debounced progress writes reduce SD-card activity and repeated serialization. These mechanisms are implemented, but hardware current and runtime measurements remain part of the validation work.
+
+### Autonomy history
+
+- The Autonomy screen shows battery level against active use, active reading time since the current charge cycle, and elapsed days when a valid clock is available.
+- Awake time is accumulated only while external power is disconnected.
+- One coarse battery point is recorded for each 5 percentage-point drop, with a maximum of 21 points in a fixed state of at most 96 bytes.
+- Sampling happens during the existing transition to sleep and reuses a cached battery value when one is available. The state is written with the existing application-state save.
+- The feature adds no timer and no periodic wake-up. Reading the clock for elapsed days happens only when the Autonomy screen is opened.
+
+This view is an observability feature, not a claimed power saving. Its implementation is deliberately small so measuring autonomy does not materially interfere with it. The simulator provides a deterministic 10-day demonstration:
+
+![Battery tracking rendered by the X3 simulator with generated demo data](docs/images/yacp/autonomy.png)
+
+The graph relates battery level to active use rather than calendar time. The capture uses generated demonstration
+data, not personal battery history. Recreate the demo with:
+
+```sh
+CROSSINK_SIM_POWER_DEMO=1 pio run -e simulator_x3 -t run_simulator
+```
 
 ### Rendering and resume
 
 - X3 Quick Resume avoids the full-screen black synchronization pass when entering sleep and when restoring a cached reader page.
-- EPUB reading starts indexing the next chapter silently while the penultimate page is visible. Normal chapter entry can then use the completed cache.
+- EPUB reading starts indexing the next chapter silently near the end of the current chapter. This also covers one-page chapters and direct jumps to the last page. A prepared marker avoids repeating the same SD-card probes, and indexing is skipped when the optional-work memory budget is not available.
 - EPUB grayscale rendering allocates one bounded strip buffer per loaded section, reuses it for each page, and releases it before chapter indexing.
-- The Home carousel keeps one rendered frame in RAM and pages other snapshots from SD. Cover caching stores the relevant tile instead of another full 48 KB framebuffer.
+- The Home carousel keeps one rendered frame in RAM and pages other snapshots from SD.
+- The YACP Home does not load or cache a cover. Minimal still caches only its rendered cover region instead of the
+  full Home tile.
+- Each YACP Home load performs one full e-ink refresh to clean ghosting from the gray book surface; later book
+  selections and returns from secondary screens use fast refreshes. The centered YACP mark is the existing embedded
+  1-bit asset, so it adds no SD access or runtime allocation.
 - Low-memory EPUB fallbacks inherited from CrossInk remain enabled for difficult books, large publisher styles, custom SD-card fonts, and image-heavy sections.
 
 X3 before / after recording of the full-screen Quick Resume flashes removed by this path:
 <video src="https://github.com/user-attachments/assets/a3de8027-e6e2-45ea-9f48-99801f550def" controls></video>
+
+### Deferred optional work
+
+- Clean profiles default to YACP, text antialiasing off, and Quick Resume after automatic sleep. Existing valid user choices are preserved.
+- Disabling text antialiasing avoids the grayscale text pass. Image rendering remains enabled.
+- Built-in Lexend Deca and Bitter fonts do not trigger an SD-card font-directory scan, catalogue allocation, or font-file access.
+- SD-card font discovery and loading begin only when an SD family is selected or a font picker, manager, or web selector is explicitly opened. The catalogue is released when it is no longer needed.
+- The YACP Home has no cover-generation path. Themes that still generate Home covers use built-in fonts so optional
+  SD font work is not activated there.
+
+These choices remove filesystem and allocation work from the common built-in-font reading path while retaining SD-card fonts as an explicit comfort option.
 
 ### Reading statistics
 
@@ -125,7 +190,7 @@ This repository is a working firmware project, not a supported distribution chan
 
 ## Contribution status
 
-External contributions are closed. GitHub Issues are disabled and external pull requests are closed automatically. There is no support or contact channel for YACP.
+External contributions are closed. GitHub Issues and Discussions are disabled, and external pull requests are closed automatically. There is no support or contact channel for YACP.
 
 If the code is useful, fork it and maintain the result for your own device. See [CONTRIBUTING.md](CONTRIBUTING.md) for the short policy.
 

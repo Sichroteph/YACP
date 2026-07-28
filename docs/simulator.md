@@ -56,6 +56,19 @@ fs_/.crosspoint/daily_reading.bin
 
 It refuses to replace those files unless `--force` is present.
 
+## Autonomy demo
+
+The autonomy screen has deterministic in-memory demo data. It does not create or
+replace `state.json`:
+
+```sh
+CROSSINK_SIM_POWER_DEMO=1 pio run -e simulator_x3 -t run_simulator
+```
+
+Open **Autonomy** from the Home menu. The demo shows a 10-day battery cycle,
+29 hours and 47 minutes of active use, 35 percent remaining, and the coarse samples that the
+production firmware would retain at sleep transitions.
+
 ## Run
 
 ```sh
@@ -83,6 +96,13 @@ CROSSPOINT_SIM_INPUT_SCRIPT='2500:DOWN;3000:DOWN;3500:ENTER;4700:RIGHT;6500:QUIT
 CROSSPOINT_SIM_SCREENSHOTS='5600:./qa-artifacts/reading-rhythm.bmp' \
   .pio/build/simulator_x3/program
 ```
+
+When `CROSSPOINT_SIM_SCREENSHOTS` or
+`CROSSPOINT_SIM_SCREENSHOTS_AFTER_WAKE` is set, YACP renders the UI in English
+regardless of the language saved in `fs_`. This keeps all automated screenshots
+intended for GitHub consistent without changing the saved simulator preference.
+All screenshots published on GitHub, including manually triggered captures, must
+show the English UI.
 
 The committed Reading Rhythm image was produced from this path and converted to PNG.
 
