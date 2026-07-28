@@ -49,6 +49,10 @@ These mechanisms are implemented, but YACP does not currently publish a battery-
 - The Home carousel keeps one rendered frame in RAM and pages other snapshots from SD. Cover caching stores the relevant tile instead of another full 48 KB framebuffer.
 - Low-memory EPUB fallbacks inherited from CrossInk remain enabled for difficult books, large publisher styles, custom SD-card fonts, and image-heavy sections.
 
+The X3 before / after recording from [CrossPoint PR #2698](https://github.com/crosspoint-reader/crosspoint-reader/pull/2698)
+shows the full-screen Quick Resume flashes removed by this path:
+[watch the X3 recording](https://github.com/user-attachments/assets/a3de8027-e6e2-45ea-9f48-99801f550def).
+
 ### Reading statistics
 
 - Book and all-book totals share a compact summary page.
