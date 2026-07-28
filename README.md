@@ -34,7 +34,7 @@ There is no target feature count and no goal of serving every reading workflow.
 
 ### Idle power and writes
 
-- X3 readers can enter timer-backed light sleep between the existing 50 ms ADC button polls. The input cadence is unchanged.
+- X3 readers stay awake at 10 MHz between the existing 50 ms ADC button polls. ESP light sleep is avoided because it can drop the board's power latch and prevent a page button from waking the device.
 - The CPU may run at the lower power frequency while the e-ink controller is busy with a refresh.
 - X3 USB state checks are rate limited while idle instead of being repeated on every loop.
 - EPUB, TXT, and XTC progress writes are debounced. A position is persisted after 10 changes or 5 minutes, with the latest pending position flushed on normal reader exit.

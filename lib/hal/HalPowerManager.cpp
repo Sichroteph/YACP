@@ -81,39 +81,6 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
-bool HalPowerManager::sleepForInputPoll(const uint32_t durationMs) {
-#ifdef SIMULATOR
-  (void)durationMs;
-  return false;
-#else
-  if (durationMs == 0 || normalFreq <= 0 || currentLockMode != None ||
-      displayBusyWait.load(std::memory_order_acquire) || WiFi.getMode() != WIFI_MODE_NULL) {
-    return false;
-  }
-
-  setPowerSaving(true);
-
-  const esp_err_t timerResult = esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(durationMs) * 1000ULL);
-  if (timerResult != ESP_OK) {
-    if (!lightSleepFailureLogged) {
-      LOG_ERR("PWR", "Could not configure reader light-sleep timer: %d", static_cast<int>(timerResult));
-      lightSleepFailureLogged = true;
-    }
-    return false;
-  }
-
-  const esp_err_t sleepResult = esp_light_sleep_start();
-  const esp_err_t disableResult = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
-  const bool timerDisabled = disableResult == ESP_OK || disableResult == ESP_ERR_INVALID_STATE;
-  if ((sleepResult != ESP_OK || !timerDisabled) && !lightSleepFailureLogged) {
-    LOG_ERR("PWR", "Reader light sleep failed: sleep=%d disable=%d", static_cast<int>(sleepResult),
-            static_cast<int>(disableResult));
-    lightSleepFailureLogged = true;
-  }
-  return sleepResult == ESP_OK;
-#endif
-}
-
 void HalPowerManager::beginDisplayBusyWait() {
   if (normalFreq <= 0 || WiFi.getMode() != WIFI_MODE_NULL) {
     return;
@@ -132,12 +99,6 @@ void HalPowerManager::endDisplayBusyWait() {
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   disableWiFiBeforeDeepSleep();
-
-  const esp_err_t timerDisableResult = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
-  if (timerDisableResult != ESP_OK && timerDisableResult != ESP_ERR_INVALID_STATE) {
-    LOG_ERR("PWR", "Could not disable reader timer wakeup before deep sleep: %d",
-            static_cast<int>(timerDisableResult));
-  }
 
   // Ensure that the power button has been released to avoid immediately turning back on if you're holding it
   while (gpio.isPressed(HalGPIO::BTN_POWER)) {

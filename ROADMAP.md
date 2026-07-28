@@ -4,7 +4,7 @@ The roadmap is intentionally short. Work enters this list only when it supports 
 
 ## Current
 
-- [ ] Measure X3 idle current before and after timer-backed light sleep.
+- [ ] Measure X3 reader idle current at the normal and 10 MHz CPU frequencies.
 - [ ] Measure current while the e-ink BUSY line is asserted at normal and reduced CPU frequency.
 - [ ] Verify that the 50 ms X3 button response remains consistent across long reading sessions.
 - [ ] Measure the reduction in SD progress writes during a typical session.

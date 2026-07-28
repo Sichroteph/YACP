@@ -19,7 +19,6 @@ class HalPowerManager {
   int normalFreq = 0;  // MHz
   bool isLowPower = false;
   std::atomic<bool> displayBusyWait{false};
-  bool lightSleepFailureLogged = false;
 
   // I2C fuel gauge configuration for X3 battery monitoring
   bool _batteryUseI2C = false;            // True if using I2C fuel gauge (X3), false for ADC (X4)
@@ -40,10 +39,6 @@ class HalPowerManager {
 
   // Control CPU frequency for power saving
   void setPowerSaving(bool enabled);
-
-  // Enter timer-backed light sleep between two ADC button polls. Returns false
-  // when another subsystem currently requires the CPU to stay awake.
-  bool sleepForInputPoll(uint32_t durationMs);
 
   // The e-ink controller owns refresh timing while BUSY is asserted. These
   // hooks temporarily permit the low CPU frequency even though the render task

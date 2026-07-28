@@ -1,4 +1,4 @@
-## [v1.4.0-yacp.11] - 2026-07-28
+## [v1.4.0-yacp.12] - 2026-07-28
 
 ### Added
 
@@ -15,9 +15,9 @@
 
 ### Changed
 
-- X3 book readers now enter timer-backed light sleep between unchanged 50 ms button polls, reduce fuel-gauge USB
-  checks while idle, lower the CPU clock while the e-ink controller is busy refreshing, and debounce progress writes
-  while still flushing the latest position on normal reader exit.
+- X3 book readers now lower the CPU clock promptly between unchanged 50 ms button polls, reduce fuel-gauge USB checks
+  while idle, lower the CPU clock while the e-ink controller is busy refreshing, and debounce progress writes while
+  still flushing the latest position on normal reader exit.
 - This local custom build is branded YACP (Yet Another CrossPoint) while retaining CrossInk's storage formats and
   upstream-compatible architecture.
 - Large EPUBs, SD-card font-heavy books, and cover thumbnails now open, index, and generate more reliably under low-memory conditions.
@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- X3 reader idle power saving keeps the CPU awake at 10 MHz instead of entering ESP light sleep, which can drop the
+  board's power latch and prevent page buttons from waking the device.
 - EPUB reading now silently pre-indexes the next chapter on the penultimate page, avoiding the chapter-entry indexing
   pause introduced in CrossInk 1.4.0.
 - X3 Quick Resume no longer performs a full-screen black refresh when entering sleep or restoring a cached reader

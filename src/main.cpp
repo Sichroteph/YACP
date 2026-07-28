@@ -1036,12 +1036,11 @@ void loop() {
         gpio.deviceIsX3() && activityManager.canEnterReaderIdlePowerSaving() && !gpio.isAnyPressed() &&
         !gpio.isUsbConnectedCached();
     if (readerIdlePowerSaving) {
-      // X3 page buttons use an ADC ladder, so retain the existing 50 ms poll
-      // cadence while sleeping the CPU between samples.
-      if (!powerManager.sleepForInputPoll(READER_IDLE_POLL_MS)) {
-        powerManager.setPowerSaving(true);
-        delay(READER_IDLE_POLL_MS);
-      }
+      // X3 page buttons use an ADC ladder and the board's power latch is not
+      // guaranteed across ESP light sleep. Keep the CPU awake at 10 MHz while
+      // retaining the existing 50 ms poll cadence.
+      powerManager.setPowerSaving(true);
+      delay(READER_IDLE_POLL_MS);
     } else
 #endif
         if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
