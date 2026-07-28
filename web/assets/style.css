@@ -1,0 +1,153 @@
+/* Shared chrome for all CrossInk web portal pages.
+   Page-specific rules live in each page's own inline <style>. */
+:root {
+  --font-color: #1f2933;
+  --bg: #f3f4f6;
+  --title-color: #111827;
+  --card-bg: #ffffff;
+  --label-color: #6b7280;
+  --border-color: #e6e8ec;
+  --accent-color: #6e9a82;
+  --accent-hover-color: #5a8c73;
+  --accent-soft: rgba(110, 154, 130, 0.12);
+  --accent-color-10: rgba(110, 154, 130, 0.1);
+  --logo-filter: brightness(0);
+  --success-color: #16a34a;
+  --success-hover: #15803d;
+  --danger-color: #dc2626;
+  --danger-hover: #b91c1c;
+  --toggle-bg: #d1d5db;
+  --radius-lg: 16px;
+  --radius-md: 10px;
+  --radius-sm: 4px;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 6px 24px rgba(16, 24, 40, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --font-color: #e4e7eb;
+    --bg: #16181d;
+    --title-color: #f3f4f6;
+    --card-bg: #21242a;
+    --label-color: #9aa3af;
+    --border-color: #343941;
+    --accent-soft: rgba(110, 154, 130, 0.2);
+    --logo-filter: none;
+    --toggle-bg: #4b5563;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, sans-serif;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 28px 20px 56px;
+  background-color: var(--bg);
+  color: var(--font-color);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.crossink-header {
+  font-family: serif;
+}
+h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--title-color);
+  font-size: 1.9em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 18px;
+}
+.logo-mark {
+  height: 1em;
+  width: auto;
+  flex-shrink: 0;
+  filter: var(--logo-filter);
+}
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius-sm);
+  padding: 22px 24px;
+  margin: 16px 0;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 24px;
+  padding: 5px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  width: fit-content;
+  max-width: 100%;
+}
+.nav-links a {
+  padding: 8px 18px;
+  color: var(--label-color);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.92em;
+  font-weight: 500;
+  transition: background-color 0.15s, color 0.15s;
+}
+.nav-links a.active {
+  background: var(--accent-color);
+  color: #fff;
+}
+.nav-links a:not(.active):hover {
+  background: var(--accent-soft);
+  color: var(--font-color);
+}
+.loader-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 20px 0;
+}
+.loader {
+  width: 48px;
+  height: 48px;
+  border: 5px solid #AAA;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  box-sizing: border-box;
+  animation: rotation 1s linear infinite;
+}
+@keyframes rotation {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.footer {
+  text-align: center;
+  color: var(--label-color);
+  font-size: 0.85em;
+  padding: 20px 0;
+  margin: 0;
+}
+@media (max-width: 600px) {
+  body {
+    padding: 16px 12px 40px;
+    font-size: 14px;
+  }
+  .card {
+    padding: 16px;
+    margin: 12px 0;
+  }
+  h1 {
+    font-size: 1.5em;
+  }
+  .nav-links a {
+    padding: 7px 14px;
+    font-size: 0.9em;
+  }
+}

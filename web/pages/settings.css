@@ -1,0 +1,213 @@
+h2 {
+      color: var(--title-color);
+      margin-top: 0;
+      font-size: 1.15em;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+.setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+.setting-row:last-child {
+      border-bottom: none;
+    }
+.setting-name {
+      font-weight: 500;
+      color: var(--label-color);
+      flex: 1;
+      min-width: 0;
+      padding-right: 12px;
+    }
+.setting-control {
+      flex-shrink: 0;
+    }
+.setting-control select,
+    .setting-control input[type="number"],
+    .setting-control input[type="text"],
+    .setting-control input[type="password"] {
+      padding: 8px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      font-size: 0.95em;
+      background: var(--card-bg);
+      color: var(--font-color);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+.setting-control select:focus,
+    .setting-control input:focus {
+      outline: none;
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+.setting-control select {
+      min-width: 160px;
+    }
+.setting-control input[type="text"],
+    .setting-control input[type="password"] {
+      width: 220px;
+    }
+.setting-control input[type="number"] {
+      width: 80px;
+    }
+/* Toggle switch */
+    .toggle-switch {
+      display: inline-block;
+      position: relative;
+      width: 48px;
+      height: 26px;
+    }
+.toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+.toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--toggle-bg);
+      border-radius: 26px;
+      transition: 0.3s;
+    }
+.toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+.toggle-switch input:checked + .toggle-slider {
+      background-color: var(--accent-color);
+    }
+.toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+    }
+.save-container {
+      text-align: center;
+      margin: 20px 0;
+    }
+.save-btn {
+      background-color: var(--accent-color);
+      color: white;
+      padding: 13px 44px;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 1.05em;
+      font-weight: 600;
+      box-shadow: var(--shadow-sm);
+      transition: background-color 0.15s, transform 0.05s;
+    }
+.save-btn:hover {
+      background-color: var(--accent-hover-color);
+    }
+.save-btn:active {
+      transform: translateY(1px);
+    }
+.save-btn:disabled {
+      background-color: var(--label-color);
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+.message {
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      margin: 15px 0;
+      text-align: center;
+      font-weight: 500;
+      display: none;
+    }
+.message.success {
+      background-color: rgba(22, 163, 74, 0.1);
+      color: #15803d;
+      border: 1px solid rgba(22, 163, 74, 0.25);
+    }
+.message.error {
+      background-color: rgba(220, 38, 38, 0.08);
+      color: #b91c1c;
+      border: 1px solid rgba(220, 38, 38, 0.25);
+    }
+.opds-server {
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      margin: 12px 0;
+      background: var(--bg);
+    }
+.opds-server .setting-row:last-child {
+      border-bottom: none;
+    }
+.opds-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+.btn-small {
+      padding: 8px 16px;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 0.9em;
+      font-weight: 600;
+      transition: background-color 0.15s;
+    }
+.btn-add {
+      background-color: var(--accent-color);
+      color: white;
+    }
+.btn-add:hover {
+      background-color: var(--accent-hover-color);
+    }
+.btn-delete {
+      background-color: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--label-color);
+    }
+.btn-delete:hover {
+      border-color: var(--danger-color);
+      color: var(--danger-color);
+      background-color: rgba(220, 38, 38, 0.06);
+    }
+.btn-save-server {
+      background-color: var(--accent-color);
+      color: white;
+    }
+.btn-save-server:hover {
+      background-color: var(--accent-hover-color);
+    }
+@media (max-width: 600px) {
+      body {
+        padding: 10px;
+        font-size: 14px;
+      }
+      .card {
+        padding: 12px;
+        margin: 10px 0;
+      }
+      h1 {
+        font-size: 1.3em;
+      }
+      .nav-links a {
+        padding: 6px 12px;
+        font-size: 0.9em;
+      }
+      .setting-row {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .setting-control select,
+      .setting-control input[type="text"],
+      .setting-control input[type="password"] {
+        min-width: 0;
+        width: unset;
+      }
+    }

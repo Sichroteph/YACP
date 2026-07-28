@@ -1,0 +1,18 @@
+/* Fixture stylesheet exercising the supported subset — and some things the
+   tolerant parser must skip without complaint. */
+body { text-align: justify; }
+p { text-indent: 1.2em; margin-bottom: 0.5em; }
+
+.note { font-style: italic; font-size: 0.87em; }
+p.right { text-align: right; text-indent: 0; }
+.centered { text-align: center; text-indent: 0; }
+h2.plain { font-weight: normal; }
+.hidden { display: none; }
+
+/* Unsupported constructs that must be ignored, not fatal: */
+@media print { p { margin: 0 } }
+@font-face { font-family: "Nope"; src: url(x.ttf); }
+#someId { font-size: 99em; }
+p:first-child { font-size: 99em; }
+p[lang="x"] { font-size: 99em; }
+.unknown { colour: bleen; -epub-hyphens: maybe; }

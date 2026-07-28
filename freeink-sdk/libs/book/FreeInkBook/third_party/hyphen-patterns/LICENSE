@@ -1,0 +1,9 @@
+hyph-en-us.pat.txt — Hyphenation patterns for American English
+Copyright (C) 1990, 2004, 2005 Gerard D.C. Kuiken
+From the hyph-utf8 package (http://www.hyphenation.org/tex).
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.
+
+Typesetting hyphenmins for en-US: left 2, right 3.

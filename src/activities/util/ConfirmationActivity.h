@@ -1,0 +1,33 @@
+#pragma once
+#include <functional>
+#include <string>
+#include <vector>
+
+#include "activities/Activity.h"
+#include "fontIds.h"
+
+class ConfirmationActivity : public Activity {
+ private:
+  // Input data
+  std::string heading;
+  std::string body;
+
+  const int margin = 20;
+  const int spacing = 30;
+  const int fontId = UI_10_FONT_ID;
+
+  std::vector<std::string> headingLines;
+  std::vector<std::string> bodyLines;
+  int startY = 0;
+  int lineHeight = 0;
+  bool ignoreConfirmRelease = false;
+
+ public:
+  ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& heading,
+                       const std::string& body, bool ignoreInitialConfirmRelease = false);
+
+  void onEnter() override;
+  void loop() override;
+  void render(RenderLock&& lock) override;
+  bool allowPowerAsConfirmInReaderMode() const override { return true; }
+};

@@ -1,0 +1,334 @@
+<div class="page-header">
+  <div class="page-header-left">
+    <h2>File Manager</h2>
+    <div class="breadcrumb-inline" id="directory-breadcrumbs"></div>
+  </div>
+
+  <div class="action-buttons">
+    <button class="action-btn upload-action-btn" onclick="openUploadModal()">📤 Upload</button>
+    <button class="action-btn folder-action-btn" onclick="openFolderModal()">📁 New Folder</button>
+    <button class="action-btn delete-action-btn" onclick="openDeleteSelectedModal()">🗑️ Delete Selected</button>
+  </div>
+</div>
+
+<!-- Failed Uploads Banner -->
+<div class="failed-uploads-banner" id="failedUploadsBanner">
+  <div class="failed-uploads-header">
+    <h3 class="failed-uploads-title">⚠️ Some files failed to upload</h3>
+    <button class="dismiss-btn" onclick="dismissFailedUploads()" title="Dismiss">&times;</button>
+  </div>
+  <div id="failedFilesList"></div>
+  <button class="retry-all-btn" onclick="retryAllFailedUploads()">Retry All Failed Uploads</button>
+</div>
+
+<div class="card">
+  <div class="contents-header">
+    <h2 class="contents-title">Contents</h2>
+    <span class="summary-inline" id="folder-summary"></span>
+  </div>
+
+  <div id="file-table">
+    <div class="loader-container">
+      <span class="loader"></span>
+    </div>
+  </div>
+</div>
+<!-- Upload Modal -->
+<div class="modal-overlay" id="uploadModal">
+  <div class="modal">
+    <button class="modal-close" id="uploadModalClose" onclick="closeUploadModal()">&times;</button>
+    <h3>📤 Upload file</h3>
+    <div class="upload-form">
+      <p class="file-info">Select a file to upload to <strong id="uploadPathDisplay"></strong></p>
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" onchange="validateFile()" multiple />
+        <p class="drop-zone-hint">⬇ Drop files here — or click to browse</p>
+      </div>
+      <div class="picker-columns" id="pickerColumns">
+        <div class="convert-options" id="convertOptions" style="display: none">
+          <div class="convert-row">
+            <label class="convert-checkbox">
+              <input type="checkbox" id="convertBeforeUpload" onchange="toggleConvertOptions()" />
+              <span>Optimize EPUB</span>
+            </label>
+            <span class="convert-separator">—</span>
+            <span class="advanced-options-toggle" id="advancedOptionsToggle" onclick="toggleAdvancedOptions()">
+              <span class="advanced-options-arrow" id="advancedOptionsArrow">▶</span>
+              <span class="advanced-options-text">Advanced Mode</span>
+            </span>
+          </div>
+
+          <div id="convertInfo" style="display: none; margin-bottom: 10px; font-size: 0.9em"></div>
+
+          <div class="convert-settings" id="convertSettings" style="display: block">
+            <span>⚫ True-Grayscale</span>
+            <span id="convertSizeSummary">📏 Max 480×800px</span>
+            <span>📦 85% JPEG</span>
+            <span>🔧 Fix SVG</span>
+          </div>
+          <!-- Advanced Settings Content -->
+          <div class="advanced-settings-content" id="advancedSettingsContent">
+            <!-- JPEG Quality -->
+            <div class="advanced-setting-row quality-row">
+              <div class="setting-title">📦 JPEG Quality</div>
+              <div class="quality-presets">
+                <button class="quality-preset" data-value="30" onclick="setQualityPreset(30)" title="Minimum quality">
+                  30%
+                </button>
+                <button class="quality-preset" data-value="45" onclick="setQualityPreset(45)" title="Low quality">
+                  45%
+                </button>
+                <button
+                  class="quality-preset"
+                  data-value="60"
+                  onclick="setQualityPreset(60)"
+                  title="Medium-low quality"
+                >
+                  60%
+                </button>
+                <button class="quality-preset" data-value="75" onclick="setQualityPreset(75)" title="Medium quality">
+                  75%
+                </button>
+                <button
+                  class="quality-preset active"
+                  data-value="85"
+                  onclick="setQualityPreset(85)"
+                  title="High quality"
+                >
+                  85%
+                </button>
+                <button class="quality-preset" data-value="95" onclick="setQualityPreset(95)" title="Maximum quality">
+                  95%
+                </button>
+              </div>
+              <!-- Hidden inputs to maintain compatibility -->
+              <input type="hidden" id="qualitySlider" value="85" />
+              <input type="hidden" id="qualityInput" value="85" />
+            </div>
+            <!-- Reference Page Size -->
+            <div class="advanced-setting-row reference-characters-row">
+              <div class="setting-label">
+                <div class="setting-title">📖 Characters per Page</div>
+                <div class="setting-desc">Character count used for stable page-number metadata</div>
+              </div>
+              <div class="setting-controls">
+                <input
+                  class="reference-characters-input"
+                  type="number"
+                  id="referenceCharactersInput"
+                  min="1"
+                  max="10000"
+                  step="1"
+                  value="1500"
+                />
+              </div>
+            </div>
+            <!-- Target Device -->
+            <div class="advanced-setting-row" id="deviceSettingRow">
+              <div class="setting-title">📱 Target Device</div>
+              <div class="setting-controls">
+                <div class="rotation-buttons">
+                  <button class="rotation-btn device-btn active" data-value="auto" onclick="setDeviceTarget('auto')">
+                    <span id="deviceAutoLabel">Auto</span>
+                  </button>
+                  <button class="rotation-btn device-btn" data-value="X4" onclick="setDeviceTarget('X4')">X4</button>
+                  <button class="rotation-btn device-btn" data-value="X3" onclick="setDeviceTarget('X3')">X3</button>
+                </div>
+              </div>
+            </div>
+            <!-- Rotation Direction -->
+            <div class="advanced-setting-row" id="rotationSettingRow">
+              <div class="setting-title">↻ Rotation Direction</div>
+              <div class="setting-controls">
+                <div class="rotation-buttons">
+                  <button class="rotation-btn" id="rotationCCW" onclick="setHandedness('left')">
+                    <span class="rot-icon">↺</span> CCW
+                  </button>
+                  <button class="rotation-btn active" id="rotationCW" onclick="setHandedness('right')">
+                    <span class="rot-icon">↻</span> CW
+                  </button>
+                </div>
+              </div>
+            </div>
+            <!-- Overlap Settings -->
+            <div class="advanced-setting-row" id="overlapSettingRow">
+              <div class="setting-title">📐 Min Overlap</div>
+              <div class="setting-controls">
+                <div class="overlap-selector">
+                  <button class="overlap-btn active" data-value="5" onclick="setOverlap(5)">5%</button>
+                  <button class="overlap-btn" data-value="10" onclick="setOverlap(10)">10%</button>
+                  <button class="overlap-btn" data-value="15" onclick="setOverlap(15)">15%</button>
+                </div>
+              </div>
+            </div>
+            <!-- Conversion Log Export -->
+            <div class="advanced-setting-row">
+              <div class="setting-label">
+                <div class="setting-title">📥 Auto-download Log</div>
+                <div class="setting-desc">Export detailed log with statistics</div>
+              </div>
+              <div class="setting-controls">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="export-log-checkbox" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <!-- advanced-settings-content -->
+        </div>
+        <!-- end convert-options -->
+        <!-- Image Picker Section - in picker-columns for two-column layout -->
+        <div class="image-picker-section" id="imagePickerSection" style="display: none">
+          <div class="image-picker-header">
+            <span class="image-picker-title">🖼️ Image Processing Options</span>
+            <span class="image-picker-count" id="imagePickerCount">0 images</span>
+          </div>
+          <div class="state-legend">
+            <div class="legend-item locked">
+              <span>🔒</span>
+              <span>Cover</span>
+            </div>
+            <div class="legend-item locked">
+              <span style="color: #1abc9c">✦</span>
+              <span>Separator</span>
+            </div>
+            <button class="legend-btn" style="--btn-color: var(--label-color)" onclick="applyStateToAll(0)">
+              <div class="legend-color"></div>
+              <span>Normal</span>
+            </button>
+            <button class="legend-btn" style="--btn-color: #3498db" onclick="applyStateToAll(1)">
+              <div class="legend-color"></div>
+              <span>H-Split</span>
+            </button>
+            <button class="legend-btn" style="--btn-color: #e74c3c" onclick="applyStateToAll(2)">
+              <div class="legend-color"></div>
+              <span>V-Split</span>
+            </button>
+            <button class="legend-btn" style="--btn-color: #9b59b6" onclick="applyStateToAll(3)">
+              <div class="legend-color"></div>
+              <span>Rotate</span>
+            </button>
+          </div>
+          <div class="image-grid" id="imageGrid"></div>
+        </div>
+      </div>
+      <!-- end picker-columns -->
+      <!-- Sync compatibility warning - outside picker-columns -->
+      <div class="convert-warning" id="convertWarning" style="display: none" role="alert" aria-live="polite">
+        ⚠️ Converting will modify files and can break hash‑based sync. ⚠️<br />
+        Please back up or disable sync before proceeding.
+      </div>
+      <!-- Optimize & Upload button - shown when picker is visible, replaces Upload -->
+      <button
+        id="startConversionBtn"
+        class="upload-btn optimize"
+        style="display: none"
+        onclick="startConversionWithImageStates()"
+      >
+        Optimize & Upload
+      </button>
+      <button id="uploadBtn" class="upload-btn" onclick="uploadFile()" disabled>Upload</button>
+      <button class="delete-btn-cancel" onclick="handleCancelUploadModal()">Cancel</button>
+      <div id="progress-container">
+        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <div id="progress-text"></div>
+      </div>
+      <div class="log-section" id="log-section">
+        <div class="log-header">
+          <div class="log-title">📋 Conversion Log</div>
+        </div>
+        <div class="log-container" id="log-container"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Folder Modal -->
+<div class="modal-overlay" id="folderModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeFolderModal()">&times;</button>
+    <h3>📁 New Folder</h3>
+    <div class="folder-form">
+      <p class="file-info">Create a new folder in <strong id="folderPathDisplay"></strong></p>
+      <input
+        type="text"
+        id="folderName"
+        class="folder-input"
+        placeholder="Folder name..."
+        oninput="document.getElementById('createFolderBtn').disabled = !this.value.trim()"
+      />
+      <button class="folder-btn" id="createFolderBtn" onclick="createFolder()" disabled>Create Folder</button>
+      <button class="delete-btn-cancel" onclick="closeFolderModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
+    <h3>🗑️ Delete Item(s)</h3>
+    <div class="folder-form">
+      <p class="delete-warning">⚠️ This action cannot be undone!</p>
+      <p class="file-info">Are you sure you want to delete the following item(s)?</p>
+      <div id="deleteItemList" style="max-height: 240px; overflow: auto; margin-bottom: 10px"></div>
+      <button class="delete-btn-confirm" onclick="confirmDelete()">Delete</button>
+      <button class="delete-btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Rename Modal -->
+<div class="modal-overlay" id="renameModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeRenameModal()">&times;</button>
+    <h3>✏️ Rename File</h3>
+    <div class="folder-form">
+      <p class="file-info">Renaming <strong id="renameItemName"></strong></p>
+      <input type="text" id="renameNewName" class="folder-input" placeholder="New file name..." />
+      <input type="hidden" id="renameItemPath" />
+      <button class="rename-btn-confirm" onclick="confirmRename()">Rename</button>
+      <button class="delete-btn-cancel" onclick="closeRenameModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Move Modal -->
+<div class="modal-overlay" id="moveModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeMoveModal()">&times;</button>
+    <h3>📂 Move File</h3>
+    <div class="folder-form">
+      <p class="file-info">Moving <strong id="moveItemName"></strong></p>
+      <input
+        type="text"
+        id="moveDestPath"
+        class="folder-input"
+        list="moveFolderOptions"
+        placeholder="/Destination/Folder"
+      />
+      <datalist id="moveFolderOptions"></datalist>
+      <input type="hidden" id="moveItemPath" />
+      <button class="move-btn-confirm" onclick="confirmMove()">Move</button>
+      <button class="delete-btn-cancel" onclick="closeMoveModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image Preview Modal -->
+<div class="modal-overlay" id="imagePreviewModal">
+  <div class="modal image-preview-mode">
+    <button class="modal-close" onclick="closeImagePreview()">&times;</button>
+    <h3>🖼️ Preview</h3>
+    <div class="folder-form">
+      <p class="file-info"><strong id="imagePreviewName"></strong></p>
+      <div class="image-preview-stage">
+        <img id="imagePreviewImg" alt="" />
+      </div>
+      <a id="imagePreviewDownload" class="move-btn-confirm" rel="noopener noreferrer" target="_blank" href="#"
+        >Download</a
+      >
+    </div>
+  </div>
+</div>

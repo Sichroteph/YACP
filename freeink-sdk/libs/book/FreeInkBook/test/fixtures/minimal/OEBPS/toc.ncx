@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head><meta name="dtb:uid" content="urn:uuid:freeinkbook-fixture-0001"/></head>
+  <docTitle><text>The Test Book</text></docTitle>
+  <navMap>
+    <navPoint id="np1" playOrder="1">
+      <navLabel><text>Chapter One</text></navLabel>
+      <content src="text/ch%201.xhtml"/>
+      <navPoint id="np1a" playOrder="2">
+        <navLabel><text>Section 1.1</text></navLabel>
+        <content src="text/ch%201.xhtml#s1"/>
+      </navPoint>
+    </navPoint>
+    <navPoint id="np2" playOrder="3">
+      <navLabel><text>Chapter Two</text></navLabel>
+      <content src="text/ch2.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>

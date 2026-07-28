@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "releases": [
+    {
+      "id": "stable-1.4.0-tiny",
+      "channel": "stable",
+      "name": "1.4.0",
+      "version": "1.4.0",
+      "variant": "tiny",
+      "released_at": "2026-07-10T13:34:00Z",
+      "notes": "CrossInk 1.4.0 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.4.0/firmware-tiny-v1.4.0.bin",
+      "firmware_sha256": "8c3a15814966a3c89c347f7422292387b5fc97f78880dec3cc45b9eaba5746b1",
+      "size": 5491200,
+      "supported_devices": [
+        "x4",
+        "x3"
+      ]
+    },
+    {
+      "id": "stable-1.4.0-xlarge",
+      "channel": "stable",
+      "name": "1.4.0",
+      "version": "1.4.0",
+      "variant": "xlarge",
+      "released_at": "2026-07-10T13:34:00Z",
+      "notes": "CrossInk 1.4.0 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/download/v1.4.0/firmware-xlarge-v1.4.0.bin",
+      "firmware_sha256": "39dda1fbd5682691d9c91ec6c0bf2cf6448cc491fbc14f796d35829c2f386bd6",
+      "size": 5354096,
+      "supported_devices": [
+        "x4",
+        "x3"
+      ]
+    }
+  ]
+}

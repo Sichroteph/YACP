@@ -1,0 +1,137 @@
+name: Build firmware
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yacp-main-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-platformio-
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Read and verify version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^crossink_version = //p' platformio.ini)"
+          if [ -z "$VERSION" ]; then
+            echo "::error::crossink_version is missing from platformio.ini"
+            exit 1
+          fi
+
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            PREVIOUS_VERSION="$(git show HEAD^:platformio.ini | sed -n 's/^crossink_version = //p')"
+            if [ "$VERSION" = "$PREVIOUS_VERSION" ]; then
+              echo "::error::crossink_version must change on every main build"
+              exit 1
+            fi
+          fi
+
+          if ! grep -q "^## \\[v${VERSION}\\]" CHANGELOG.md; then
+            echo "::error::The top changelog section must include [v${VERSION}]"
+            exit 1
+          fi
+
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build YACP tiny and xlarge
+        run: |
+          set -euo pipefail
+          pio run -e tiny -e xlarge | tee pio.log
+
+      - name: Package firmware
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-publish
+          cp .pio/build/tiny/firmware-tiny.bin "dist-publish/YACP-${VERSION}-yacp-tiny.bin"
+          cp .pio/build/xlarge/firmware-xlarge.bin "dist-publish/YACP-${VERSION}-yacp-xlarge.bin"
+          cd dist-publish
+          sha256sum ./*.bin > SHA256SUMS.txt
+
+      - name: Prepare release notes and build summary
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "# YACP ${VERSION}"
+            echo
+            echo "Commit: \`${GITHUB_SHA}\`"
+            echo
+            echo "## Hardware status"
+            echo
+            echo "- [ ] X3 hardware validated"
+            echo "- [ ] X4 hardware validated"
+            echo
+            cat BUILD_CHECKLIST.md
+            echo
+            echo "## Current changelog"
+            echo
+            awk 'NR == 1 { print; next } /^## \[/ { exit } { print }' CHANGELOG.md
+          } > dist-publish/RELEASE_NOTES.md
+
+          cat dist-publish/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo "## Firmware size"
+            grep -E "RAM:\\s|Flash:\\s" pio.log | while read -r line; do echo "- ${line}"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: YACP-${{ steps.version.outputs.value }}
+          path: dist-publish/
+          if-no-files-found: error
+
+      - name: Create or update draft release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.version.outputs.value }}
+          target_commitish: ${{ github.sha }}
+          name: YACP ${{ steps.version.outputs.value }}
+          body_path: dist-publish/RELEASE_NOTES.md
+          draft: true
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            dist-publish/YACP-${{ steps.version.outputs.value }}-yacp-tiny.bin
+            dist-publish/YACP-${{ steps.version.outputs.value }}-yacp-xlarge.bin
+            dist-publish/SHA256SUMS.txt

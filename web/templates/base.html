@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/style.css?v={{ v }}" />
+{{ head_extra }}
+  <style>
+{{ styles }}
+  </style>
+</head>
+<body>
+  <h1><img class="logo-mark" src="/logo.png?v={{ v }}" alt="" /><span class="wordmark">Cross<span class="crossink-header">I</span>nk</span></h1>
+
+  <div class="nav-links">
+    <a href="/"{{ cls_home }}>Home</a>
+    <a href="/files"{{ cls_files }}>File Manager</a>
+    <a href="/settings"{{ cls_settings }}>Settings</a>
+    <a href="/fonts"{{ cls_fonts }}>Fonts</a>
+  </div>
+
+{{ body }}
+
+  <p class="footer">CrossInk &bull; Open Source</p>
+
+{{ script }}
+</body>
+</html>

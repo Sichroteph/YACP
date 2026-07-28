@@ -1,0 +1,17 @@
+{
+  "$schema": "../icon.schema.json",
+  "contributors": [
+    "Andreto",
+    "mittalyashu",
+    "ericfennis"
+  ],
+  "use-cases": [],
+  "tags": [
+    "vegetable",
+    "food",
+    "eat"
+  ],
+  "categories": [
+    "food-beverage"
+  ]
+}
