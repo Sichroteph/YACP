@@ -25,6 +25,8 @@ lib/EpdFont/scripts/instanced_fonts/
 lib/EpdFont/scripts/output/
 # Local agent configuration and state
 .claude/
+/AGENTS.md
+/CLAUDE.md
 
 /site/node_modules/
 /site/dist/
