@@ -53,13 +53,7 @@ showing its title, author, progress, reading time, and estimated time left.
   <img src="docs/images/yacp/home.png"
        alt="YACP Home rendered by the X4 simulator with Alice in Wonderland as the current book"
        width="300">
-  <img src="docs/images/yacp/reading-stats.png"
-       alt="YACP Reading Stats summary combining the current book and this device on one screen"
-       width="300">
 </p>
-
-The first Reading Stats view combines the current book summary and this device's all-time figures on one screen,
-making the most useful numbers readable without moving between two separate panels.
 
 The design choices are functional:
 
@@ -107,11 +101,10 @@ The X3 before and after recording shows the Quick Resume flashes removed by this
 - Grayscale rendering reuses one bounded strip buffer per loaded section and releases it before chapter indexing.
 - Existing low-memory EPUB fallbacks remain available for difficult books.
 
-### Personal views
+### Reading statistics
 
-Autonomy relates battery level to active use. It records one coarse point for each 5 percentage-point drop during the
-existing transition to sleep, reuses a cached battery value when possible, and stores at most 21 points in 96 bytes.
-It adds no timer or periodic wake-up.
+The first Reading Stats view combines the current book summary and this device's all-time figures on one screen,
+making the most useful numbers readable without moving between two separate panels.
 
 Reading Rhythm shows daily intensity, weekly reading time, reading days, and current and best streaks over the latest
 12 months. Its daily history remains separate from the existing synchronized totals.
@@ -119,19 +112,34 @@ Reading Rhythm shows daily intensity, weekly reading time, reading days, and cur
 <table>
   <tr>
     <td align="center">
-      <img src="docs/images/yacp/autonomy.png" alt="Battery tracking rendered by the X3 simulator" width="264">
+      <img src="docs/images/yacp/reading-stats.png"
+           alt="YACP Reading Stats summary combining the current book and this device on one screen"
+           width="264">
     </td>
     <td align="center">
       <img src="docs/images/yacp/reading-rhythm.png" alt="Reading Rhythm rendered by the X3 simulator" width="264">
     </td>
   </tr>
   <tr>
-    <td align="center">Autonomy</td>
+    <td align="center">Reading Stats summary</td>
     <td align="center">Reading Rhythm</td>
   </tr>
 </table>
 
 Both screenshots use deterministic generated data and contain no personal history. Reproduction commands are in the
+[simulator guide](docs/simulator.md).
+
+### Autonomy
+
+Autonomy relates battery level to active use. It records one coarse point for each 5 percentage-point drop during the
+existing transition to sleep, reuses a cached battery value when possible, and stores at most 21 points in 96 bytes.
+It adds no timer or periodic wake-up.
+
+<p align="center">
+  <img src="docs/images/yacp/autonomy.png" alt="Battery tracking rendered by the X3 simulator" width="264">
+</p>
+
+The screenshot uses deterministic generated data and contains no personal history. Reproduction commands are in the
 [simulator guide](docs/simulator.md).
 
 ## Baseline and scope
