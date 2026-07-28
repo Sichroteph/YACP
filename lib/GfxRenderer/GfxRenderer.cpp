@@ -1594,6 +1594,47 @@ void GfxRenderer::drawIconInverted(const uint8_t bitmap[], const int x, const in
   }
 }
 
+void GfxRenderer::drawIconLightGray(const uint8_t bitmap[], const int x, const int y, const int size) const {
+  drawIconLightGray(bitmap, x, y, size, size);
+}
+
+void GfxRenderer::drawIconLightGray(const uint8_t bitmap[], const int x, const int y, const int width,
+                                    const int height) const {
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+
+  // Start with the transparent white icon, then add two black dots per 4x4
+  // physical pixels inside its ink. This is intentionally paler than
+  // Color::LightGray so the mark remains visible on a LightGray card.
+  drawIconInverted(bitmap, x, y, width, height);
+
+  const int physX = y;
+  const int physY = getScreenWidth() - width - x;
+  const int imgW = height;
+  const int imgH = width;
+  const int srcStride = (imgW + 7) / 8;
+
+  for (int row = 0; row < imgH; ++row) {
+    const int destY = physY + row;
+    if (destY < 0 || destY >= panelHeight) continue;
+    const int rowBase = destY * panelWidthBytes;
+    const int srcOffset = row * srcStride;
+
+    for (int col = 0; col < imgW; ++col) {
+      const int destX = physX + col;
+      if (destX < 0 || destX >= panelWidth) continue;
+      const int patternX = destX & 3;
+      const int patternY = destY & 3;
+      if (!((patternX == 0 && patternY == 0) || (patternX == 2 && patternY == 2))) continue;
+
+      const uint8_t srcMask = static_cast<uint8_t>(1U << (7 - (col & 7)));
+      if ((bitmap[srcOffset + (col >> 3)] & srcMask) != 0) continue;
+
+      const uint8_t destMask = static_cast<uint8_t>(1U << (7 - (destX & 7)));
+      frameBuffer[rowBase + (destX >> 3)] &= static_cast<uint8_t>(~destMask);
+    }
+  }
+}
+
 void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, const int maxWidth, const int maxHeight,
                              const float cropX, const float cropY) const {
   if (fontCacheManager_ && fontCacheManager_->isScanning()) return;

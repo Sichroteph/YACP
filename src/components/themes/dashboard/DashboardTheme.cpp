@@ -336,8 +336,8 @@ void drawHomeProgress(const GfxRenderer& renderer, const Rect& card, const BookR
 void drawYacpBookHome(const GfxRenderer& renderer, const Rect& card, const RecentBook& book,
                       const BookReadingStats* stats, const float progressPercent) {
   renderer.fillRoundedRect(card.x, card.y, card.width, card.height, kHomeCardRadius, Color::LightGray);
-  renderer.drawIcon(Logo120, card.x + (card.width - kHomeLogoSize) / 2,
-                    card.y + (card.height - kHomeLogoSize) / 2, kHomeLogoSize);
+  renderer.drawIconLightGray(Logo120, card.x + (card.width - kHomeLogoSize) / 2,
+                             card.y + (card.height - kHomeLogoSize) / 2, kHomeLogoSize);
   const bool compact = card.height < 500;
   drawHomeBookIdentity(renderer, card, book, compact);
   drawHomeProgress(renderer, card, stats, progressPercent, compact);

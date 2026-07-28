@@ -1,3 +1,32 @@
+## [v1.4.0-yacp.91] - 2026-07-28
+
+### Added
+
+- An English simulator screenshot documenting YACP's combined first Reading Stats view.
+
+### Changed
+
+- The pale-gray YACP Home mark is slightly darker for better legibility while remaining lighter than its card.
+
+## [v1.4.0-yacp.90] - 2026-07-28
+
+### Changed
+
+- The centered YACP Home mark is now pale gray instead of white, using a sparse e-ink dither that remains visible on
+  the light-gray card without a duplicated bitmap.
+- The deterministic YACP Home screenshot now uses English UI and English Alice in Wonderland metadata.
+
+## [v1.4.0-yacp.89] - 2026-07-28
+
+### Added
+
+- A deterministic X4 simulator screenshot of the YACP Home with Alice in Wonderland as the current book.
+
+### Changed
+
+- The centered YACP mark on the current-book Home card is now white, while the boot, sleep, documentation, and web
+  variants remain black.
+
 ## [v1.4.0-yacp.88] - 2026-07-28
 
 ### Added

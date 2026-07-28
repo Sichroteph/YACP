@@ -49,6 +49,18 @@ reduces energy or work, improves reliability, or completes an operation faster. 
 The default Home is a rounded, typographic reading surface inspired by RoundedRaff. It focuses on one current book,
 showing its title, author, progress, reading time, and estimated time left.
 
+<p align="center">
+  <img src="docs/images/yacp/home.png"
+       alt="YACP Home rendered by the X4 simulator with Alice in Wonderland as the current book"
+       width="300">
+  <img src="docs/images/yacp/reading-stats.png"
+       alt="YACP Reading Stats summary combining the current book and this device on one screen"
+       width="300">
+</p>
+
+The first Reading Stats view combines the current book summary and this device's all-time figures on one screen,
+making the most useful numbers readable without moving between two separate panels.
+
 The design choices are functional:
 
 - no cover loading, thumbnail generation, EPUB opening, or Home cover cache;
@@ -59,7 +71,8 @@ The design choices are functional:
 - optional catalogue and statistics probes run only when their screen is requested;
 - the first Home render uses one full refresh to clear ghosting from the gray card, then navigation uses fast
   refreshes;
-- the centered YACP mark is the existing 1-bit asset, with no SD access or runtime allocation.
+- the centered pale-gray YACP mark reuses the existing 1-bit asset, with no duplicated bitmap, SD access, or runtime
+  allocation.
 
 Real page text is not reconstructed merely to decorate Home because that would add SD reads, deserialization, and
 memory use. Other inherited themes remain available because an inactive theme has no reading-path cost.
