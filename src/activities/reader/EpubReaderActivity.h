@@ -5,6 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -100,6 +101,11 @@ class EpubReaderActivity final : public Activity {
   bool pendingScreenshot = false;
   bool pendingSyncSaveError = false;
   ReaderProgressSaveDebouncer progressSaveDebouncer;
+  // One physical 80-row strip is at most 8,000 bytes. It is allocated once
+  // per loaded section, reused for every grayscale page, and released before
+  // section indexing so the ESP32-C3's largest free heap block can recover.
+  std::unique_ptr<uint8_t[]> grayscaleStripScratch;
+  size_t grayscaleStripScratchSize = 0;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
   bool longPressMenuHandled = false;
@@ -161,6 +167,8 @@ class EpubReaderActivity final : public Activity {
 
   void renderContents(std::unique_ptr<Page> page, int fontId, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
+  bool ensureGrayscaleStripScratch();
+  void releaseGrayscaleStripScratch();
   void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
   void renderStatusBar() const;
   bool shouldUseFootnotePreview(int targetSpineIndex, const std::string& anchor) const;

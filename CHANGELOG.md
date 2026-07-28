@@ -1,4 +1,4 @@
-## [v1.4.0-yacp.12] - 2026-07-28
+## [v1.4.0-yacp.14] - 2026-07-28
 
 ### Added
 
@@ -15,6 +15,12 @@
 
 ### Changed
 
+- Repository governance, scope, and inherited development notes now state that YACP has no Issues, Discussions, pull
+  requests, support, or contact channel.
+- X3 reader button edges now receive a prompt confirmation sample during the 50 ms low-power polling cadence,
+  reducing perceived page-button latency without continuously increasing the polling rate.
+- EPUB grayscale rendering now reuses one bounded strip buffer per loaded section and releases it before indexing,
+  avoiding repeated per-page heap allocation while preserving memory for chapter construction.
 - X3 book readers now lower the CPU clock promptly between unchanged 50 ms button polls, reduce fuel-gauge USB checks
   while idle, lower the CPU clock while the e-ink controller is busy refreshing, and debounce progress writes while
   still flushing the latest position on normal reader exit.

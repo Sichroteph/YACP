@@ -1,58 +1,46 @@
-# Project Vision & Scope: CrossInk
+# YACP scope
 
-The goal of this CrossPoint fork is to provide useful enhancements while still adhering to the core principles of Crosspoint. If you have a major feature request, it should first be directed at the main project since this is a downstream project that consumes their updates.
+YACP is a personal, opinionated firmware for Xteink X3 and X4 readers. The X3 is the primary optimization target.
 
-The content below is taken directly from Crosspoint and aligns with CrossInk's vision as well.
+## Core purpose
 
-## 1. Core Mission
+The firmware exists to read books while using as little energy and unnecessary work as practical. The priorities are:
 
-To provide a lightweight, high-performance firmware that maximizes the potential of the X4, prioritizing legibility and usability over "swiss-army-knife" functionality.
+1. Reduce energy used while a book is open and waiting for input.
+2. Reduce CPU, display, SD-card, allocation, and network work.
+3. Complete page turns, chapter changes, resume, and rendering quickly.
+4. Stay reliable on a single-core ESP32-C3 with no PSRAM.
+5. Retain a small set of personally useful features, especially reading statistics.
 
-## 2. Scope
+## In scope
 
-### In-Scope
+- Idle power behavior that remains reliable on the real board.
+- Rendering, EPUB parsing, cache, and resume improvements.
+- Fewer persistent writes and less SD-card activity.
+- Lower allocation churn and smaller memory peaks.
+- Display refresh changes that reduce work without hiding required synchronization.
+- Reading statistics that do not compromise reader stability.
+- Selective CrossPoint or CrossInk updates that support these goals.
 
-*These are features that directly improve the primary purpose of the device.*
+## Normally out of scope
 
-* **User Experience:** E.g. User-friendly interfaces, and interactions, both inside the reader and navigating the
-  firmware. This includes things like button mapping, book loading, and book navigation like bookmarks.
-* **Document Rendering:** E.g. Support for rendering documents (primarily EPUB) and improvements to the rendering
-  engine.
-* **Format Optimization:** E.g. Efficiently parsing EPUB (CSS/Images) and other documents within the device's
-  capabilities.
-* **Typography & Legibility:** E.g. Custom font support, hyphenation engines, and adjustable line spacing.
-* **E-Ink Driver Refinement:** E.g. Reducing full-screen flashes (ghosting management) and improving general rendering.
-* **Library Management:** E.g. Simple, intuitive ways to organize and navigate a collection of books.
-* **Local Transfer:** E.g. Simple, "pull" based book loading via a basic web-server or public and widely-used standards.
-* **Language Support:** E.g. Support for multiple languages both in the reader and in the interfaces.
-* **Reference Tools:** E.g. Local dictionary lookup. Providing quick, offline definitions to enhance comprehension
-  without breaking focus.
-* **Clock Display (device dependent):**
+- General feature growth.
+- Background network services.
+- Interactive applications unrelated to reading.
+- Media playback.
+- Automatic parity with CrossPoint or CrossInk.
+- Work whose main purpose is serving a broader set of user preferences.
 
-| Device | Scope |
-| -- | -- |
-| X3 | The X3 uses a dedicated DS3231 RTC, which maintains accurate time across sleep cycles and can be treated as a reliable wall clock. |
-| X4 | The X4 relies on the ESP32-C3's internal RTC, which drifts significantly during deep sleep. NTP sync could correct this, with an appropriate user experience around connecting to the internet on wake or on demand. This causes some tension with the **Active Connectivity** section below, so please open a discussion about this UX if it's a feature you would find useful. |
+An exception can be kept when it is personally useful and its cost is understood. Reading Rhythm is the current
+example.
 
-### Out-of-Scope
+## Upstream policy
 
-*These items are rejected because they compromise the device's stability or mission.*
+YACP starts from CrossInk 1.4.0, which is based on CrossPoint Reader. Upstream changes are reviewed when they reduce
+energy use, reduce work, improve reliability, or finish an existing operation faster. A newer upstream implementation
+is not adopted only because it is newer.
 
-* **Interactive Apps:** No Notepads, Calculators, or Games. This is a reader, not a PDA.
-* **Active Connectivity:** No RSS readers, News aggregators, or Web browsers. Background Wi-Fi tasks drain the battery and complicate the single-core CPU's execution.
-* **Media Playback:** No Audio players or Audiobooks.
-* **Complex Annotation:** No typed out notes. These features are better suited for devices with better input capabilities and more powerful chips.
+## Participation
 
-### In-scope — Technically Unsupported
-
-*These features align with Crosspoint's goals but are impractical on the current hardware or produce poor UX.*
-
-* **PDF Rendering:** PDFs are fixed-layout documents, so rendering them requires displaying pages as images rather than reflowable text — resulting in constant panning and zooming that makes for a poor reading experience on e-ink.
-
-## 3. Idea Evaluation
-
-While I appreciate the desire to add new and exciting features to Crosspoint Reader, Crosspoint Reader is designed to be a lightweight, reliable, and performant e-reader. Things which distract or compromise the device's core mission will not be accepted. As a guiding question, consider if your idea improve the "core reading experience" for the average user,
-and, critically, not distract from that reading experience.
-
-> **Note to Contributors:** If you are unsure if your idea fits the scope, please open a **Discussion** before you start
-> coding!
+This scope is not a request for proposals. Issues and Discussions are disabled, pull requests are closed automatically,
+and no project contact channel is provided. Forks are the supported way to pursue a different direction.

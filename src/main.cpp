@@ -100,6 +100,7 @@ static unsigned long allowSleepAt = 0;
 
 namespace {
 constexpr uint32_t READER_IDLE_POLL_MS = 50;
+constexpr uint32_t INPUT_DEBOUNCE_REPOLL_MS = 10;
 
 #ifndef SIMULATOR
 void beginDisplayBusyWaitPowerSaving() { powerManager.beginDisplayBusyWait(); }
@@ -1038,9 +1039,11 @@ void loop() {
     if (readerIdlePowerSaving) {
       // X3 page buttons use an ADC ladder and the board's power latch is not
       // guaranteed across ESP light sleep. Keep the CPU awake at 10 MHz while
-      // retaining the existing 50 ms poll cadence.
+      // retaining the existing 50 ms poll cadence. Once a raw edge appears,
+      // take the confirming debounce sample promptly instead of waiting for
+      // another full idle interval.
       powerManager.setPowerSaving(true);
-      delay(READER_IDLE_POLL_MS);
+      delay(gpio.isDebouncePending() ? INPUT_DEBOUNCE_REPOLL_MS : READER_IDLE_POLL_MS);
     } else
 #endif
         if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {

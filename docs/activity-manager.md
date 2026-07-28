@@ -271,7 +271,8 @@ There are two tasks relevant to the activity system:
 
 Both tasks run at priority 1. Since the ESP32-C3 is single-core, they alternate execution: the main task runs `loop()`, then at the end of the loop iteration, notifies the render task if an update was requested. The render task wakes, acquires the mutex, calls `render()`, releases the mutex, and blocks again.
 
-Do not use `xTaskCreate` inside activities. If you have a use case that seems to require a background task, open a discussion to propose a lifecycle-aware `Worker` abstraction first.
+Do not use `xTaskCreate` inside activities. A background task should first be evaluated against the activity lifecycle
+and the firmware's power and memory constraints.
 
 ### The Render Mutex and RenderLock
 

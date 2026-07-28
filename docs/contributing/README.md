@@ -1,13 +1,13 @@
 ---
-title: Contributing
+title: Development Notes
 nav_order: 2
 has_children: true
 ---
 
-# Contributing Docs
+# Development Notes
 
-This section is a lightweight contributor guide for CrossInk.
-It is written for software developers who may be new to embedded development.
+This inherited section contains technical notes for people working in their own YACP fork.
+YACP does not accept Issues, pull requests, support requests, or project contact.
 
 - [Getting Started](./getting-started.md)
 - [Architecture Overview](./architecture.md)

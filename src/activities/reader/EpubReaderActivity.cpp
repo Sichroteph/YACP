@@ -19,7 +19,6 @@
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <new>
 
 #include "../settings/KOReaderSettingsActivity.h"
 #include "BookStatsActivity.h"
@@ -566,21 +565,22 @@ uint16_t resolveClippingJumpPage(Section& section, const Clipping& clipping, con
   return resolvedPage;
 }
 
+constexpr int GRAYSCALE_STRIP_ROWS = 80;
+
 bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
                            const int marginTop, const bool foregroundBlack, const bool needsTextGrayscale,
-                           const bool needsImageGrayscale, TiledGrayscaleTimings& timings) {
+                           const bool needsImageGrayscale, uint8_t* scratch, const size_t scratchSize,
+                           TiledGrayscaleTimings& timings) {
   if ((!needsTextGrayscale && !needsImageGrayscale) || !renderer.supportsStripGrayscale()) {
     return false;
   }
 
-  constexpr int STRIP_ROWS = 80;
   const int displayHeight = renderer.getDisplayHeight();
   const int displayWidthBytes = renderer.getDisplayWidthBytes();
-  auto scratch =
-      std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[static_cast<size_t>(displayWidthBytes) * STRIP_ROWS]);
-  if (!scratch) {
-    LOG_ERR("ERS", "OOM: grayscale strip scratch (%d bytes); falling back to BW snapshot",
-            displayWidthBytes * STRIP_ROWS);
+  const size_t requiredScratchSize = static_cast<size_t>(displayWidthBytes) * GRAYSCALE_STRIP_ROWS;
+  if (!scratch || scratchSize < requiredScratchSize) {
+    LOG_ERR("ERS", "Missing grayscale strip scratch (%u/%u bytes); falling back to BW snapshot",
+            static_cast<unsigned>(scratchSize), static_cast<unsigned>(requiredScratchSize));
     return false;
   }
 
@@ -588,9 +588,9 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
   // then re-sync the controller BW state from the framebuffer.
   const auto renderPlane = [&](const GfxRenderer::RenderMode mode, const bool lsbPlane) {
     renderer.setRenderMode(mode);
-    for (int y = 0; y < displayHeight; y += STRIP_ROWS) {
-      const int rows = std::min(STRIP_ROWS, displayHeight - y);
-      renderer.beginStripTarget(scratch.get(), y, rows);
+    for (int y = 0; y < displayHeight; y += GRAYSCALE_STRIP_ROWS) {
+      const int rows = std::min(GRAYSCALE_STRIP_ROWS, displayHeight - y);
+      renderer.beginStripTarget(scratch, y, rows);
       renderer.clearScreen(0x00);
       if (needsTextGrayscale) {
         page.render(renderer, fontId, marginLeft, marginTop, foregroundBlack);
@@ -598,7 +598,7 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
         page.renderImages(renderer, fontId, marginLeft, marginTop);
       }
       renderer.endStripTarget();
-      renderer.writeGrayscalePlaneStrip(lsbPlane, scratch.get(), y, rows);
+      renderer.writeGrayscalePlaneStrip(lsbPlane, scratch, y, rows);
     }
   };
 
@@ -1802,6 +1802,8 @@ void EpubReaderActivity::onEnter() {
 
 void EpubReaderActivity::onExit() {
   Activity::onExit();
+
+  releaseGrayscaleStripScratch();
 
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
@@ -3779,6 +3781,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const uint16_t viewportHeight = layout.viewportHeight;
 
   if (!section) {
+    // Section loading/indexing can need a large contiguous heap block. Return
+    // the render-only strip before starting that work.
+    releaseGrayscaleStripScratch();
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d (free=%u, maxAlloc=%u)", filepath.c_str(), currentSpineIndex,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap());
@@ -4161,6 +4166,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   }
 
   releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "preparing silent next-chapter indexing");
+  releaseGrayscaleStripScratch();
   if (!MemoryBudget::hasHeapForOptionalEpubRebuild("ERS", "silent next-chapter indexing", nextSpineIndex)) {
     return;
   }
@@ -4385,6 +4391,34 @@ void EpubReaderActivity::cacheCurrentSectionPosition() {
   }
 }
 
+bool EpubReaderActivity::ensureGrayscaleStripScratch() {
+  if (!renderer.supportsStripGrayscale()) {
+    return false;
+  }
+
+  const size_t requiredSize = static_cast<size_t>(renderer.getDisplayWidthBytes()) * GRAYSCALE_STRIP_ROWS;
+  if (grayscaleStripScratch && grayscaleStripScratchSize >= requiredSize) {
+    return true;
+  }
+
+  releaseGrayscaleStripScratch();
+  // Too large for the reader task stack and mutable at runtime, so retain one
+  // fallible heap allocation per section instead of allocating on every page.
+  grayscaleStripScratch = makeUniqueNoThrow<uint8_t[]>(requiredSize);
+  if (!grayscaleStripScratch) {
+    LOG_ERR("ERS", "OOM: grayscale strip scratch (%u bytes); falling back to BW snapshot",
+            static_cast<unsigned>(requiredSize));
+    return false;
+  }
+  grayscaleStripScratchSize = requiredSize;
+  return true;
+}
+
+void EpubReaderActivity::releaseGrayscaleStripScratch() {
+  grayscaleStripScratch.reset();
+  grayscaleStripScratchSize = 0;
+}
+
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fontId, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
@@ -4526,8 +4560,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const auto tDisplay = millis();
 
   TiledGrayscaleTimings tiledTimings;
-  if (runTiledGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
-                            needsTextGrayscale, needsImageGrayscale, tiledTimings)) {
+  if (needsAnyGrayscale && ensureGrayscaleStripScratch() &&
+      runTiledGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
+                            needsTextGrayscale, needsImageGrayscale, grayscaleStripScratch.get(),
+                            grayscaleStripScratchSize, tiledTimings)) {
     const auto tEnd = millis();
     LOG_DBG("ERS",
             "Page render (tiled): prewarm=%lums bw_render=%lums display=%lums "

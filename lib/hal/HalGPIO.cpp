@@ -240,6 +240,8 @@ bool HalGPIO::isAnyPressed() const {
   return false;
 }
 
+bool HalGPIO::isDebouncePending() const { return inputMgr.isDebouncePending(); }
+
 bool HalGPIO::wasReleased(uint8_t buttonIndex) const { return inputMgr.wasReleased(buttonIndex); }
 
 bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }

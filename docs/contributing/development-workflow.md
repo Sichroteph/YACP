@@ -6,7 +6,7 @@ nav_order: 3
 
 # Development Workflow
 
-This page defines the expected local workflow before opening a pull request.
+This page defines a practical local workflow for maintaining a personal fork.
 
 ## 1) Fork and create a focused branch
 
@@ -14,8 +14,8 @@ This page defines the expected local workflow before opening a pull request.
 - Clone your fork locally and add the upstream repository if needed
 - Enable repo hooks once per clone: `git config core.hooksPath .githooks && chmod +x .githooks/pre-commit`
 
-- Branch from the target base branch for the work, usually `main` for release-bound changes or `development` for active development
-- Keep each PR focused on one fix or feature area
+- Branch from `main` for focused local work
+- Keep each commit focused on one fix or feature area
 
 ## 2) Implement with scope in mind
 
@@ -34,19 +34,18 @@ pio run -e default
 CI enforces formatting, static analysis, and the primary firmware build.
 Use clang-format 21+ locally to match CI.
 If `clang-format` is missing or too old locally, see [Getting Started](./getting-started.md).
-Run plain `pio run` before larger PRs to build the release variants (`tiny` and `xlarge`).
+Run plain `pio run` before larger changes to build the release variants (`tiny` and `xlarge`).
 
-## 4) Open the PR
+## 4) Record the change
 
 - Use a semantic title (example: `fix: avoid crash when opening malformed epub`)
-- Fill out `.github/PULL_REQUEST_TEMPLATE.md`
-- Describe the problem, approach, and any tradeoffs
+- Describe the problem, approach, and any tradeoffs in the commit or local release notes
 - Include reproduction and verification steps for bug fixes
 
-## 5) Review etiquette
+## 5) Review
 
-- Be explicit and concise in responses
-- Keep discussions technical and respectful
-- Assume good intent and focus on code-level feedback
+- Review the diff for unrelated changes
+- Check resource costs on the ESP32-C3
+- Record the concrete hardware path used for validation
 
-For community expectations, see [GOVERNANCE.md](../../GOVERNANCE.md).
+YACP does not accept pull requests. See [GOVERNANCE.md](../../GOVERNANCE.md).

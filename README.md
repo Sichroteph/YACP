@@ -34,7 +34,7 @@ There is no target feature count and no goal of serving every reading workflow.
 
 ### Idle power and writes
 
-- X3 readers stay awake at 10 MHz between the existing 50 ms ADC button polls. ESP light sleep is avoided because it can drop the board's power latch and prevent a page button from waking the device.
+- X3 readers stay awake at 10 MHz while quiet, using the existing 50 ms ADC button polling cadence. A raw button edge receives a confirming sample after 10 ms. ESP light sleep is avoided because it can drop the board's power latch and prevent a page button from waking the device.
 - The CPU may run at the lower power frequency while the e-ink controller is busy with a refresh.
 - X3 USB state checks are rate limited while idle instead of being repeated on every loop.
 - EPUB, TXT, and XTC progress writes are debounced. A position is persisted after 10 changes or 5 minutes, with the latest pending position flushed on normal reader exit.
@@ -45,6 +45,7 @@ These mechanisms are implemented, but YACP does not currently publish a battery-
 
 - X3 Quick Resume avoids the full-screen black synchronization pass when entering sleep and when restoring a cached reader page.
 - EPUB reading starts indexing the next chapter silently while the penultimate page is visible. Normal chapter entry can then use the completed cache.
+- EPUB grayscale rendering allocates one bounded strip buffer per loaded section, reuses it for each page, and releases it before chapter indexing.
 - The Home carousel keeps one rendered frame in RAM and pages other snapshots from SD. Cover caching stores the relevant tile instead of another full 48 KB framebuffer.
 - Low-memory EPUB fallbacks inherited from CrossInk remain enabled for difficult books, large publisher styles, custom SD-card fonts, and image-heavy sections.
 
