@@ -4,7 +4,10 @@
 
 - The README now groups the combined Reading Stats summary and Reading Rhythm together, with Autonomy documented
   separately.
-- The README now demonstrates the custom YACP Home as an animated Left/Right recent-book switcher.
+- The README now demonstrates the custom YACP Home as an animated Left/Right recent-book switcher using the default
+  YACP physical button order, with visible progress for both example books.
+- Documentation screenshots now use dedicated media previews with solid grayscale fills, avoiding moiré when GitHub
+  or social platforms resize the original 1-bit e-ink captures.
 
 ## [v1.4.0-yacp.91] - 2026-07-28
 

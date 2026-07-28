@@ -50,11 +50,11 @@ The custom YACP Home is a rounded, typographic reading surface inspired by Round
 book, showing its title, author, progress, reading time, and estimated time left.
 
 <p align="center">
-  <img src="docs/images/yacp/home-switcher.gif"
-       alt="YACP Home switching between Alice in Wonderland and Sherlock Holmes with the right and left buttons"
+  <img src="docs/images/yacp/media/home-switcher.gif"
+       alt="YACP Home switching between Alice in Wonderland at 46 percent and Sherlock Holmes at 24 percent"
        width="300">
   <br>
-  <sub><strong>Right</strong> &rarr; next recent book &middot; <strong>Left</strong> &rarr; previous recent book</sub>
+  <sub><strong>YACP default:</strong> Previous &middot; Next &middot; Read &middot; Menu</sub>
 </p>
 
 Home also acts as a lightweight book switcher. The Left and Right buttons move through the valid recent-book list
@@ -119,12 +119,14 @@ Reading Rhythm shows daily intensity, weekly reading time, reading days, and cur
 <table>
   <tr>
     <td align="center">
-      <img src="docs/images/yacp/reading-stats.png"
+      <img src="docs/images/yacp/media/reading-stats.png"
            alt="YACP Reading Stats summary combining the current book and this device on one screen"
            width="264">
     </td>
     <td align="center">
-      <img src="docs/images/yacp/reading-rhythm.png" alt="Reading Rhythm rendered by the X3 simulator" width="264">
+      <img src="docs/images/yacp/media/reading-rhythm.png"
+           alt="Reading Rhythm rendered by the X3 simulator"
+           width="264">
     </td>
   </tr>
   <tr>
@@ -143,7 +145,7 @@ existing transition to sleep, reuses a cached battery value when possible, and s
 It adds no timer or periodic wake-up.
 
 <p align="center">
-  <img src="docs/images/yacp/autonomy.png" alt="Battery tracking rendered by the X3 simulator" width="264">
+  <img src="docs/images/yacp/media/autonomy.png" alt="Battery tracking rendered by the X3 simulator" width="264">
 </p>
 
 The screenshot uses deterministic generated data and contains no personal history. Reproduction commands are in the

@@ -105,6 +105,16 @@ All screenshots published on GitHub, including manually triggered captures, must
 show the English UI.
 
 The committed Reading Rhythm image was produced from this path and converted to PNG.
+The original PNG and GIF captures remain 1-bit representations of the e-ink
+framebuffer. Resize-friendly copies for GitHub and other media are generated
+with flat grayscale fills instead of ordered-dither dots:
+
+```sh
+python scripts/build_media_previews.py
+```
+
+This post-processing affects only `docs/images/yacp/media/`; it does not change
+the firmware renderer or the source captures.
 
 ## Cache note
 
