@@ -23,10 +23,8 @@ release.md
 lib/EpdFont/scripts/downloaded_fonts/
 lib/EpdFont/scripts/instanced_fonts/
 lib/EpdFont/scripts/output/
-# Claude Code: share project skills with the team, keep local agent state
-# (worktrees, scheduled-task locks, settings.local, scout CLEANUP.md) out.
-.claude/*
-!.claude/skills/
+# Local agent configuration and state
+.claude/
 
 /site/node_modules/
 /site/dist/
