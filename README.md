@@ -130,6 +130,8 @@ External contributions are closed. GitHub Issues are disabled and external pull 
 
 If the code is useful, fork it and maintain the result for your own device. See [CONTRIBUTING.md](CONTRIBUTING.md) for the short policy.
 
+If YACP is useful to you, you can optionally [support its independent development](https://www.paypal.com/paypalme/ChrJeannette). Support helps with maintenance and hardware testing, but does not buy features or influence project decisions.
+
 ## License
 
 YACP retains the upstream project license. See [LICENSE](LICENSE).
