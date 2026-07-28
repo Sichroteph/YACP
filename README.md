@@ -46,21 +46,27 @@ reduces energy or work, improves reliability, or completes an operation faster. 
 
 ## The YACP theme
 
-The default Home is a rounded, typographic reading surface inspired by RoundedRaff. It focuses on one current book,
-showing its title, author, progress, reading time, and estimated time left.
+The custom YACP Home is a rounded, typographic reading surface inspired by RoundedRaff. It focuses on one current
+book, showing its title, author, progress, reading time, and estimated time left.
 
 <p align="center">
-  <img src="docs/images/yacp/home.png"
-       alt="YACP Home rendered by the X4 simulator with Alice in Wonderland as the current book"
+  <img src="docs/images/yacp/home-switcher.gif"
+       alt="YACP Home switching between Alice in Wonderland and Sherlock Holmes with the right and left buttons"
        width="300">
+  <br>
+  <sub><strong>Right</strong> &rarr; next recent book &middot; <strong>Left</strong> &rarr; previous recent book</sub>
 </p>
+
+Home also acts as a lightweight book switcher. The Left and Right buttons move through the valid recent-book list
+while the title, author, progress, and reading statistics update in place; the library never needs to open. Confirm
+resumes whichever book is currently shown. At either end of the list, the unavailable direction is blank and does
+nothing.
 
 The design choices are functional:
 
 - no cover loading, thumbnail generation, EPUB opening, or Home cover cache;
 - Confirm resumes the current book directly;
-- the lateral buttons select the previous or next valid recent book;
-- unavailable directions are blank and do nothing;
+- Left and Right switch directly to the previous or next valid recent book;
 - Recent Books, Reading Stats, Autonomy, OPDS, transfer, and settings remain in the secondary menu;
 - optional catalogue and statistics probes run only when their screen is requested;
 - the first Home render uses one full refresh to clear ghosting from the gray card, then navigation uses fast
@@ -71,8 +77,9 @@ The design choices are functional:
 Real page text is not reconstructed merely to decorate Home because that would add SD reads, deserialization, and
 memory use. Other inherited themes remain available because an inactive theme has no reading-path cost.
 
-On first startup, YACP offers its recommended `Left, Right, Confirm, Back` button order, the familiar CrossInk order,
-or preservation of an existing custom mapping. The choice is stored and is not asked again.
+On first startup, YACP offers its recommended `Left, Right, Confirm, Back` button order—the layout demonstrated
+above—the familiar CrossInk order, or preservation of an existing custom mapping. The choice is stored and is not
+asked again.
 
 ## Implemented direction
 
