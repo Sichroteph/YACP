@@ -81,6 +81,11 @@ constexpr uint16_t FOOTNOTE_PREVIEW_MAX_PAGES = 3;
 constexpr uint8_t PUBLISHER_PAGE_NUMBER_LEFT_MARGIN_MIN = 15;
 constexpr int PUBLISHER_PAGE_NUMBER_X = 5;
 
+void ensureReaderSdFontLoaded(GfxRenderer& renderer) {
+  sdFontSystem.ensureLoaded(renderer);
+  sdFontSystem.releaseRegistry();
+}
+
 uint32_t pagesCentipages(const float pages) {
   if (pages <= 0.0f) {
     return 0;
@@ -1636,7 +1641,7 @@ void EpubReaderActivity::loadBookReaderSettings() {
   }
   SETTINGS.epubRenderMode = data.hasRenderModeOverride ? normalizeRenderModeRaw(data.renderMode)
                                                        : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
-  sdFontSystem.ensureLoaded(renderer);
+  ensureReaderSdFontLoaded(renderer);
 }
 
 void EpubReaderActivity::saveCurrentBookReaderSettings() {
@@ -1721,7 +1726,6 @@ void EpubReaderActivity::onEnter() {
   captureGlobalReaderSettings();
   epub->setupCacheDir();
   loadBookReaderSettings();
-  sdFontSystem.ensureLoaded(renderer);
 
   // Configure screen orientation based on settings
   // NOTE: This affects layout math and must be applied before any render calls.
@@ -1875,6 +1879,8 @@ void EpubReaderActivity::onExit() {
   }
 
   restoreGlobalReaderSettings();
+  sdFontSystem.releaseLoadedFont(renderer);
+  sdFontSystem.releaseRegistry();
 }
 
 void EpubReaderActivity::openReaderMenu() {
@@ -1914,7 +1920,7 @@ void EpubReaderActivity::openReaderMenu() {
         if (const auto* clipping = std::get_if<ClippingJumpResult>(&result.data)) {
           applyOrientation(clipping->orientation);
           if (clipping->settingsChanged) {
-            sdFontSystem.ensureLoaded(renderer);
+            ensureReaderSdFontLoaded(renderer);
             RenderLock lock(*this);
             if (section) {
               cacheCurrentSectionPosition();
@@ -1935,7 +1941,7 @@ void EpubReaderActivity::openReaderMenu() {
         }
         applyOrientation(menu->orientation);
         if (menu->settingsChanged) {
-          sdFontSystem.ensureLoaded(renderer);
+          ensureReaderSdFontLoaded(renderer);
           RenderLock lock(*this);
           if (section) {
             cacheCurrentSectionPosition();
@@ -2919,7 +2925,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
 
 void EpubReaderActivity::reindexCurrentSection() {
   saveCurrentBookReaderSettings();
-  sdFontSystem.ensureLoaded(renderer);
+  ensureReaderSdFontLoaded(renderer);
   if (activeFootnotePreview) {
     restoreSavedPosition();
     return;
@@ -3781,6 +3787,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const uint16_t viewportHeight = layout.viewportHeight;
 
   if (!section) {
+    preparedNextSpineIndex = -1;
     // Section loading/indexing can need a large contiguous heap block. Return
     // the render-only strip before starting that work.
     releaseGrayscaleStripScratch();
@@ -4135,17 +4142,23 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 }
 
 void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportWidth, const uint16_t viewportHeight) {
-  if (activeFootnotePreview || !epub || !section || section->pageCount < 2) {
+  if (activeFootnotePreview || !epub || !section || section->pageCount == 0) {
     return;
   }
 
-  // Build the next chapter cache while the penultimate page is on screen.
-  if (section->currentPage != section->pageCount - 2) {
+  // Sequential reading is YACP's normal path. Start on the penultimate page,
+  // including one-page chapters, and catch up after a direct jump to the last page.
+  const int triggerPage = section->pageCount > 1 ? section->pageCount - 2 : 0;
+  if (section->currentPage < triggerPage) {
     return;
   }
 
   const int nextSpineIndex = currentSpineIndex + 1;
   if (nextSpineIndex < 0 || nextSpineIndex >= epub->getSpineItemsCount()) {
+    return;
+  }
+  if (preparedNextSpineIndex == nextSpineIndex && preparedNextViewportWidth == viewportWidth &&
+      preparedNextViewportHeight == viewportHeight) {
     return;
   }
 
@@ -4161,6 +4174,9 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
             SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
             SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled,
             SETTINGS.guideReadingEnabled, selectedRenderMode)) {
+      preparedNextSpineIndex = nextSpineIndex;
+      preparedNextViewportWidth = viewportWidth;
+      preparedNextViewportHeight = viewportHeight;
       return;
     }
   }
@@ -4245,6 +4261,9 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
       LOG_ERR("ERS", "Failed to save render mode after silent indexing");
     }
   }
+  preparedNextSpineIndex = nextSpineIndex;
+  preparedNextViewportWidth = viewportWidth;
+  preparedNextViewportHeight = viewportHeight;
 }
 
 bool EpubReaderActivity::applyDeferredReposition() {
@@ -4891,7 +4910,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   SETTINGS.epubRenderMode = readerSettings.hasRenderModeOverride
                                 ? normalizeRenderModeRaw(readerSettings.renderMode)
                                 : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
-  sdFontSystem.ensureLoaded(renderer);
+  ensureReaderSdFontLoaded(renderer);
 
   // Load CSS when embeddedStyle is enabled, as createSectionFile may need it to rebuild the cache.
   if (!epub->load(true, SETTINGS.embeddedStyle == 0)) {

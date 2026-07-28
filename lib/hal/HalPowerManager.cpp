@@ -158,17 +158,25 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     const uint16_t soc = (hi << 8) | lo;
     _batteryCachedPercent = soc > 100 ? 100 : soc;
     _batteryLastPollMs = now;
+    _batteryHasValidSample = true;
     return _batteryCachedPercent;
   }
   static const BatteryMonitor battery = BatteryMonitor(BAT_GPIO0);
 
   // smooth the battery %.
-  if (_batteryCachedPercent == 0) {
+  if (!_batteryHasValidSample) {
     _batteryCachedPercent = 10 * battery.readPercentage();
+    _batteryHasValidSample = true;
   } else {
     _batteryCachedPercent = (_batteryCachedPercent * 9 + battery.readPercentage() * 10) / 10;
   }
   return _batteryCachedPercent / 10;
+}
+
+bool HalPowerManager::getCachedBatteryPercentage(uint16_t& outPercentage) const {
+  if (!_batteryHasValidSample) return false;
+  outPercentage = static_cast<uint16_t>(_batteryUseI2C ? _batteryCachedPercent : _batteryCachedPercent / 10);
+  return true;
 }
 
 HalPowerManager::Lock::Lock() {

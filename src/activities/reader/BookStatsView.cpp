@@ -714,7 +714,8 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_HOME), "", showMoreButton ? tr(STR_MORE) : "");
+    const auto labels =
+        mappedInput->mapLabels(tr(STR_HOME), tr(STR_HOME), tr(STR_BACK), showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
@@ -744,9 +745,8 @@ void renderCombinedStatsPage(GfxRenderer& renderer, const MappedInputManager* ma
                               layout);
 
   if (showButtonHints && mappedInput) {
-    const auto labels =
-        mappedInput->mapLabels(tr(STR_BACK), tr(STR_HOME), showEditButton ? tr(STR_EDIT) : "",
-                               showMoreButton ? tr(STR_MORE) : "");
+    const auto labels = mappedInput->mapLabels(tr(STR_HOME), showEditButton ? tr(STR_EDIT) : tr(STR_HOME), "",
+                                               showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
@@ -1047,7 +1047,8 @@ void renderReadingRhythmPage(GfxRenderer& renderer, const MappedInputManager* ma
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_HOME), "", showMoreButton ? tr(STR_MORE) : "");
+    const auto labels =
+        mappedInput->mapLabels(tr(STR_HOME), tr(STR_HOME), tr(STR_BACK), showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
@@ -1093,7 +1094,7 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), "", "", "");
+    const auto labels = mappedInput->mapLabels(tr(STR_HOME), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }

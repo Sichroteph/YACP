@@ -94,6 +94,11 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
 int getReaderLineHeight(const GfxRenderer& renderer, const int fontId) {
   return std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * SETTINGS.getReaderLineCompression() + 0.5f));
 }
+
+void ensureReaderSdFontLoaded(GfxRenderer& renderer) {
+  sdFontSystem.ensureLoaded(renderer);
+  sdFontSystem.releaseRegistry();
+}
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -108,6 +113,7 @@ void TxtReaderActivity::onEnter() {
   // Activate reader-specific front button mapping (if configured).
   mappedInput.setReaderMode(true);
 
+  ensureReaderSdFontLoaded(renderer);
   txt->setupCacheDir();
 
   // Save current txt as last opened file and add to recent books
@@ -138,6 +144,8 @@ void TxtReaderActivity::onExit() {
 
   pageOffsets.clear();
   currentPageLines.clear();
+  sdFontSystem.releaseLoadedFont(renderer);
+  sdFontSystem.releaseRegistry();
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   txt.reset();
@@ -221,7 +229,7 @@ void TxtReaderActivity::loop() {
       if (frontLongPressChangesFont) {
         if (sdFontSystem.changeReaderFontSize(/*larger=*/nextLongPressed)) {
           SETTINGS.saveToFile();
-          sdFontSystem.ensureLoaded(renderer);
+          ensureReaderSdFontLoaded(renderer);
           {
             RenderLock lock(*this);
             pageOffsets.clear();
@@ -803,6 +811,8 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
     LOG_DBG("SLP", "TXT: failed to load %s", filePath.c_str());
     return false;
   }
+
+  ensureReaderSdFontLoaded(renderer);
 
   // Apply the reader orientation so margins match what the reader would produce
   switch (SETTINGS.orientation) {

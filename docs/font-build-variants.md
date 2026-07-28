@@ -5,7 +5,8 @@ nav_order: 12
 
 # Font Build Variants
 
-CrossInk ships multiple firmware build variants because the ESP32-C3 has limited flash and RAM. The variants trade available point sizes against emoji and miscellaneous-symbol support.
+YACP ships two firmware build variants because the ESP32-C3 has limited flash and RAM. The variants trade available
+point sizes against emoji and miscellaneous-symbol support.
 
 ## Variants
 
@@ -32,7 +33,8 @@ No 18 pt or 20 pt font size. This is the preferred general-purpose build.
 
 ## Flashing A Variant
 
-Download the matching `firmware-*.bin` from the [releases page](https://github.com/uxjulia/CrossInk/releases), or build and upload locally with PlatformIO:
+Download the matching `YACP-<version>-yacp-<variant>.bin` from the
+[YACP releases page](https://github.com/Sichroteph/YACP/releases/latest), or build and upload locally with PlatformIO:
 
 ```sh
 pio run -e tiny --target upload

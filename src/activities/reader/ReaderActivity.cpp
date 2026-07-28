@@ -165,8 +165,6 @@ void ReaderActivity::onEnter() {
     return;
   }
 
-  sdFontSystem.ensureLoaded(renderer);
-
   currentBookPath = initialBookPath;
   if (isXtcFile(initialBookPath)) {
     auto xtc = loadXtc(initialBookPath);

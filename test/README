@@ -14,7 +14,7 @@ Simulator smoke test:
 - Run `./scripts/run_simulator_smoke_test.py` from the repo root.
 - The script builds `env:simulator`, creates a temporary `fs_`, copies a test EPUB into it, opens common screens, renders them, drives reader page/menu input, and fails on crashes or missing success output.
 - Use `--book path/to/book.epub` to choose a specific EPUB and `--page-turns 10` to change how far the reader flow navigates.
-- Use `--theme lyra-carousel` to run the flow with a specific UI theme. Supported names include `classic`, `lyra`, `lyra-extended`, `roundedraff`, and `lyra-carousel`.
+- Use `--theme dashboard` to run the flow with a specific UI theme. Supported names include `classic`, `lyra`, `lyra-extended`, `roundedraff`, `lyra-carousel`, `minimal`, and `dashboard`.
 - Use `--no-build` to reuse the existing simulator binary or `--window` to show the SDL window instead of running headless.
 
 Expected coverage:

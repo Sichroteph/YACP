@@ -1,6 +1,7 @@
 #include "GfxRenderer.h"
 
 #include <BidiUtils.h>
+#include <InflateReader.h>  // Direct for PlatformIO's chain LDF; FontDecompressor embeds one.
 #include <FontDecompressor.h>
 #include <HalGPIO.h>
 #include <Logging.h>

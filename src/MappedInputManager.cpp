@@ -295,6 +295,28 @@ bool MappedInputManager::wasAnyReleased() const {
   return gpio.wasAnyReleased();
 }
 
+bool MappedInputManager::discardPendingFrontRelease() const {
+#ifdef SIMULATOR
+  const bool simulatedFrontRelease = simulatorReleased[buttonIndex(Button::Back)] ||
+                                     simulatorReleased[buttonIndex(Button::Confirm)] ||
+                                     simulatorReleased[buttonIndex(Button::Left)] ||
+                                     simulatorReleased[buttonIndex(Button::Right)];
+  if (simulatedFrontRelease) {
+    suppressBackRelease = false;
+    suppressConfirmRelease = false;
+    return true;
+  }
+#endif
+  if (getReleasedFrontButton() < 0) return false;
+
+  // Reader and global mappings can assign different logical actions to the
+  // same physical button. Clear both front-action suppressions explicitly;
+  // trying to consume them through the new mapping can leave one armed.
+  suppressBackRelease = false;
+  suppressConfirmRelease = false;
+  return true;
+}
+
 unsigned long MappedInputManager::getHeldTime() const {
   unsigned long heldTime = gpio.getHeldTime();
 #ifdef SIMULATOR

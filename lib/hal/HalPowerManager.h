@@ -25,6 +25,7 @@ class HalPowerManager {
   mutable int _batteryCachedPercent = 0;  // Last read battery percentage * 10 (0-1000); callers divide by 10 (ADC/X4
                                           // path only — I2C/X3 path stores 0-100 directly)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
+  mutable bool _batteryHasValidSample = false;
 
   enum LockMode { None, NormalSpeed };
   LockMode currentLockMode = None;
@@ -52,6 +53,9 @@ class HalPowerManager {
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;
+
+  // Reuse the latest value without touching the ADC or I2C bus.
+  bool getCachedBatteryPercentage(uint16_t& outPercentage) const;
 
   // RAII helper class to manage power saving locks
   // Usage: create an instance of Lock in a scope to disable power saving, for example when running a task that needs

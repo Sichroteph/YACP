@@ -32,9 +32,14 @@ class HomeActivity final : public Activity {
   bool hasBookmarks = false;
   bool hasClippings = false;
   bool hasOpdsServers = false;
+  bool homeMenuContextLoaded = false;
+  bool readingStatsContextLoaded = false;
   bool minimalMenuOpen = false;
   bool minimalSuppressInitialFrontRelease = false;
   bool homeBookSwapLongPressHandled = false;
+  int yacpRecentBookIndex = -1;
+  bool yacpHasPreviousBook = false;
+  bool yacpHasNextBook = false;
   int minimalMenuIndex = 0;
   int minimalHomeNavIndex = -1;
   bool coverRendered = false;      // Track if cover has been rendered once
@@ -75,6 +80,7 @@ class HomeActivity final : public Activity {
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
   void onReadingStatsOpen();
+  void onPowerStatsOpen();
   void onSavedItemsOpen();
 
   int getMenuItemCount() const;
@@ -98,8 +104,14 @@ class HomeActivity final : public Activity {
   int getVisibleRecentBookCount() const;
   bool canSwapHomeBook() const;
   void showNextRecentBookOnHome();
+  int findAdjacentYacpBookIndex(int direction) const;
+  void refreshYacpBookNavigation();
+  void initializeYacpBookNavigation();
+  void showAdjacentYacpBook(int direction);
   void updateHighlightedBookContext();
-  void loadRecentBooks(int maxBooks);
+  void loadReadingStatsContext();
+  void loadHomeMenuContext();
+  void loadRecentBooks(int maxBooks, bool resolveCoverPaths);
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);
 

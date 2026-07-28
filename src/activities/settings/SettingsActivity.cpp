@@ -211,11 +211,11 @@ void SettingsActivity::rebuildSettingsLists() {
   systemReadingStatsSettings.clear();
   systemGlobalStatsSettings.clear();
 
-  // Pick up any fonts uploaded/deleted over the web server since the last
-  // reader activity ran — otherwise the font-family picker shows stale list.
-  sdFontSystem.refreshIfDirty();
-
-  const auto allSettings = getSettingsList(&sdFontSystem.registry());
+  // The built-in-font path must not scan SD font directories merely because
+  // Settings was opened. A selected SD family has explicitly opted into that cost.
+  const SdCardFontRegistry* activeFontRegistry =
+      SETTINGS.sdFontFamilyName[0] != '\0' ? &sdFontSystem.registry() : nullptr;
+  const auto allSettings = getSettingsList(activeFontRegistry);
   displaySettings = buildGroupedDisplaySettingsList(allSettings);
   displaySleepSettings = buildDisplaySleepSettingsList(allSettings);
   readerSettings = buildReaderSettingsParentList(allSettings);
@@ -537,6 +537,10 @@ void SettingsActivity::onEnter() {
 void SettingsActivity::onExit() {
   Activity::onExit();
 
+  // SD fonts are only needed here for the explicit preview/selection surface.
+  // Reader activities load the selected family again when they enter.
+  sdFontSystem.releaseLoadedFont(renderer);
+  sdFontSystem.releaseRegistry();
   UITheme::getInstance().reload();  // Re-apply theme in case it was changed
 }
 

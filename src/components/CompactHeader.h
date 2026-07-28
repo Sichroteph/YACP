@@ -7,4 +7,5 @@ namespace CompactHeader {
 int headerBottomY(const ThemeMetrics& metrics);
 int contentTop(const ThemeMetrics& metrics);
 void drawTitle(const GfxRenderer& renderer, const char* title, bool showDate = false);
+void drawTitleWithoutStatus(const GfxRenderer& renderer, const char* title);
 }  // namespace CompactHeader

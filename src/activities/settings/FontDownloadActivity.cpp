@@ -107,7 +107,7 @@ int fontListRowHeight(const GfxRenderer& renderer, const ThemeMetrics& metrics) 
 }  // namespace
 
 FontDownloadActivity::FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : Activity("FontDownload", renderer, mappedInput), fontInstaller_(sdFontSystem.registry()) {}
+    : Activity("FontDownload", renderer, mappedInput) {}
 
 // --- Lifecycle ---
 
@@ -133,7 +133,16 @@ void FontDownloadActivity::onExit() {
     silentRestart();
   }
 
+  // Release manifest vectors before rebuilding an active SD glyph font. Both
+  // are optional, sizeable heap users and never need to coexist on exit.
+  clearManifestFamilies();
+  retryFamily_ = ManifestFamily();
+  std::string().swap(baseUrl_);
+  std::string().swap(activeDownloadFamilyName_);
+  std::string().swap(errorMessage_);
+  std::string().swap(errorHint_);
   sdFontSystem.ensureLoaded(renderer);
+  sdFontSystem.releaseRegistry();
 }
 
 void FontDownloadActivity::onWifiSelectionComplete(const bool success) {
@@ -320,7 +329,7 @@ bool FontDownloadActivity::fetchAndParseManifest() {
   // Second pass: load the installed-font registry and resolve installed/update
   // state now that the manifest JsonDocument has been released, keeping peak
   // heap usage down on devices with many SD fonts installed.
-  fontInstaller_.refreshRegistry();
+  sdFontSystem.rediscoverRegistry();
   for (auto& family : families_) {
     resolveInstalledFamilyName(family);
   }
@@ -580,7 +589,7 @@ void FontDownloadActivity::returnToFamilyList() {
 
 void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
   const auto failDownload = [this, &family](const std::string& message, const std::string& hint) {
-    fontInstaller_.refreshRegistry();
+    sdFontSystem.rediscoverRegistry();
     bool hasUpdate = false;
     std::string resolvedName;
     family.installed = installedFilesMatch(family.installName.c_str(), family.files, hasUpdate, &resolvedName);
@@ -793,7 +802,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     currentFileIndex_++;
   }
 
-  fontInstaller_.refreshRegistry();
+  sdFontSystem.rediscoverRegistry();
   family.installed = true;
   family.hasUpdate = false;
 
@@ -831,7 +840,7 @@ void FontDownloadActivity::onDeleteConfirmationResult(const ActivityResult& resu
     state_ = ERROR;
     errorMessage_ = "Failed to delete font";
   } else {
-    fontInstaller_.refreshRegistry();
+    sdFontSystem.rediscoverRegistry();
     family.installed = false;
     family.hasUpdate = false;
   }

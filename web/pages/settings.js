@@ -1,7 +1,10 @@
 let allSettings = [];
   let originalValues = {};
+  let sdFontOptionsLoaded = false;
+  let sdFontOptionsLoading = false;
   let preserveQuickResumeTimeoutOn = false;
   let quickResumeTimeoutAutoEnabled = false;
+  const BUILTIN_FONT_COUNT = 2;
   const SLEEP_SCREEN_MODE = {
     QUICK_RESUME: 6
   };
@@ -36,7 +39,9 @@ let allSettings = [];
     }
 
     if (setting.type === 'enum') {
-      let html = '<select id="' + id + '" onchange="handleSettingChanged(\'' + setting.key + '\')">';
+      const lazyFontLoad = setting.key === 'fontFamily' ? ' onfocus="loadSdFontOptions()"' : '';
+      let html = '<select id="' + id + '"' + lazyFontLoad +
+        ' onchange="handleSettingChanged(\'' + setting.key + '\')">';
       setting.options.forEach(function(opt, idx) {
         const selected = idx === setting.value ? ' selected' : '';
         html += '<option value="' + idx + '"' + selected + '>' + escapeHtml(opt) + '</option>';
@@ -59,6 +64,40 @@ let allSettings = [];
     }
 
     return '';
+  }
+
+  async function loadSdFontOptions() {
+    if (sdFontOptionsLoaded || sdFontOptionsLoading) return;
+
+    const setting = findSetting('fontFamily');
+    const select = getControl('fontFamily');
+    if (!setting || !select) return;
+
+    sdFontOptionsLoading = true;
+    try {
+      const response = await fetch('/api/fonts');
+      if (!response.ok) throw new Error('Failed to load SD fonts: ' + response.status);
+
+      const data = await response.json();
+      const familyNames = (data.families || []).map(function(family) { return family.name; });
+      const currentValue = select.value;
+      setting.options = setting.options.slice(0, BUILTIN_FONT_COUNT).concat(familyNames);
+
+      select.replaceChildren();
+      setting.options.forEach(function(name, index) {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = name;
+        select.appendChild(option);
+      });
+      select.value = currentValue;
+      sdFontOptionsLoaded = true;
+    } catch (e) {
+      console.error(e);
+      showMessage('Failed to load SD fonts.', true);
+    } finally {
+      sdFontOptionsLoading = false;
+    }
   }
 
   function getValue(setting) {
@@ -200,6 +239,8 @@ let allSettings = [];
         throw new Error('Failed to load settings: ' + response.status);
       }
       allSettings = await response.json();
+      const fontSetting = findSetting('fontFamily');
+      sdFontOptionsLoaded = !!fontSetting && fontSetting.options.length > BUILTIN_FONT_COUNT;
 
       // Store original values
       originalValues = {};

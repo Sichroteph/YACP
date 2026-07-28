@@ -118,6 +118,9 @@ void FontSelectionActivity::onEnter() {
   selectedIndex_ = findCurrentFontIndex(registry_, SETTINGS.sdFontFamilyName, SETTINGS.fontFamily);
   previewFontIndex_ = selectedIndex_;
 
+  // Opening the font picker is an explicit opt-in to SD font I/O. Load the
+  // selected family now so its first preview cannot silently use a built-in.
+  sdFontSystem.ensureLoaded(renderer);
   requestUpdate();
 }
 
@@ -149,9 +152,10 @@ void FontSelectionActivity::loop() {
         if (sdIdx < static_cast<int>(families.size())) {
           strncpy(SETTINGS.sdFontFamilyName, families[sdIdx].name.c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
           SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
-          sdFontSystem.ensureLoaded(renderer);
         }
       }
+      // This also unloads the previous SD family when a built-in is previewed.
+      sdFontSystem.ensureLoaded(renderer);
       requestUpdate();
     }
     return;
@@ -199,6 +203,9 @@ void FontSelectionActivity::handleSelection() {
       SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
     }
   }
+  // Keep the live resolver in sync before returning to Settings or the reader.
+  // For a built-in choice this immediately gives the SD font memory back.
+  sdFontSystem.ensureLoaded(renderer);
   mappedInput.suppressNextConfirmRelease();
   finish();
 }

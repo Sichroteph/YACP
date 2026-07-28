@@ -591,6 +591,10 @@ void MinimalTheme::drawCompactFileBrowserList(const GfxRenderer& renderer, Rect 
 
 void MinimalTheme::setHomeButtonHintSelection(const int selectedIndex) { homeButtonHintSelection = selectedIndex; }
 
+Rect MinimalTheme::homeCoverCacheRect(const GfxRenderer& renderer, const Rect& homeRect) {
+  return coverRectForScreen(renderer, homeRect);
+}
+
 void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                    const char* btn4, const bool allowInvertedText) const {
   const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
@@ -648,7 +652,6 @@ void MinimalTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const s
                                        const BookReadingStats* stats, float progressPercent,
                                        const GlobalReadingStats* globalStats, const char* currentChapterTitle) const {
   (void)selectorIndex;
-  (void)bufferRestored;
   (void)globalStats;
   (void)currentChapterTitle;
 
@@ -673,6 +676,13 @@ void MinimalTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const s
     coverRendered = false;
     coverBufferStored = false;
     return;
+  }
+
+  // Home clears the framebuffer before attempting the restore. If the cached
+  // region cannot be copied back, redraw instead of leaving a blank cover.
+  if (coverRendered && !bufferRestored) {
+    coverRendered = false;
+    coverBufferStored = false;
   }
 
   if (!coverRendered) {

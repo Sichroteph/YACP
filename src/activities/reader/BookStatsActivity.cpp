@@ -233,7 +233,7 @@ void BookStatsActivity::exitStatsActivity(const bool viaBack) {
     mappedInput.suppressNextConfirmRelease();
   }
 
-  if (returnToHomeOnExit) {
+  if (viaBack || returnToHomeOnExit) {
     onGoHome();
     return;
   }
@@ -254,8 +254,8 @@ void BookStatsActivity::loop() {
     return;
   }
 
-  const bool editShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-                                   mappedInput.wasPressed(MappedInputManager::Button::Left);
+  const bool previousShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+                                       mappedInput.wasPressed(MappedInputManager::Button::Left);
   const bool moreShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
                                    mappedInput.wasPressed(MappedInputManager::Button::Right);
 
@@ -285,27 +285,18 @@ void BookStatsActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (page == Page::Summary) {
-      exitStatsActivity(true);
-    } else if (page == Page::ReadingRhythm) {
-      page = Page::Summary;
-      requestUpdate();
-    } else if (page == Page::AllDevices) {
-      page = Page::ReadingRhythm;
-      requestUpdate();
-    }
-    return;
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    exitStatsActivity(false);
+    exitStatsActivity(true);
     return;
   }
 
   if (page == Page::Summary) {
-    if (hasEditableBook() && editShortcutPressed) {
+    if (hasEditableBook() && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       page = Page::EditDates;
       requestUpdate();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      exitStatsActivity(false);
       return;
     }
     if (moreShortcutPressed) {
@@ -316,8 +307,25 @@ void BookStatsActivity::loop() {
     return;
   }
 
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    exitStatsActivity(false);
+    return;
+  }
+
   if (page == Page::ReadingRhythm && showAllDevicesStats && moreShortcutPressed) {
     page = Page::AllDevices;
+    requestUpdate();
+    return;
+  }
+
+  if (page == Page::ReadingRhythm && previousShortcutPressed) {
+    page = Page::Summary;
+    requestUpdate();
+    return;
+  }
+
+  if (page == Page::AllDevices && previousShortcutPressed) {
+    page = Page::ReadingRhythm;
     requestUpdate();
   }
 }

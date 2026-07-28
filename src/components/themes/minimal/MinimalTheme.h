@@ -31,6 +31,7 @@ struct GlobalReadingStats;
 class MinimalTheme : public LyraTheme {
  public:
   static void setHomeButtonHintSelection(int selectedIndex);
+  static Rect homeCoverCacheRect(const GfxRenderer& renderer, const Rect& homeRect);
   static int compactFileBrowserRowHeightFor(const GfxRenderer& renderer);
   static void drawCompactFileBrowserList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                                          const std::function<std::string(int index)>& rowTitle,

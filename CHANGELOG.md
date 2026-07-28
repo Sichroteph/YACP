@@ -1,7 +1,275 @@
-## [v1.4.0-yacp.14] - 2026-07-28
+## [v1.4.0-yacp.88] - 2026-07-28
 
 ### Added
 
+- First downloadable YACP release for the `tiny` and `xlarge` font variants.
+- A rounded, cover-free YACP Home focused on the current book, direct resume, progress, reading time, and estimated
+  time left.
+- Autonomy tracking with a coarse battery-versus-active-use graph and no periodic wake-up.
+- A first-start button-layout choice for YACP, CrossInk, or an existing custom mapping.
+- Reading Rhythm with daily intensity, weekly reading time, reading days, and current and best streaks.
+
+### Changed
+
+- Clean profiles default to the YACP Home, Quick Resume after automatic sleep, and text antialiasing off.
+- The X3 quiet reader path uses the lower CPU frequency, rate-limited USB checks, prompt button-edge confirmation,
+  and debounced progress writes.
+- Built-in fonts no longer trigger SD-card font discovery or retain its catalogue. SD fonts remain available after
+  explicit selection or font management.
+- Sequential chapter preparation covers one-page chapters and direct last-page jumps while respecting the existing
+  memory guard and avoiding repeated SD probes.
+- The selected rounded reading-path mark is shared by boot, sleep, Home, the web portal, and documentation.
+- Documentation now presents the project direction, YACP theme choices, release variants, and generated simulator
+  examples in a shorter structure.
+
+### Fixed
+
+- X3 Quick Resume no longer performs the full-screen black synchronization pass when sleeping or restoring a cached
+  reader page.
+- Home and Reading Stats navigation now follows the displayed logical-button actions.
+- EPUB grayscale rendering reuses one bounded strip buffer instead of allocating it again for each page.
+
+### Removed
+
+- The unsupported X3 battery charge-limit experiment and hardware diagnostic are not included in this release.
+
+## [v1.4.0-yacp.87] - 2026-07-28
+
+### Removed
+
+- Removed the unsupported X3 battery charge-limit experiment and its hardware diagnostic from the firmware and
+  Device settings.
+
+## [v1.4.0-yacp.86] - 2026-07-28
+
+### Changed
+
+- Recalibrated the battery tracking demonstration to 29 hours and 47 minutes of active reading across 10 days,
+  with 35 percent remaining.
+
+## [v1.4.0-yacp.85] - 2026-07-28
+
+### Fixed
+
+- The deterministic battery tracking demo now reports the intended 10-day span in its summary.
+
+## [v1.4.0-yacp.84] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny charge-control diagnostic after a concurrent simulator build regenerated the shared i18n headers
+  during the first compilation attempt.
+
+## [v1.4.0-yacp.83] - 2026-07-28
+
+### Changed
+
+- The deterministic battery tracking demo now shows 29 hours and 47 minutes of reading across 10 days with 35 percent remaining,
+  replacing the overly optimistic previous curve.
+
+## [v1.4.0-yacp.82] - 2026-07-28
+
+### Added
+
+- The X3 Device settings now show a compact, read-only BQ27220 charge-control diagnostic containing the security
+  transitions and raw Operation Config A/PFC/BAT_GD values.
+
+### Changed
+
+- Charge-limit application is disabled in this diagnostic Tiny build so inspecting the BQ27220 cannot modify its
+  charge-limit Data Memory parameters.
+
+## [v1.4.0-yacp.81] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny firmware after isolating the simulator-only charge-limit compatibility guard.
+
+## [v1.4.0-yacp.80] - 2026-07-28
+
+### Changed
+
+- Rebuilt the X3 simulator in an isolated PlatformIO build directory for the battery tracking documentation capture.
+
+## [v1.4.0-yacp.79] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny firmware containing the X3 BQ27220 unseal-key correction with UTF-8 build output after the
+  Windows console rejected translated language names.
+
+## [v1.4.0-yacp.78] - 2026-07-28
+
+### Fixed
+
+- Simulator builds now exclude the hardware-only X3 battery charge-limit setting and its apply callbacks.
+
+## [v1.4.0-yacp.77] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny firmware containing the X3 BQ27220 unseal-key correction after the local PlatformIO launcher
+  retry.
+
+## [v1.4.0-yacp.76] - 2026-07-28
+
+### Fixed
+
+- X3 charge-limit detection now uses the two BQ27220 unseal words programmed by the stock Xteink firmware, allowing
+  the capability probe to reach Full Access instead of hiding the setting after an unsuccessful default-key attempt.
+
+## [v1.4.0-yacp.75] - 2026-07-28
+
+### Changed
+
+- README battery tracking documentation now includes a deterministic X3 simulator capture.
+
+## [v1.4.0-yacp.73] - 2026-07-28
+
+### Fixed
+
+- X3 charge-limit detection now enters BQ27220 Full Access after unsealing, as required before reading or updating
+  Data Memory, instead of hiding the setting when the gauge remained in Unsealed Access.
+
+## [v1.4.0-yacp.72] - 2026-07-28
+
+### Fixed
+
+- X3 charge-limit detection now decodes the BQ27220 `SEC1` and `SEC0` status bits from their documented positions,
+  allowing sealed gauges to be unsealed temporarily for the capability probe instead of hiding the setting.
+
+## [v1.4.0-yacp.71] - 2026-07-28
+
+### Changed
+
+- The initial button-layout screen now detects mappings that match neither YACP nor CrossInk and offers a
+  preselected option to preserve the user's current custom layout.
+
+## [v1.4.0-yacp.70] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny development firmware for deployment to the local test reader.
+
+## [v1.4.0-yacp.69] - 2026-07-28
+
+### Changed
+
+- The initial button-layout choice now has one production behavior for every device: ask once, persist the answer,
+  and do not include a development-only override.
+
+## [v1.4.0-yacp.68] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny development firmware with the selected rounded YACP icon after the local PlatformIO validation
+  retry.
+
+## [v1.4.0-yacp.67] - 2026-07-28
+
+### Changed
+
+- Replaced YACP's angular reading-path mark with the selected rounded four-line icon everywhere the identity is used.
+
+## [v1.4.0-yacp.66] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny development firmware with UTF-8 build output after the Windows console rejected translated
+  language names.
+
+## [v1.4.0-yacp.65] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny development firmware after the first-run button-layout implementation.
+
+## [v1.4.0-yacp.64] - 2026-07-28
+
+### Added
+
+- First startup now asks users to choose between the recommended YACP front-button order
+  (Left, Right, Confirm, Back) and the familiar CrossInk order, then remembers the choice.
+
+## [v1.4.0-yacp.63] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny development firmware for on-device verification of the one-time YACP Home refresh and centered
+  logo treatment.
+
+## [v1.4.0-yacp.62] - 2026-07-28
+
+### Changed
+
+- Boot, sleep, and YACP Home now share one inline monochrome logo constant instead of emitting a separate flash copy
+  in each translation unit.
+
+## [v1.4.0-yacp.61] - 2026-07-28
+
+### Changed
+
+- The first render of each YACP Home load now uses one full e-ink refresh to clear text ghosting from its gray book
+  surface; subsequent book navigation and secondary-screen returns keep fast refreshes.
+- The embedded monochrome YACP mark is now centered on the gray book surface without adding an SD read or runtime
+  allocation.
+
+## [v1.4.0-yacp.60] - 2026-07-28
+
+### Changed
+
+- The YACP Home lateral buttons now select the previous or next valid book in most-recent-first opening order.
+  Unavailable boundary actions are blank and do nothing; Recent Books and Reading Stats remain available in Menu.
+
+## [v1.4.0-yacp.59] - 2026-07-28
+
+### Changed
+
+- Reading Stats now uses Back to return Home and Enter to edit the current book's dates, matching the displayed
+  button hints and avoiding the previous duplicate Home actions.
+
+## [v1.4.0-yacp.56] - 2026-07-28
+
+### Changed
+
+- Rebuilt the Tiny development firmware for on-device verification of the experimental X3 charge-limit setting.
+
+## [v1.4.0-yacp.55] - 2026-07-28
+
+### Fixed
+
+- The YACP Home now stays inside the physical-button safe area in every orientation and uses fonts available in the
+  Tiny firmware variant.
+- Entering or returning to the YACP Home no longer causes a redundant display refresh or probes cover and optional
+  menu data that the reading-focused screen does not show.
+
+## [v1.4.0-yacp.54] - 2026-07-28
+
+### Added
+
+- X3 Device settings can now request an experimental 80%, 90%, or 100% charge limit when the BQ27220 reports that
+  its existing BAT_GD output is already configured to control the charger.
+
+## [v1.4.0-yacp.47] - 2026-07-28
+
+### Changed
+
+- The default Home theme is now presented as YACP: a RoundedRaff-inspired typographic card focused on resuming the
+  current book, with only progress, reading time, and estimated time left on the main screen.
+- Home actions now map directly to Menu, Read, Recent Books, and Reading Stats; the secondary menu keeps browsing,
+  autonomy, saved items, OPDS, transfer, and settings available on demand.
+
+### Removed
+
+- The default YACP Home no longer loads or generates a cover thumbnail, stores a cover snapshot in heap, opens the
+  EPUB solely for its chapter title, or probes optional Home menu data before the menu is requested.
+
+## [v1.4.0-yacp.43] - 2026-07-28
+
+### Added
+
+- An Autonomy screen with a coarse battery-versus-active-use graph, days and active time since charging, using only
+  sleep-transition samples and the existing state save, plus deterministic simulator demo data.
 - Dashboard UI theme for the Home screen, showing the current book cover and reading stats.
 - Nearby Position Sync for sending or applying the current EPUB position between two CrossInk devices over ESP-NOW.
 - Web EPUB optimizer support for CrossInk location metadata, so optimized EPUBs can keep better progress and stable page numbers.
@@ -15,6 +283,24 @@
 
 ### Changed
 
+- YACP now uses its continuous reading-path logo on the boot and default sleep screens, web portal, README, and
+  documentation home page.
+- Automated simulator screenshots now always render the English UI for consistent GitHub documentation, without
+  changing the language saved in the simulator profile.
+- French translations now cover every active firmware string; inactive keys remain stripped and other languages keep
+  the established English fallback.
+- Clean profiles now default to Dashboard, text antialiasing off, and Quick Resume after automatic sleep while
+  preserving valid choices already saved by existing users.
+- Dashboard and Minimal Home now use remapped logical buttons. YACP uses Confirm to resume the current book and Left
+  for the explicit Recent Books screen, while Minimal keeps its established Menu, Browse, Settings, and Read actions.
+- SD-card fonts are now discovered and loaded only after an SD family is selected or a font selector/manager is
+  opened, including lazy loading in the web settings page; built-in fonts no longer scan font directories or retain
+  the SD font catalogue, and transient load failures no longer erase the selected SD family.
+- Dashboard and Minimal now cache only the rendered cover region instead of their full Home tile, reducing the X3
+  Dashboard snapshot from about 40.4 KiB to about 16.5 KiB.
+- Sequential next-chapter preparation now also covers one-page chapters and direct jumps to the last page while
+  retaining the existing low-memory guard and avoiding repeated SD probes once that next chapter is prepared.
+- The Quick Resume documentation now links the X3 before / after recording submitted with CrossPoint PR #2698.
 - Repository governance, scope, and inherited development notes now state that YACP has no Issues, Discussions, pull
   requests, support, or contact channel.
 - X3 reader button edges now receive a prompt confirmation sample during the 50 ms low-power polling cadence,
@@ -41,6 +327,11 @@
 
 ### Fixed
 
+- Reading Rhythm now returns to the Reading Stats summary with the previous-page button, while Back goes Home; the
+  Reading Stats and Autonomy Home menu entries also use distinct icons.
+- Clean firmware builds now expose the inflater dependency required by compressed built-in fonts to PlatformIO.
+- Home menu navigation now derives its bounds from the rendered entries, so Settings remains selectable after adding
+  the Autonomy screen.
 - X3 reader idle power saving keeps the CPU awake at 10 MHz instead of entering ESP light sleep, which can drop the
   board's power latch and prevent page buttons from waking the device.
 - EPUB reading now silently pre-indexes the next chapter on the penultimate page, avoiding the chapter-entry indexing

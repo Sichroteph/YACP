@@ -1,11 +1,11 @@
-"""Build the CrossInk web portal: compose pages from shared templates/assets,
+"""Build the YACP web portal: compose pages from shared templates/assets,
 minify, gzip, and emit the C headers that the firmware serves from flash.
 
 Source of truth lives under web/:
   web/templates/base.html  - shared chrome (head, nav, footer, logo)
   web/pages/<slug>.{html,css,js} - per-page body, styles, script
   web/assets/style.css     - shared theme, served once at /style.css
-  web/assets/logo.png      - drop logo, served once at /logo.png
+  web/assets/logo.png      - YACP logo, served once at /logo.png
 
 Outputs land in src/network/html/ with the identifiers the C++ already uses.
 No third-party dependencies (runs inside the PlatformIO pre-build step)."""
@@ -26,10 +26,10 @@ JS_OUT = os.path.join(OUT, "js")
 
 # slug -> (generated identifier, <title>, active nav, extra <head> markup)
 PAGES = {
-    "home":     ("HomePageHtml",     "CrossInk",                   "home",     ""),
-    "files":    ("FilesPageHtml",    "Files - CrossInk",           "files",    '  <script src="/js/jszip.min.js"></script>'),
-    "settings": ("SettingsPageHtml", "Settings - CrossInk Reader", "settings", ""),
-    "fonts":    ("FontsPageHtml",    "Fonts - CrossInk",           "fonts",    ""),
+    "home":     ("HomePageHtml",     "YACP",                   "home",     ""),
+    "files":    ("FilesPageHtml",    "Files - YACP",           "files",    '  <script src="/js/jszip.min.js"></script>'),
+    "settings": ("SettingsPageHtml", "Settings - YACP Reader", "settings", ""),
+    "fonts":    ("FontsPageHtml",    "Fonts - YACP",           "fonts",    ""),
 }
 
 PRESERVE_TAGS = "pre|code|textarea|script|style"

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img">
+  <title>YACP continuous reading path</title>
+  <desc>A rounded reading path crossing four lines and ending as a bookmark.</desc>
+  <path d="M30 24h52a11 11 0 0 1 0 22H30a11 11 0 0 0 0 22h52a11 11 0 0 1 0 22H30a6 6 0 0 0-6 6"
+        fill="none" stroke="#000" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M75 84h16v24l-8-8-8 8z" fill="#000"/>
+</svg>

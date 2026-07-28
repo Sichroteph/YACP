@@ -50,4 +50,18 @@ void drawTitle(const GfxRenderer& renderer, const char* title, const bool showDa
     drawHeaderDateAtBaseline(renderer, pageWidth, baselineY);
   }
 }
+
+void drawTitleWithoutStatus(const GfxRenderer& renderer, const char* title) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int titleX = metrics.contentSidePadding;
+  const int maxTitleWidth = std::max(1, pageWidth - titleX - metrics.contentSidePadding);
+  const int baselineY = titleBaselineY(renderer, metrics);
+  const std::string visibleTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
+
+  renderer.drawText(UI_12_FONT_ID, titleX, baselineY - renderer.getFontAscenderSize(UI_12_FONT_ID),
+                    visibleTitle.c_str(), true, EpdFontFamily::BOLD);
+  const int separatorY = headerBottomY(metrics) - 1;
+  renderer.drawLine(0, separatorY, pageWidth, separatorY);
+}
 }  // namespace CompactHeader

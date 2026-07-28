@@ -3,21 +3,30 @@ title: Home
 nav_order: 1
 ---
 
-# CrossInk
+<p align="center">
+  <img src="./images/yacp/logo.png" alt="YACP continuous reading path logo" width="144">
+</p>
 
-Welcome to CrossInk, a personal fork of CrossPoint Reader.
+# YACP
 
-[View on GitHub](https://github.com/uxjulia/CrossInk)
+YACP is a personal, opinionated firmware for Xteink X3 and X4 readers. It focuses on battery life, rendering
+efficiency, and a direct path back into the current book.
 
-## User Docs
+[Download](https://github.com/Sichroteph/YACP/releases/latest) |
+[View source](https://github.com/Sichroteph/YACP)
+
+## Start here
 
 - [Installation](./installation.md)
-- [Font Build Variants](./font-build-variants.md)
 - [Reader Features](./reader-features.md)
-- [Nearby Position Sync](./nearby-position-sync.md)
-- [EPUB Render Modes](./epub-render-modes.md)
 - [Controls](./controls.md)
-- [Simulator](./simulator.md)
-- [Data Cache](./data-cache.md)
-- [Web Server Guide](./webserver.md)
+- [Font build variants](./font-build-variants.md)
 - [Troubleshooting](./troubleshooting.md)
+
+## Reference
+
+- [EPUB render modes](./epub-render-modes.md)
+- [Nearby Position Sync](./nearby-position-sync.md)
+- [Simulator](./simulator.md)
+- [Data cache](./data-cache.md)
+- [Web server guide](./webserver.md)

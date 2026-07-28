@@ -1,5 +1,6 @@
 #include "FontCacheManager.h"
 
+#include <InflateReader.h>  // Direct for PlatformIO's chain LDF; FontDecompressor embeds one.
 #include <FontDecompressor.h>
 #include <Logging.h>
 #include <SdCardFont.h>

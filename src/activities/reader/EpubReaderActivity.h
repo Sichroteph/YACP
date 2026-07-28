@@ -38,7 +38,7 @@ class EpubReaderActivity final : public Activity {
     uint8_t paragraphAlignment = 0;
     uint8_t embeddedStyle = 1;
     uint8_t hyphenationEnabled = 0;
-    uint8_t textAntiAliasing = 1;
+    uint8_t textAntiAliasing = 0;
     uint8_t readerDarkMode = 0;
     uint8_t imageRendering = 0;
     uint8_t extraParagraphSpacing = 1;
@@ -114,6 +114,11 @@ class EpubReaderActivity final : public Activity {
   bool sideButtonLongPressHandled = false;
   bool frontButtonLongPressHandled = false;
   int pageLoadRetryCount = 0;
+  // Avoid reopening an already-validated/built next-chapter cache on every
+  // redraw of the trigger page. Invalidated whenever the current Section is rebuilt.
+  int preparedNextSpineIndex = -1;
+  uint16_t preparedNextViewportWidth = 0;
+  uint16_t preparedNextViewportHeight = 0;
   enum class BookmarkFeedbackType : uint8_t {
     Added,
     Removed,

@@ -32,8 +32,12 @@ There are three ways to install fonts:
    - `/fonts/` — visible directory (use this if your OS hides dot-files
      and you'd rather see the folder in your file manager)
 
-   Both roots are always scanned at boot and the results are merged: a
-   family installed in `/fonts/` shows up even when `/.fonts/` also
+   Neither root is scanned at boot when a built-in font is selected. They
+   are scanned on demand after an SD family is selected or when a font
+   management surface is explicitly opened. The web settings page follows
+   the same rule and waits until its font-family selector receives focus.
+   The results are then merged:
+   a family installed in `/fonts/` shows up even when `/.fonts/` also
    exists, and vice versa. The two roots only collide if the same family
    name appears in both — in that case the copy in `/.fonts/` wins and
    the duplicate in `/fonts/` is ignored.

@@ -1151,10 +1151,15 @@ void CrossPointWebServer::handleSettingsPage() const {
 }
 
 void CrossPointWebServer::handleGetSettings() const {
-  // Pass the SD font registry so the fontFamily setting's enumStringValues
-  // includes SD-resident families — otherwise the web API only exposes the
-  // three built-in fonts.
-  const auto& settings = getSettingsList(&sdFontSystem.registry());
+  // The built-in-font path must not scan /fonts simply because the generic
+  // settings page was opened. An active SD family has already opted in;
+  // otherwise the page loads SD choices lazily after font-field interaction.
+  const bool sdFontSelected = SETTINGS.sdFontFamilyName[0] != '\0';
+  const SdCardFontRegistry* activeFontRegistry = sdFontSelected ? &sdFontSystem.registry() : nullptr;
+  const auto settings = getSettingsList(activeFontRegistry);
+  if (activeFontRegistry != nullptr) {
+    sdFontSystem.releaseRegistry();
+  }
 
   server->setContentLength(CONTENT_LENGTH_UNKNOWN);
   server->send(200, "application/json", "");
@@ -1256,7 +1261,14 @@ void CrossPointWebServer::handlePostSettings() {
     return;
   }
 
-  const auto& settings = getSettingsList(&sdFontSystem.registry());
+  const int requestedFontFamily = doc["fontFamily"].is<int>() ? doc["fontFamily"].as<int>() : -1;
+  const bool needsFontRegistry = SETTINGS.sdFontFamilyName[0] != '\0' ||
+                                 requestedFontFamily >= CrossPointSettings::BUILTIN_FONT_COUNT;
+  const SdCardFontRegistry* activeFontRegistry = needsFontRegistry ? &sdFontSystem.registry() : nullptr;
+  const auto settings = getSettingsList(activeFontRegistry);
+  if (activeFontRegistry != nullptr) {
+    sdFontSystem.releaseRegistry();
+  }
   int applied = 0;
 
   for (const auto& s : settings) {
@@ -1813,6 +1825,9 @@ void CrossPointWebServer::handleFontList() const {
 
   String json;
   serializeJson(doc, json);
+  // The serialized response owns the data now. Keep the explicit font-list
+  // lookup bounded to this request instead of retaining its catalogue.
+  sdFontSystem.releaseRegistry();
   server->send(200, "application/json", json);
 }
 
@@ -1850,7 +1865,7 @@ void CrossPointWebServer::handleFontUploadData() {
       fontUpload.familyName = family.c_str();
 
       // Create a temporary FontInstaller for directory creation
-      FontInstaller installer(sdFontSystem.registry());
+      FontInstaller installer;
       if (!installer.ensureFamilyDir(family.c_str())) {
         LOG_ERR("WEB", "Failed to create font family dir");
         break;
@@ -1959,7 +1974,7 @@ void CrossPointWebServer::handleFontDelete() {
   }
 
   const char* familyName = doc["family"];
-  FontInstaller installer(sdFontSystem.registry());
+  FontInstaller installer;
   auto result = installer.deleteFamily(familyName);
 
   if (result == FontInstaller::Error::OK) {

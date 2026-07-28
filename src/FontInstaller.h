@@ -1,12 +1,10 @@
 #pragma once
 
-#include <SdCardFontRegistry.h>
-
 #include <cstddef>
 #include <cstdint>
 
 /// Shared utility for font installation (device download + browser upload).
-/// Handles directory creation, file validation, deletion, and registry refresh.
+/// Handles directory creation, file validation, and deletion.
 class FontInstaller {
  public:
   enum class Error {
@@ -16,8 +14,6 @@ class FontInstaller {
     SD_WRITE_ERROR,
     MAX_FAMILIES_REACHED,
   };
-
-  explicit FontInstaller(SdCardFontRegistry& registry);
 
   /// Validate a family name: safe filename chars only, no path traversal.
   static bool isValidFamilyName(const char* name);
@@ -44,15 +40,7 @@ class FontInstaller {
   /// If the deleted family is the active reader font, clears the setting.
   Error deleteFamily(const char* familyName);
 
-  /// Re-run registry discovery to pick up new/removed fonts.
-  void refreshRegistry();
-
-  /// Check whether a family name already exists in the registry.
-  bool isFamilyInstalled(const char* familyName) const;
-
  private:
-  SdCardFontRegistry& registry_;
-
   static constexpr const char* CPFONT_MAGIC = "CPFONT\0";
   static constexpr size_t CPFONT_MAGIC_LEN = 8;
 };

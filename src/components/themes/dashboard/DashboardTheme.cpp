@@ -21,6 +21,7 @@
 #include "activities/reader/ReadingStatsUtils.h"
 #include "components/UITheme.h"
 #include "components/icons/afternoon.h"
+#include "components/icons/book.h"
 #include "components/icons/book24.h"
 #include "components/icons/cover.h"
 #include "components/icons/evening.h"
@@ -28,6 +29,7 @@
 #include "components/icons/night.h"
 #include "components/icons/streak.h"
 #include "fontIds.h"
+#include "images/Logo120.h"
 
 namespace {
 constexpr int kContentInsetX4 = 20;
@@ -48,6 +50,28 @@ constexpr int kFooterBottomGap = 57;
 constexpr int kStatsRowCount = 7;
 constexpr int kStatsRowCountX4 = 6;
 constexpr int kStatsValueLabelGap = 1;
+constexpr int kHomeCardInset = 20;
+constexpr int kHomeCardTopGap = 8;
+constexpr int kHomeCardBottomGap = 12;
+constexpr int kHomeCardRadius = 26;
+constexpr int kHomeCardInnerPadding = 24;
+constexpr int kHomePillRadius = 18;
+constexpr int kHomePanelRadius = 20;
+constexpr int kHomeProgressBarHeight = 10;
+constexpr int kHomeLogoSize = 120;
+constexpr int kHomeMenuSideInset = 24;
+constexpr int kHomeMenuRowHeight = 50;
+constexpr int kHomeMenuRowGap = 8;
+constexpr int kHomeMenuRadius = 24;
+constexpr int kHomeHintSideInset = 20;
+constexpr int kHomeHintGroupGap = 10;
+constexpr int kHomeHintBottomMargin = 10;
+constexpr int kHomeHintRadius = 15;
+#ifdef OMIT_LARGE_FONT
+constexpr int kHomeDisplayFontId = UI_12_FONT_ID;
+#else
+constexpr int kHomeDisplayFontId = LEXENDDECA_16_FONT_ID;
+#endif
 
 bool isWideScreen(const GfxRenderer& renderer) { return renderer.getScreenWidth() >= 560; }
 
@@ -155,15 +179,16 @@ void formatCompactDuration(const uint32_t seconds, char* buf, const size_t len) 
   }
   const uint32_t minutes = (seconds + 30u) / 60u;
   if (minutes < 60) {
-    snprintf(buf, len, "%lu min", static_cast<unsigned long>(minutes));
+    snprintf(buf, len, tr(STR_DURATION_MINUTES_SHORT_FORMAT), static_cast<unsigned long>(minutes));
     return;
   }
   const uint32_t hours = minutes / 60u;
   const uint32_t remainder = minutes % 60u;
   if (remainder == 0) {
-    snprintf(buf, len, "%luh", static_cast<unsigned long>(hours));
+    snprintf(buf, len, tr(STR_DURATION_HOURS_SHORT_FORMAT), static_cast<unsigned long>(hours));
   } else {
-    snprintf(buf, len, "%luh %lum", static_cast<unsigned long>(hours), static_cast<unsigned long>(remainder));
+    snprintf(buf, len, tr(STR_DURATION_HOURS_MINUTES_SHORT_FORMAT), static_cast<unsigned long>(hours),
+             static_cast<unsigned long>(remainder));
   }
 }
 
@@ -187,6 +212,171 @@ bool estimatedTimeLeft(const BookReadingStats& stats, const float progressPercen
     return true;
   }
   return fallbackEstimatedTimeLeft(stats, progressPercent, seconds);
+}
+
+Rect homeCardRect(const GfxRenderer& renderer, const Rect& rect) {
+  (void)renderer;
+  const int cardX = rect.x + kHomeCardInset;
+  const int cardY = rect.y + kHomeCardTopGap;
+  const int cardW = std::max(0, rect.width - kHomeCardInset * 2);
+  const int bottomLimit = rect.y + rect.height - kHomeCardBottomGap;
+  const int cardH = std::max(0, bottomLimit - cardY);
+  return Rect{cardX, cardY, cardW, cardH};
+}
+
+void drawHomeSectionPill(const GfxRenderer& renderer, const Rect& card, const char* label) {
+  const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int textW = renderer.getTextWidth(UI_10_FONT_ID, label, EpdFontFamily::BOLD);
+  constexpr int horizontalPadding = 15;
+  constexpr int verticalPadding = 9;
+  const int pillW = textW + horizontalPadding * 2;
+  const int pillH = lineH + verticalPadding * 2;
+  const int pillX = card.x + kHomeCardInnerPadding;
+  const int pillY = card.y + kHomeCardInnerPadding;
+  renderer.fillRoundedRect(pillX, pillY, pillW, pillH, kHomePillRadius, Color::Black);
+  renderer.drawText(UI_10_FONT_ID, pillX + horizontalPadding, pillY + verticalPadding, label, false,
+                    EpdFontFamily::BOLD);
+}
+
+int drawHomeTitle(const GfxRenderer& renderer, const Rect& card, const char* title, const bool compact) {
+  const int titleX = card.x + kHomeCardInnerPadding;
+  const int titleW = card.width - kHomeCardInnerPadding * 2;
+  const int titleY = card.y + (compact ? 78 : 105);
+  const int maxLines = compact ? 2 : 3;
+  const auto lines = renderer.wrappedText(kHomeDisplayFontId, title, titleW, maxLines, EpdFontFamily::BOLD);
+  const int lineH = renderer.getLineHeight(kHomeDisplayFontId);
+  int lineY = titleY;
+  for (const auto& line : lines) {
+    renderer.drawText(kHomeDisplayFontId, titleX, lineY, line.c_str(), true, EpdFontFamily::BOLD);
+    lineY += lineH;
+  }
+  return lineY;
+}
+
+void drawHomeBookIdentity(const GfxRenderer& renderer, const Rect& card, const RecentBook& book, const bool compact) {
+  drawHomeSectionPill(renderer, card, tr(STR_CONTINUE_READING));
+
+  constexpr int iconTileSize = 54;
+  constexpr int iconSize = 32;
+  const int iconTileX = card.x + card.width - kHomeCardInnerPadding - iconTileSize;
+  const int iconTileY = card.y + kHomeCardInnerPadding - 5;
+  renderer.fillRoundedRect(iconTileX, iconTileY, iconTileSize, iconTileSize, iconTileSize / 2, Color::White);
+  renderer.drawIcon(BookIcon, iconTileX + (iconTileSize - iconSize) / 2, iconTileY + (iconTileSize - iconSize) / 2,
+                    iconSize);
+
+  const char* title = book.title.empty() ? book.path.c_str() : book.title.c_str();
+  int identityBottom = drawHomeTitle(renderer, card, title, compact);
+  if (!book.author.empty()) {
+    const int authorW = card.width - kHomeCardInnerPadding * 2;
+    const std::string author = renderer.truncatedText(UI_12_FONT_ID, book.author.c_str(), authorW);
+    renderer.drawText(UI_12_FONT_ID, card.x + kHomeCardInnerPadding, identityBottom + 10, author.c_str());
+  }
+}
+
+void drawHomeProgress(const GfxRenderer& renderer, const Rect& card, const BookReadingStats* stats,
+                      const float progressPercent, const bool compact) {
+  const int panelInset = compact ? 14 : 18;
+  const int panelH = compact ? 118 : 164;
+  const Rect panel{card.x + panelInset, card.y + card.height - panelInset - panelH, card.width - panelInset * 2,
+                   panelH};
+  if (panel.width <= 0 || panel.height <= 0) {
+    return;
+  }
+
+  renderer.fillRoundedRect(panel.x, panel.y, panel.width, panel.height, kHomePanelRadius, Color::White);
+
+  const int contentX = panel.x + 18;
+  const int contentRight = panel.x + panel.width - 18;
+  const int labelY = panel.y + (compact ? 12 : 17);
+  renderer.drawText(UI_10_FONT_ID, contentX, labelY, tr(STR_STATS_PROGRESS_LBL), true, EpdFontFamily::BOLD);
+
+  char percentText[8] = "";
+  const bool hasProgress = progressPercent >= 0.0f;
+  const float clampedProgress = hasProgress ? std::clamp(progressPercent, 0.0f, 100.0f) : 0.0f;
+  if (hasProgress) {
+    snprintf(percentText, sizeof(percentText), "%d%%", static_cast<int>(clampedProgress + 0.5f));
+    drawRightAlignedText(renderer, compact ? UI_12_FONT_ID : kHomeDisplayFontId, contentRight,
+                         panel.y + (compact ? 9 : 11), percentText, true);
+  }
+
+  const int barY = panel.y + (compact ? 43 : 57);
+  const int barW = panel.width - 36;
+  renderer.drawRoundedRect(contentX, barY, barW, kHomeProgressBarHeight, 1, kHomeProgressBarHeight / 2, true);
+  if (hasProgress) {
+    const int innerW = static_cast<int>((barW - 4) * clampedProgress / 100.0f + 0.5f);
+    if (innerW > 0) {
+      const int innerRadius = std::min((kHomeProgressBarHeight - 4) / 2, innerW / 2);
+      renderer.fillRoundedRect(contentX + 2, barY + 2, innerW, kHomeProgressBarHeight - 4,
+                               innerRadius, Color::Black);
+    }
+  }
+
+  if (stats == nullptr || panel.height < 100) {
+    return;
+  }
+
+  const int statLabelY = barY + kHomeProgressBarHeight + (compact ? 11 : 17);
+  const int statValueY = statLabelY + renderer.getLineHeight(SMALL_FONT_ID) + 2;
+  if (stats->totalReadingSeconds > 0) {
+    char readingTime[32];
+    BookReadingStats::formatDuration(stats->totalReadingSeconds, readingTime, sizeof(readingTime));
+    renderer.drawText(SMALL_FONT_ID, contentX, statLabelY, tr(STR_STATS_TIME_LBL));
+    renderer.drawText(UI_10_FONT_ID, contentX, statValueY, readingTime, true, EpdFontFamily::BOLD);
+  }
+
+  uint32_t estimatedSeconds = 0;
+  if (!stats->isCompleted && estimatedTimeLeft(*stats, progressPercent, estimatedSeconds)) {
+    char remainingTime[32];
+    formatCompactDuration(estimatedSeconds, remainingTime, sizeof(remainingTime));
+    drawRightAlignedText(renderer, SMALL_FONT_ID, contentRight, statLabelY, tr(STR_TIME_LEFT));
+    drawRightAlignedText(renderer, UI_10_FONT_ID, contentRight, statValueY, remainingTime, true);
+  }
+}
+
+void drawYacpBookHome(const GfxRenderer& renderer, const Rect& card, const RecentBook& book,
+                      const BookReadingStats* stats, const float progressPercent) {
+  renderer.fillRoundedRect(card.x, card.y, card.width, card.height, kHomeCardRadius, Color::LightGray);
+  renderer.drawIcon(Logo120, card.x + (card.width - kHomeLogoSize) / 2,
+                    card.y + (card.height - kHomeLogoSize) / 2, kHomeLogoSize);
+  const bool compact = card.height < 500;
+  drawHomeBookIdentity(renderer, card, book, compact);
+  drawHomeProgress(renderer, card, stats, progressPercent, compact);
+}
+
+void drawYacpEmptyHome(const GfxRenderer& renderer, const Rect& card) {
+  renderer.fillRoundedRect(card.x, card.y, card.width, card.height, kHomeCardRadius, Color::LightGray);
+
+  constexpr int iconTileSize = 76;
+  constexpr int iconSize = 40;
+  const int iconTileX = card.x + (card.width - iconTileSize) / 2;
+  const int iconTileY = card.y + std::max(30, card.height / 5);
+  renderer.fillRoundedRect(iconTileX, iconTileY, iconTileSize, iconTileSize, iconTileSize / 2, Color::White);
+  renderer.drawIcon(BookIcon, iconTileX + (iconTileSize - iconSize) / 2, iconTileY + (iconTileSize - iconSize) / 2,
+                    iconSize);
+
+  const int textW = card.width - kHomeCardInnerPadding * 2;
+  const auto headingLines =
+      renderer.wrappedText(kHomeDisplayFontId, tr(STR_NO_OPEN_BOOK), textW, 2, EpdFontFamily::BOLD);
+  const int headingLineH = renderer.getLineHeight(kHomeDisplayFontId);
+  int headingY = iconTileY + iconTileSize + 28;
+  for (const auto& line : headingLines) {
+    const int lineW = renderer.getTextWidth(kHomeDisplayFontId, line.c_str(), EpdFontFamily::BOLD);
+    renderer.drawText(kHomeDisplayFontId, card.x + (card.width - lineW) / 2, headingY, line.c_str(), true,
+                      EpdFontFamily::BOLD);
+    headingY += headingLineH;
+  }
+
+  const char* action = tr(STR_BROWSE_FILES);
+  const int actionTextW = renderer.getTextWidth(UI_12_FONT_ID, action, EpdFontFamily::BOLD);
+  constexpr int actionPaddingX = 22;
+  constexpr int actionPaddingY = 12;
+  const int actionW = actionTextW + actionPaddingX * 2;
+  const int actionH = renderer.getLineHeight(UI_12_FONT_ID) + actionPaddingY * 2;
+  const int actionX = card.x + (card.width - actionW) / 2;
+  const int actionY = std::min(card.y + card.height - actionH - 34, headingY + 30);
+  renderer.fillRoundedRect(actionX, actionY, actionW, actionH, actionH / 2, Color::Black);
+  renderer.drawText(UI_12_FONT_ID, actionX + actionPaddingX, actionY + actionPaddingY, action, false,
+                    EpdFontFamily::BOLD);
 }
 
 bool estimateFinishDateFromDailyPace(const BookReadingStats& stats, const ReadingStatsDateTime& today,
@@ -536,6 +726,36 @@ void drawBookText(const GfxRenderer& renderer, const Rect& coverRect, const Rece
 }
 }  // namespace
 
+void DashboardTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
+                                const bool readerContext) const {
+  if (title != nullptr || readerContext) {
+    MinimalTheme::drawHeader(renderer, rect, title, subtitle, readerContext);
+    return;
+  }
+
+  renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+  const int brandY = rect.y + (rect.height - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
+  renderer.drawText(UI_12_FONT_ID, rect.x + kHomeCardInset, brandY, tr(STR_CROSSINK), true, EpdFontFamily::BOLD);
+
+  const bool showBatteryPercentage =
+      SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
+  const int batteryX = rect.x + rect.width - kHomeCardInset - DashboardMetrics::values.batteryWidth;
+  const int batteryY = rect.y + (rect.height - DashboardMetrics::values.batteryHeight) / 2;
+  drawBatteryRight(renderer,
+                   Rect{batteryX, batteryY, DashboardMetrics::values.batteryWidth,
+                        DashboardMetrics::values.batteryHeight},
+                   showBatteryPercentage);
+  drawTopStatusBarClock(renderer, rect.y, nullptr, false, 3);
+}
+
+Rect DashboardTheme::homeCoverCacheRect(const GfxRenderer& renderer, const Rect& homeRect) {
+  (void)renderer;
+  (void)homeRect;
+  // The YACP Home is typographic: it has no cover thumbnail to retain between
+  // frames and therefore needs no heap snapshot.
+  return Rect{};
+}
+
 void DashboardTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                          int selectorIndex, bool& coverRendered, bool& coverBufferStored,
                                          bool& bufferRestored, const std::function<bool()>& storeCoverBuffer,
@@ -543,24 +763,117 @@ void DashboardTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const
                                          const GlobalReadingStats* globalStats, const char* currentChapterTitle) const {
   (void)selectorIndex;
   (void)bufferRestored;
+  (void)storeCoverBuffer;
+  (void)globalStats;
+  (void)currentChapterTitle;
 
-  const Rect coverRect = coverRectForScreen(renderer, rect);
+  coverRendered = false;
+  coverBufferStored = false;
+
+  const Rect card = homeCardRect(renderer, rect);
+  if (card.width <= 0 || card.height <= 0) {
+    return;
+  }
   if (recentBooks.empty()) {
-    renderer.drawRoundedRect(coverRect.x, coverRect.y, coverRect.width, coverRect.height, 1, kCoverCornerRadius, true);
-    coverRendered = false;
-    coverBufferStored = false;
+    drawYacpEmptyHome(renderer, card);
+  } else {
+    drawYacpBookHome(renderer, card, recentBooks[0], stats, progressPercent);
+  }
+}
+
+void DashboardTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, const int buttonCount, const int selectedIndex,
+                                    const std::function<const char*(int index)>& buttonLabel,
+                                    const std::function<UIIcon(int index)>& rowIcon) const {
+  (void)rowIcon;
+  if (buttonCount <= 0) {
     return;
   }
 
-  if (!coverRendered) {
-    drawBookCover(renderer, coverRect, recentBooks[0], Color::White);
-    coverBufferStored = storeCoverBuffer();
-    coverRendered = coverBufferStored;
+  // HomeActivity already passes the orientation-aware safe area, excluding the
+  // physical front-button edge.
+  const int availableH = std::max(1, rect.height - 10);
+  const int rowStep = kHomeMenuRowHeight + kHomeMenuRowGap;
+  const int pageItems = std::max(1, availableH / rowStep);
+  const int safeSelected = std::clamp(selectedIndex, 0, buttonCount - 1);
+  const int pageStart = (safeSelected / pageItems) * pageItems;
+  const int rowX = rect.x + kHomeMenuSideInset;
+  const int rowW = rect.width - kHomeMenuSideInset * 2;
+
+  for (int i = pageStart; i < buttonCount && i < pageStart + pageItems; ++i) {
+    const int rowY = rect.y + 10 + (i - pageStart) * rowStep;
+    const bool selected = i == safeSelected;
+    renderer.fillRoundedRect(rowX, rowY, rowW, kHomeMenuRowHeight, kHomeMenuRadius,
+                             selected ? Color::Black : Color::White);
+    if (!selected) {
+      renderer.drawRoundedRect(rowX, rowY, rowW, kHomeMenuRowHeight, 1, kHomeMenuRadius, true);
+    }
+
+    const char* label = buttonLabel != nullptr ? buttonLabel(i) : "";
+    if (label == nullptr) {
+      label = "";
+    }
+    const int textY = rowY + (kHomeMenuRowHeight - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
+    renderer.drawText(UI_12_FONT_ID, rowX + 20, textY, label, !selected, EpdFontFamily::BOLD);
   }
 
-  drawDashboardStats(renderer, coverRect, stats, progressPercent);
-  drawBookText(renderer, coverRect, recentBooks[0], currentChapterTitle);
-  drawFooterStats(renderer, coverRect, globalStats);
+  if (buttonCount > pageItems) {
+    constexpr int scrollW = 4;
+    const int scrollH = std::max(12, availableH * pageItems / buttonCount);
+    const int maxStart = std::max(1, buttonCount - pageItems);
+    const int maxTravel = std::max(1, availableH - scrollH);
+    const int scrollY = rect.y + (std::min(pageStart, maxStart) * maxTravel) / maxStart;
+    renderer.fillRoundedRect(rect.x + rect.width - 9, scrollY, scrollW, scrollH, scrollW / 2, Color::Black);
+  }
+}
+
+void DashboardTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
+                                     const char* btn4, const bool allowInvertedText) const {
+  const GfxRenderer::Orientation originalOrientation = renderer.getOrientation();
+  const bool invertText =
+      allowInvertedText && originalOrientation == GfxRenderer::Orientation::PortraitInverted;
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  const int hintHeight = DashboardMetrics::values.buttonHintsHeight - kHomeHintBottomMargin;
+  const int groupWidth = (pageWidth - kHomeHintSideInset * 2 - kHomeHintGroupGap) / 2;
+  const int outlineY = pageHeight - hintHeight - kHomeHintBottomMargin;
+  const int leftGroupX = kHomeHintSideInset;
+  const int rightGroupX = leftGroupX + groupWidth + kHomeHintGroupGap;
+
+  const char* labels[] = {invertText ? btn4 : btn1, invertText ? btn3 : btn2, invertText ? btn2 : btn3,
+                          invertText ? btn1 : btn4};
+  for (const char*& label : labels) {
+    if (label == nullptr) {
+      label = "";
+    }
+  }
+
+  renderer.fillRoundedRect(leftGroupX, outlineY, groupWidth, hintHeight, kHomeHintRadius, Color::White);
+  renderer.drawRoundedRect(leftGroupX, outlineY, groupWidth, hintHeight, 2, kHomeHintRadius, true);
+  renderer.fillRoundedRect(rightGroupX, outlineY, groupWidth, hintHeight, kHomeHintRadius, Color::White);
+  renderer.drawRoundedRect(rightGroupX, outlineY, groupWidth, hintHeight, 2, kHomeHintRadius, true);
+
+  constexpr int innerPadding = 16;
+  const int labelWidths[] = {renderer.getTextWidth(SMALL_FONT_ID, labels[0]),
+                             renderer.getTextWidth(SMALL_FONT_ID, labels[1]),
+                             renderer.getTextWidth(SMALL_FONT_ID, labels[2]),
+                             renderer.getTextWidth(SMALL_FONT_ID, labels[3])};
+  const int labelX[] = {leftGroupX + innerPadding, leftGroupX + groupWidth - innerPadding - labelWidths[1],
+                        rightGroupX + innerPadding, rightGroupX + groupWidth - innerPadding - labelWidths[3]};
+
+  renderer.setOrientation(invertText ? GfxRenderer::Orientation::PortraitInverted
+                                     : GfxRenderer::Orientation::Portrait);
+  const int textY =
+      (invertText ? kHomeHintBottomMargin : outlineY) +
+      (hintHeight - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+  for (int i = 0; i < 4; ++i) {
+    if (labels[i][0] != '\0') {
+      renderer.drawText(SMALL_FONT_ID, labelX[i], textY, labels[i]);
+    }
+  }
+
+  renderer.setOrientation(originalOrientation);
 }
 
 void DashboardTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats,

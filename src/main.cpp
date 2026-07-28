@@ -13,6 +13,7 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <SPI.h>
 #include <ScratchWorkspace.h>
 #include <builtinFonts/all.h>
@@ -62,6 +63,9 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 
 #include <algorithm>
 #include <cstring>
+#ifdef SIMULATOR
+#include <cstdlib>
+#endif
 
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
@@ -78,11 +82,13 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
+#include "activities/settings/ButtonLayoutSetupActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "power/PowerHistory.h"
 #ifdef SIMULATOR
 #include "simulator/SimulatorSmokeTest.h"
 #endif
@@ -101,6 +107,27 @@ static unsigned long allowSleepAt = 0;
 namespace {
 constexpr uint32_t READER_IDLE_POLL_MS = 50;
 constexpr uint32_t INPUT_DEBOUNCE_REPOLL_MS = 10;
+
+bool externalPowerConnectedForHistory() {
+#ifdef SIMULATOR
+  return gpio.isUsbConnected();
+#else
+  return gpio.isUsbConnectedCached();
+#endif
+}
+
+#ifdef SIMULATOR
+Language languageForSimulatorRun() {
+  const char* screenshots = std::getenv("CROSSPOINT_SIM_SCREENSHOTS");
+  const char* screenshotsAfterWake = std::getenv("CROSSPOINT_SIM_SCREENSHOTS_AFTER_WAKE");
+  if ((screenshots != nullptr && screenshots[0] != '\0') ||
+      (screenshotsAfterWake != nullptr && screenshotsAfterWake[0] != '\0')) {
+    LOG_INF("SIM", "Automated screenshot run: forcing English UI");
+    return Language::EN;
+  }
+  return static_cast<Language>(SETTINGS.language);
+}
+#endif
 
 #ifndef SIMULATOR
 void beginDisplayBusyWaitPowerSaving() { powerManager.beginDisplayBusyWait(); }
@@ -585,6 +612,7 @@ void enterDeepSleep(bool fromTimeout) {
        SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
   APP_STATE.showBootScreen = !isQuickResumeSleep;
 
+  PowerHistory::commitBeforeSleep(externalPowerConnectedForHistory());
   APP_STATE.saveToFile();
 
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
@@ -687,7 +715,7 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
 
-  // Discover and load SD card fonts
+  // Register the optional SD-font resolver; discovery is deferred until requested.
   sdFontSystem.begin(renderer);
 
   LOG_DBG("MAIN", "Fonts setup");
@@ -740,6 +768,7 @@ void setup() {
   LOG_INF("BOOT", "Post-GPIO diagnostic: device=%s usb=%d silentReboot=%d silentTarget=%lu",
           gpio.deviceIsX3() ? "X3" : "X4", gpio.isUsbConnected() ? 1 : 0, isSilentReboot ? 1 : 0,
           static_cast<unsigned long>(snapshotTarget));
+  PowerHistory::begin(externalPowerConnectedForHistory());
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
@@ -758,7 +787,11 @@ void setup() {
 #endif
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
+#ifdef SIMULATOR
+  I18N.setLanguage(languageForSimulatorRun());
+#else
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
+#endif
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
   UITheme::getInstance().reload();
@@ -872,6 +905,14 @@ void setup() {
   } else if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
+  } else if (!SETTINGS.buttonLayoutPromptSeen) {
+    auto setupActivity = makeUniqueNoThrow<ButtonLayoutSetupActivity>(renderer, mappedInputManager);
+    if (setupActivity) {
+      activityManager.replaceActivity(std::move(setupActivity));
+    } else {
+      LOG_ERR("BOOT", "Could not allocate initial button-layout activity");
+      activityManager.goHome();
+    }
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
     activityManager.goToReader(APP_STATE.openEpubPath);
@@ -1005,6 +1046,7 @@ void loop() {
   // Refresh the battery icon when USB is plugged or unplugged.
   // Placed after sleep guards so we never queue a render that won't be processed.
   if (gpio.wasUsbStateChanged()) {
+    PowerHistory::noteExternalPower(externalPowerConnectedForHistory());
     activityManager.requestUpdate();
   }
 
@@ -1033,9 +1075,8 @@ void loop() {
     yield();                             // Give FreeRTOS a chance to run tasks, but return immediately
   } else {
 #ifndef SIMULATOR
-    const bool readerIdlePowerSaving =
-        gpio.deviceIsX3() && activityManager.canEnterReaderIdlePowerSaving() && !gpio.isAnyPressed() &&
-        !gpio.isUsbConnectedCached();
+    const bool readerIdlePowerSaving = gpio.deviceIsX3() && activityManager.canEnterReaderIdlePowerSaving() &&
+                                       !gpio.isAnyPressed() && !gpio.isUsbConnectedCached();
     if (readerIdlePowerSaving) {
       // X3 page buttons use an ADC ladder and the board's power latch is not
       // guaranteed across ESP light sleep. Keep the CPU awake at 10 MHz while

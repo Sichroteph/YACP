@@ -2,13 +2,12 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <SdCardFontRegistry.h>
 
 #include <cctype>
 #include <cstring>
 
 #include "CrossPointSettings.h"
-
-FontInstaller::FontInstaller(SdCardFontRegistry& registry) : registry_(registry) {}
 
 namespace {
 bool isSafeFontPathChar(const char c) {
@@ -33,7 +32,6 @@ bool FontInstaller::isValidFamilyName(const char* name) {
   }
   return true;
 }
-
 bool FontInstaller::isValidCpfontFilename(const char* name) {
   if (name == nullptr || name[0] == '\0') return false;
 
@@ -155,10 +153,4 @@ FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
   }
 
   return Error::OK;
-}
-
-void FontInstaller::refreshRegistry() { registry_.discover(); }
-
-bool FontInstaller::isFamilyInstalled(const char* familyName) const {
-  return registry_.findFamily(familyName) != nullptr;
 }

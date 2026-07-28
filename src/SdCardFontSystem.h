@@ -4,6 +4,7 @@
 #include <SdCardFontRegistry.h>
 
 #include <atomic>
+#include <cstdint>
 
 class GfxRenderer;
 
@@ -14,17 +15,26 @@ class SdCardFontSystem {
   SdCardFontSystem() = default;
   SdCardFontSystem(const SdCardFontSystem&) = delete;
   SdCardFontSystem& operator=(const SdCardFontSystem&) = delete;
-  /// Discover SD card fonts and load user's saved selection. Call once during setup.
+  /// Register the settings resolver. Discovery and loading stay deferred.
   void begin(GfxRenderer& renderer);
 
   /// Ensure the correct SD font family is loaded for the current settings.
-  /// Call before entering the reader or after settings change.
-  /// Also re-discovers if the registry has been marked dirty (e.g. by web upload).
+  /// Built-in fonts return without touching the SD-card font directories.
   void ensureLoaded(GfxRenderer& renderer);
 
   /// Temporarily unload the active SD font without clearing the saved setting.
   /// Call ensureLoaded() later to restore it before reader rendering.
   void releaseLoadedFont(GfxRenderer& renderer);
+
+  /// Discover the SD font catalogue on demand. Returns true when a dirty
+  /// catalogue forced rediscovery and the active font may need reloading.
+  bool ensureRegistry();
+
+  /// Force an immediate catalogue refresh after an explicit install/delete.
+  void rediscoverRegistry();
+
+  /// Release catalogue allocations without unloading the active reader font.
+  void releaseRegistry();
 
   /// Release all SD-font RAM that network/TLS work does not need.
   void releaseForNetwork(GfxRenderer& renderer);
@@ -39,26 +49,26 @@ class SdCardFontSystem {
   /// Access the registry (e.g. for settings UI to enumerate available fonts).
   const SdCardFontRegistry& registry() const { return registry_; }
 
-  /// Non-const access to the registry (for FontInstaller).
-  SdCardFontRegistry& registry() { return registry_; }
+  /// Non-const access discovers the catalogue first (for UI and FontInstaller).
+  SdCardFontRegistry& registry() {
+    (void)ensureRegistry();
+    return registry_;
+  }
 
   /// Mark the registry as needing re-discovery.
   /// Thread-safe: can be called from the web server task.
   void markRegistryDirty() { registryDirty_.store(true, std::memory_order_release); }
 
-  /// If the registry is dirty, re-scan the SD card now and clear the flag.
-  /// Used by the web UI so uploaded/deleted fonts appear in the list
-  /// without waiting for the reader activity to run ensureLoaded().
-  void refreshIfDirty() {
-    if (registryDirty_.exchange(false, std::memory_order_acquire)) {
-      registry_.discover();
-    }
-  }
+  /// Ensure the catalogue reflects any uploaded/deleted fonts.
+  void refreshIfDirty() { (void)ensureRegistry(); }
 
  private:
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
   std::atomic<bool> registryDirty_{false};
+  bool registryLoaded_ = false;
+  uint8_t loadedFontSizeStep_ = UINT8_MAX;
+  uint8_t loadedTargetPointSize_ = UINT8_MAX;
 };
 
 // Global SD card font system instance (defined in main.cpp).

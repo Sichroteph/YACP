@@ -33,6 +33,9 @@ class MappedInputManager {
   bool isPressed(Button button) const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
+  // Discard a raw front-button release during an activity transition and
+  // clear logical suppression flags that may belong to the previous mapping.
+  bool discardPendingFrontRelease() const;
   unsigned long getHeldTime() const;
   Labels mapLabels(const char* back, const char* confirm, const char* previous, const char* next) const;
   // Returns the raw front button index that was pressed this frame (or -1 if none).

@@ -178,6 +178,7 @@ struct SettingInfo {
     s.category = category;
     return s;
   }
+
 };
 
 inline size_t settingEnumOptionCount(const SettingInfo& setting) {

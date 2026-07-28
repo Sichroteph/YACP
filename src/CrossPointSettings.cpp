@@ -517,11 +517,11 @@ bool CrossPointSettings::loadFromBinaryFile() {
       // Older builds wrote uiTheme via raw readPod, so any byte (including
       // values that were briefly assigned to themes that are not currently
       // exposed) may be on disk. Map anything outside the active theme count
-      // to LYRA so the migration is deterministic instead of leaning on
+      // to the product default so the migration is deterministic instead of leaning on
       // readAndValidate's no-op-on-invalid behaviour.
-      uint8_t rawTheme = LYRA;
+      uint8_t rawTheme = DEFAULT_UI_THEME;
       serialization::readPod(inputFile, rawTheme);
-      uiTheme = (rawTheme < UI_THEME_COUNT) ? rawTheme : static_cast<uint8_t>(LYRA);
+      uiTheme = (rawTheme < UI_THEME_COUNT) ? rawTheme : static_cast<uint8_t>(DEFAULT_UI_THEME);
     }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, frontButtonBack, FRONT_BUTTON_HARDWARE_COUNT);

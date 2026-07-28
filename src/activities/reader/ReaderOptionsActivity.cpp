@@ -91,8 +91,9 @@ void ReaderOptionsActivity::rebuildSettingsList() {
   settings.clear();
   fontSettings.clear();
   pageLayoutSettings.clear();
-  sdFontSystem.refreshIfDirty();
-  const auto allSettings = getSettingsList(&sdFontSystem.registry());
+  const SdCardFontRegistry* activeFontRegistry =
+      SETTINGS.sdFontFamilyName[0] != '\0' ? &sdFontSystem.registry() : nullptr;
+  const auto allSettings = getSettingsList(activeFontRegistry);
   settings = buildReaderSettingsParentList(allSettings);
   settings.push_back(buildReaderRenderModeSetting());
   fontSettings = buildReaderFontSettingsList(allSettings);
@@ -174,7 +175,10 @@ void ReaderOptionsActivity::closeSubmenu() {
   selectedIndex = 0;
 }
 
-void ReaderOptionsActivity::onExit() { Activity::onExit(); }
+void ReaderOptionsActivity::onExit() {
+  Activity::onExit();
+  sdFontSystem.releaseRegistry();
+}
 
 void ReaderOptionsActivity::moveSelection(bool forward) {
   if (settingsCount <= 0) return;

@@ -119,6 +119,22 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   doc["pendingClippingIndex"] = s.pendingClippingIndex;
   doc["showBootScreen"] = s.showBootScreen;
 
+  JsonObject powerHistory = doc["powerHistory"].to<JsonObject>();
+  powerHistory["activeSeconds"] = s.powerHistory.activeSeconds;
+  powerHistory["cycleStartDay"] = s.powerHistory.cycleStartDay;
+  powerHistory["sleepSamples"] = s.powerHistory.sleepSamples;
+  powerHistory["lastPercent"] = s.powerHistory.lastPercent;
+  powerHistory["chargePendingPercent"] = s.powerHistory.chargePendingPercent;
+  powerHistory["hasCycleStartDay"] = s.powerHistory.hasCycleStartDay;
+  powerHistory["cycleConfirmed"] = s.powerHistory.cycleConfirmed;
+  powerHistory["chargePending"] = s.powerHistory.chargePending;
+  JsonArray powerSamples = powerHistory["samples"].to<JsonArray>();
+  for (uint8_t i = 0; i < s.powerHistory.sampleCount; ++i) {
+    JsonArray sample = powerSamples.add<JsonArray>();
+    sample.add(s.powerHistory.sampleActiveMinutes[i]);
+    sample.add(s.powerHistory.samplePercents[i]);
+  }
+
   String json;
   serializeJson(doc, json);
   return Storage.writeFile(path, json);
@@ -159,6 +175,36 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   s.pendingBookmarkParagraphIndex = doc["pendingBookmarkParagraphIndex"] | static_cast<uint16_t>(UINT16_MAX);
   s.pendingClippingIndex = doc["pendingClippingIndex"] | static_cast<uint16_t>(UINT16_MAX);
   s.showBootScreen = doc["showBootScreen"] | true;
+
+  s.powerHistory = {};
+  JsonObjectConst powerHistory = doc["powerHistory"];
+  if (!powerHistory.isNull()) {
+    s.powerHistory.activeSeconds = powerHistory["activeSeconds"] | static_cast<uint32_t>(0);
+    s.powerHistory.cycleStartDay = powerHistory["cycleStartDay"] | static_cast<uint32_t>(0);
+    s.powerHistory.sleepSamples = powerHistory["sleepSamples"] | static_cast<uint16_t>(0);
+    s.powerHistory.lastPercent = powerHistory["lastPercent"] | static_cast<uint8_t>(UINT8_MAX);
+    if (s.powerHistory.lastPercent > 100) s.powerHistory.lastPercent = UINT8_MAX;
+    s.powerHistory.chargePendingPercent = powerHistory["chargePendingPercent"] | static_cast<uint8_t>(UINT8_MAX);
+    if (s.powerHistory.chargePendingPercent > 100) s.powerHistory.chargePendingPercent = UINT8_MAX;
+    s.powerHistory.hasCycleStartDay = powerHistory["hasCycleStartDay"] | false;
+    s.powerHistory.cycleConfirmed = powerHistory["cycleConfirmed"] | false;
+    s.powerHistory.chargePending =
+        (powerHistory["chargePending"] | false) && s.powerHistory.chargePendingPercent <= 100;
+
+    JsonArrayConst powerSamples = powerHistory["samples"];
+    uint16_t previousMinute = 0;
+    for (JsonArrayConst sample : powerSamples) {
+      if (s.powerHistory.sampleCount >= PowerHistoryState::SAMPLE_CAPACITY || sample.size() < 2) break;
+      const uint16_t minute = sample[0] | static_cast<uint16_t>(0);
+      const uint8_t percent = sample[1] | static_cast<uint8_t>(UINT8_MAX);
+      if (percent > 100 || (s.powerHistory.sampleCount > 0 && minute < previousMinute)) continue;
+
+      const uint8_t index = s.powerHistory.sampleCount++;
+      s.powerHistory.sampleActiveMinutes[index] = minute;
+      s.powerHistory.samplePercents[index] = percent;
+      previousMinute = minute;
+    }
+  }
   return true;
 }
 
@@ -193,6 +239,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["frontButtonConfirm"] = s.frontButtonConfirm;
   doc["frontButtonLeft"] = s.frontButtonLeft;
   doc["frontButtonRight"] = s.frontButtonRight;
+  doc["buttonLayoutPromptSeen"] = s.buttonLayoutPromptSeen;
   // Reader-specific front button remap.
   doc["readerFrontButtonsEnabled"] = s.readerFrontButtonsEnabled;
   doc["readerFrontButtonBack"] = s.readerFrontButtonBack;
@@ -372,6 +419,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
   CrossPointSettings::validateFrontButtonMapping(s);
+  s.buttonLayoutPromptSeen = clamp(doc["buttonLayoutPromptSeen"] | (uint8_t)0, (uint8_t)2, (uint8_t)0);
   // Reader-specific front button remap.
   s.readerFrontButtonsEnabled = clamp(doc["readerFrontButtonsEnabled"] | (uint8_t)0, (uint8_t)2, (uint8_t)0);
   s.readerFrontButtonBack =

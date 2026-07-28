@@ -246,9 +246,10 @@ class CrossPointSettings {
     ROUNDEDRAFF = 3,
     LYRA_CAROUSEL = 4,
     MINIMAL = 5,
-    DASHBOARD = 6,
+    DASHBOARD = 6,  // Persisted slot used by the YACP product theme.
     UI_THEME_COUNT = 7
   };
+  static constexpr UI_THEME DEFAULT_UI_THEME = DASHBOARD;
   enum RECENT_BOOKS_VIEW { RECENT_BOOKS_LIST = 0, RECENT_BOOKS_GRID = 1, RECENT_BOOKS_VIEW_COUNT };
 
   // Image rendering in EPUB reader
@@ -336,7 +337,7 @@ class CrossPointSettings {
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
   uint8_t forceParagraphIndents = 0;
-  uint8_t textAntiAliasing = 1;
+  uint8_t textAntiAliasing = 0;
   uint8_t readerDarkMode = 0;
   // Short power button action behaviour
   uint8_t shortPwrBtn = IGNORE;
@@ -358,6 +359,8 @@ class CrossPointSettings {
   uint8_t frontButtonConfirm = FRONT_HW_CONFIRM;
   uint8_t frontButtonLeft = FRONT_HW_LEFT;
   uint8_t frontButtonRight = FRONT_HW_RIGHT;
+  // Set after the initial YACP/CrossInk layout choice has been persisted.
+  uint8_t buttonLayoutPromptSeen = 0;
   // Reader-specific front button remap (overrides system mapping while in reader activities).
   // readerFrontButtonsEnabled = 0 means the reader uses the system mapping above.
   uint8_t readerFrontButtonsEnabled = 0;
@@ -399,7 +402,7 @@ class CrossPointSettings {
   // Long-press page turn button behavior
   uint8_t longPressButtonBehavior = OFF;
   // UI Theme
-  uint8_t uiTheme = LYRA;
+  uint8_t uiTheme = DEFAULT_UI_THEME;
   // Recent Books screen layout
   uint8_t recentBooksView = RECENT_BOOKS_LIST;
   // Sunlight fading compensation
@@ -444,7 +447,7 @@ class CrossPointSettings {
   // Custom KOReader sync device display name. Empty means use the hardware default.
   char deviceName[21] = "";
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
-  uint8_t quickResumeSleepScreen = QUICK_RESUME_NEVER;
+  uint8_t quickResumeSleepScreen = QUICK_RESUME_AFTER_TIMEOUT;
 #ifdef CROSSINK_ENABLE_READING_STATS_TOGGLE
   // Debug/test builds can disable stat writes so navigation tests do not affect personal reading stats.
   uint8_t trackReadingStats = 1;

@@ -9,6 +9,7 @@
 #include "util/ButtonNavigator.h"
 
 struct Rect;
+struct SdCardFontFamilyInfo;
 
 // JSON schema version of the fonts.json manifest. The canonical version for
 // the build tooling lives in lib/EpdFont/scripts/cpfont_version.py. This

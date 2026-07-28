@@ -1,4 +1,4 @@
-/* Shared chrome for all CrossInk web portal pages.
+/* Shared chrome for all YACP web portal pages.
    Page-specific rules live in each page's own inline <style>. */
 :root {
   --font-color: #1f2933;
@@ -32,7 +32,7 @@
     --label-color: #9aa3af;
     --border-color: #343941;
     --accent-soft: rgba(110, 154, 130, 0.2);
-    --logo-filter: none;
+    --logo-filter: invert(1);
     --toggle-bg: #4b5563;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.5);
@@ -50,9 +50,6 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-.crossink-header {
-  font-family: serif;
-}
 h1 {
   display: flex;
   align-items: center;
@@ -64,8 +61,9 @@ h1 {
   margin: 0 0 18px;
 }
 .logo-mark {
-  height: 1em;
-  width: auto;
+  width: 1.25em;
+  height: 1.25em;
+  object-fit: contain;
   flex-shrink: 0;
   filter: var(--logo-filter);
 }

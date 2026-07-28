@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "../power/PowerStatsActivity.h"
 #include "../reader/BookReadingStats.h"
 #include "../reader/BookStatsActivity.h"
 #include "../reader/EpubReaderUtils.h"
@@ -55,6 +56,7 @@ enum class HomeMenuAction {
   RecentBooks,
   OpdsBrowser,
   ReadingStats,
+  PowerStats,
   Bookmarks,
   FileTransfer,
   Settings,
@@ -67,7 +69,7 @@ struct HomeMenuEntry {
 };
 
 struct HomeMenuEntries {
-  static constexpr int kCapacity = 8;
+  static constexpr int kCapacity = 9;
   std::array<HomeMenuEntry, kCapacity> entries{};
   int count = 0;
 
@@ -259,6 +261,7 @@ void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasRe
   if (hasReadingStats) {
     items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   }
+  items.push({tr(STR_POWER_STATS_TITLE), Power, HomeMenuAction::PowerStats});
   if (hasBookmarks || hasClippings) {
     items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
   }
@@ -286,8 +289,28 @@ HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats,
   if (hasReadingStats) {
     items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   }
+  items.push({tr(STR_POWER_STATS_TITLE), Power, HomeMenuAction::PowerStats});
 
   items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
+  return items;
+}
+
+HomeMenuEntries buildYacpMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
+  HomeMenuEntries items;
+  items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
+  items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
+  if (hasReadingStats) {
+    items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
+  }
+  items.push({tr(STR_POWER_STATS_TITLE), Power, HomeMenuAction::PowerStats});
+  if (hasBookmarks || hasClippings) {
+    items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
+  }
+  if (hasOpdsServers) {
+    items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
+  }
+  items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
+  items.push({tr(STR_SETTINGS_TITLE), Settings, HomeMenuAction::Settings});
   return items;
 }
 
@@ -338,10 +361,17 @@ bool isDashboardTheme() {
 
 bool usesMinimalHomeInteraction() { return isMinimalTheme() || isDashboardTheme(); }
 
-bool isAnyFrontButtonPressed(const MappedInputManager& mappedInput) {
-  return mappedInput.isFrontButtonPressed(HalGPIO::BTN_BACK) ||
-         mappedInput.isFrontButtonPressed(HalGPIO::BTN_CONFIRM) ||
-         mappedInput.isFrontButtonPressed(HalGPIO::BTN_LEFT) || mappedInput.isFrontButtonPressed(HalGPIO::BTN_RIGHT);
+bool isAnyMappedFrontButtonPressed(const MappedInputManager& mappedInput) {
+  return mappedInput.isPressed(MappedInputManager::Button::Back) ||
+         mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
+         mappedInput.isPressed(MappedInputManager::Button::Left) ||
+         mappedInput.isPressed(MappedInputManager::Button::Right);
+}
+
+bool drainEntryFrontRelease(const MappedInputManager& mappedInput) {
+  // Reader and Home may use different remaps, so let the input layer discard
+  // the physical edge and clear suppression state from the previous mapping.
+  return mappedInput.discardPendingFrontRelease();
 }
 
 int minimalHomeNavCount(const bool hasCurrentBook) { return hasCurrentBook ? 4 : 3; }
@@ -579,25 +609,13 @@ static_assert(HomeActivity::kMaxCachedBooks >= LyraCarouselMetrics::values.homeR
 
 int HomeActivity::getMenuItemCount() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  int count = 4;  // File Browser, Recents, File transfer, Settings
-  if (!metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
-    count += getVisibleRecentBookCount();
-  } else if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
-    count++;  // Continue Reading menu item
-  }
-  if (hasOpdsServers) {
-    count++;
-  }
-  if (hasReadingStats) {
-    count++;
-  }
-  if (hasBookmarks || hasClippings) {
-    count++;
-  }
-  return count;
+  const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
+  const auto menuItems =
+      buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings, includeContinueReading);
+  return getHomeMenuSelectionOffset(recentBooks) + static_cast<int>(menuItems.size());
 }
 
-void HomeActivity::loadRecentBooks(int maxBooks) {
+void HomeActivity::loadRecentBooks(const int maxBooks, const bool resolveCoverPaths) {
   recentBooks.clear();
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(std::min(static_cast<int>(books.size()), maxBooks));
@@ -613,7 +631,9 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
       continue;
     }
 
-    ensureReusableCoverPath(book);
+    if (resolveCoverPaths) {
+      ensureReusableCoverPath(book);
+    }
     recentBooks.push_back(book);
   }
 }
@@ -694,11 +714,11 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             bool success = true;
             if (centerMissing)
               success = epub.generateThumbBmp(LyraCarouselTheme::kCenterThumbW, LyraCarouselTheme::kCenterThumbH,
-                                              &renderer, SETTINGS.getReaderFontId()) &&
+                                              &renderer, SETTINGS.getBuiltInReaderFontId()) &&
                         success;
             if (sideMissing)
               success = epub.generateThumbBmp(LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH, &renderer,
-                                              SETTINGS.getReaderFontId()) &&
+                                              SETTINGS.getBuiltInReaderFontId()) &&
                         success;
             if (!success) {
               updateRecentBookCoverPath(book, "");
@@ -766,12 +786,12 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
                 useDashboardThumb
                     ? epub.generateAdaptiveThumbBmp(dashboardHomeCoverWidth(coverHeight),
                                                     dashboardHomeCoverHeight(coverHeight), &renderer,
-                                                    SETTINGS.getReaderFontId())
+                                                    SETTINGS.getBuiltInReaderFontId())
                     : (useExactHomeThumb
                            ? epub.generateAdaptiveThumbBmp(minimalHomeCoverWidth(coverHeight),
                                                            minimalHomeCoverHeight(coverHeight), &renderer,
-                                                           SETTINGS.getReaderFontId())
-                           : epub.generateThumbBmp(0, coverHeight, &renderer, SETTINGS.getReaderFontId()));
+                                                           SETTINGS.getBuiltInReaderFontId())
+                           : epub.generateThumbBmp(0, coverHeight, &renderer, SETTINGS.getBuiltInReaderFontId()));
             if (!success) {
               updateRecentBookCoverPath(book, "");
               book.coverBmpPath = "";
@@ -857,16 +877,48 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
   }
 }
 
+void HomeActivity::loadReadingStatsContext() {
+  if (readingStatsContextLoaded) {
+    return;
+  }
+  globalStats = GlobalReadingStats::load();
+  showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
+  allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+  hasReadingStats = hasAnyBookStats(currentBookStats) || hasAnyGlobalStats(globalStats) ||
+                    (showAllDevicesStats && hasAnyGlobalStats(allDevicesGlobalStats));
+  readingStatsContextLoaded = true;
+}
+
+void HomeActivity::loadHomeMenuContext() {
+  if (homeMenuContextLoaded) {
+    return;
+  }
+  hasOpdsServers = OPDS_STORE.hasServers();
+  hasBookmarks = BookmarkStore::hasAnyBookmarks();
+  hasClippings = ClippingStore::hasAnyClippings();
+  loadReadingStatsContext();
+  homeMenuContextLoaded = true;
+}
+
 void HomeActivity::onEnter() {
   Activity::onEnter();
 
-  hasOpdsServers = OPDS_STORE.hasServers();
+  const bool isYacpTheme = isDashboardTheme();
   const bool isCarouselTheme =
       static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
 
-  // Check if any books have bookmarks (directory scan only, no file parsing)
-  hasBookmarks = BookmarkStore::hasAnyBookmarks();
-  hasClippings = ClippingStore::hasAnyClippings();
+  hasOpdsServers = false;
+  hasBookmarks = false;
+  hasClippings = false;
+  hasReadingStats = false;
+  globalStats = GlobalReadingStats{};
+  allDevicesGlobalStats = GlobalReadingStats{};
+  showAllDevicesStats = false;
+  homeMenuContextLoaded = false;
+  readingStatsContextLoaded = false;
+  if (!isYacpTheme) {
+    loadHomeMenuContext();
+  }
 
   selectorIndex = 0;
   lastCarouselBookIndex = 0;
@@ -876,11 +928,15 @@ void HomeActivity::onEnter() {
   minimalHomeNavIndex = -1;
   carouselFramesReady = false;
   carouselWarmupPending = isCarouselTheme;
+  recentsLoaded = isYacpTheme;
+  recentsLoading = false;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int recentBooksToLoad =
-      std::min(kMaxCachedBooks, std::max(metrics.homeRecentBooksCount, HOME_BOOK_SWAP_RECENT_COUNT));
-  loadRecentBooks(recentBooksToLoad);
+      isYacpTheme
+          ? metrics.homeRecentBooksCount
+          : std::min(kMaxCachedBooks, std::max(metrics.homeRecentBooksCount, HOME_BOOK_SWAP_RECENT_COUNT));
+  loadRecentBooks(recentBooksToLoad, !isYacpTheme);
 
   if (!APP_STATE.openEpubPath.empty()) {
     for (int i = 0; i < static_cast<int>(recentBooks.size()); ++i) {
@@ -898,15 +954,20 @@ void HomeActivity::onEnter() {
     }
   }
 
-  globalStats = GlobalReadingStats::load();
-  showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
-  allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+  if (isYacpTheme) {
+    initializeYacpBookNavigation();
+  }
+
   if (isCarouselTheme) {
     loadAllBookStats();
   }
   updateHighlightedBookContext();
 
-  if (initialMenuItem != HomeMenuItem::NONE) {
+  // YACP always returns to the reading surface. The caller's legacy menu hint
+  // is useful to selector-based themes, but acting on it here would probe every
+  // optional menu data source without opening the YACP menu.
+  if (!isYacpTheme && initialMenuItem != HomeMenuItem::NONE) {
+    loadHomeMenuContext();
     const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
     const auto menuItems = buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
                                                         includeContinueReading);
@@ -955,6 +1016,63 @@ void HomeActivity::showNextRecentBookOnHome() {
   requestUpdate();
 }
 
+int HomeActivity::findAdjacentYacpBookIndex(const int direction) const {
+  if ((direction != -1 && direction != 1) || yacpRecentBookIndex < 0) {
+    return -1;
+  }
+
+  const auto& books = RECENT_BOOKS.getBooks();
+  for (int index = yacpRecentBookIndex + direction; index >= 0 && index < static_cast<int>(books.size());
+       index += direction) {
+    if (!RecentBooksStore::isMissing(books[index])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+void HomeActivity::refreshYacpBookNavigation() {
+  yacpHasPreviousBook = findAdjacentYacpBookIndex(-1) >= 0;
+  yacpHasNextBook = findAdjacentYacpBookIndex(1) >= 0;
+}
+
+void HomeActivity::initializeYacpBookNavigation() {
+  yacpRecentBookIndex = -1;
+  yacpHasPreviousBook = false;
+  yacpHasNextBook = false;
+  if (recentBooks.empty()) {
+    return;
+  }
+
+  const auto& books = RECENT_BOOKS.getBooks();
+  for (int index = 0; index < static_cast<int>(books.size()); ++index) {
+    if (books[index].path == recentBooks[0].path) {
+      yacpRecentBookIndex = index;
+      break;
+    }
+  }
+  refreshYacpBookNavigation();
+}
+
+void HomeActivity::showAdjacentYacpBook(const int direction) {
+  const int targetIndex = findAdjacentYacpBookIndex(direction);
+  if (targetIndex < 0 || recentBooks.empty()) {
+    return;
+  }
+
+  // Keep one bounded RecentBook copy on Home. The persistent recent list
+  // remains the source of truth and is ordered most-recent-first.
+  recentBooks[0] = RECENT_BOOKS.getBooks()[targetIndex];
+  yacpRecentBookIndex = targetIndex;
+  selectorIndex = 0;
+  lastCarouselBookIndex = 0;
+  bookStatsCached = false;
+  updateHighlightedBookContext();
+  refreshYacpBookNavigation();
+  invalidateCoverCache();
+  requestUpdate();
+}
+
 std::string HomeActivity::getCurrentBookPath() const {
   const int idx = getHighlightedBookIndex();
   return idx >= 0 ? recentBooks[idx].path : std::string{};
@@ -971,22 +1089,15 @@ void HomeActivity::updateHighlightedBookContext() {
   if (idx >= 0) {
     const RecentBook& book = recentBooks[idx];
     const bool isEpub = FsHelpers::hasEpubExtension(book.path);
-    const bool loadChapterTitle = isDashboardTheme();
     if (useCachedStats) {
       currentBookStats = cachedBookStats[idx];
       currentBookProgressPercent = cachedBookProgress[idx];
-      if (loadChapterTitle && isEpub) {
-        loadEpubHighlightedContext(book, false, true, nullptr, &currentBookChapterTitle);
-      }
     } else {
       currentBookStats = loadRecentBookStats(book);
       if (isEpub) {
-        loadEpubHighlightedContext(book, true, loadChapterTitle, &currentBookProgressPercent, &currentBookChapterTitle);
+        loadEpubHighlightedContext(book, true, false, &currentBookProgressPercent, nullptr);
       } else {
         currentBookProgressPercent = RecentBookProgress::loadPercent(book);
-      }
-      if (loadChapterTitle && !isEpub) {
-        currentBookChapterTitle.clear();
       }
     }
   }
@@ -1398,29 +1509,21 @@ bool HomeActivity::preRenderCarouselFrames(bool showProgressPopup) {
 
 void HomeActivity::loop() {
   if (usesMinimalHomeInteraction()) {
-    const int pressedFrontButton = mappedInput.getPressedFrontButton();
-    const int releasedFrontButton = mappedInput.getReleasedFrontButton();
-
     if (minimalSuppressInitialFrontRelease) {
-      if (releasedFrontButton >= 0) {
+      if (drainEntryFrontRelease(mappedInput)) {
         minimalSuppressInitialFrontRelease = false;
         return;
       }
-      if (isAnyFrontButtonPressed(mappedInput)) {
+      if (isAnyMappedFrontButtonPressed(mappedInput)) {
         return;
       }
       minimalSuppressInitialFrontRelease = false;
     }
 
-    if (homeBookSwapLongPressHandled) {
-      if (releasedFrontButton == HalGPIO::BTN_BACK || !mappedInput.isFrontButtonPressed(HalGPIO::BTN_BACK)) {
-        homeBookSwapLongPressHandled = false;
-      }
-      return;
-    }
-
     if (minimalMenuOpen) {
-      const auto menuItems = buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
+      const auto menuItems = isDashboardTheme()
+                                 ? buildYacpMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings)
+                                 : buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
       const int menuCount = static_cast<int>(menuItems.size());
       if (menuCount <= 0) {
         minimalMenuOpen = false;
@@ -1434,16 +1537,25 @@ void HomeActivity::loop() {
       }
 
       buttonNavigator.onPreviousPress([this, menuCount] {
-        minimalMenuIndex = ButtonNavigator::previousIndex(minimalMenuIndex, menuCount);
+        {
+          RenderLock lock(*this);
+          minimalMenuIndex = ButtonNavigator::previousIndex(minimalMenuIndex, menuCount);
+        }
         requestUpdate();
       });
       buttonNavigator.onNextPress([this, menuCount] {
-        minimalMenuIndex = ButtonNavigator::nextIndex(minimalMenuIndex, menuCount);
+        {
+          RenderLock lock(*this);
+          minimalMenuIndex = ButtonNavigator::nextIndex(minimalMenuIndex, menuCount);
+        }
         requestUpdate();
       });
       if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-        minimalMenuOpen = false;
-        minimalHomeNavIndex = -1;
+        {
+          RenderLock lock(*this);
+          minimalMenuOpen = false;
+          minimalHomeNavIndex = -1;
+        }
         requestUpdate();
         return;
       }
@@ -1461,6 +1573,9 @@ void HomeActivity::loop() {
           case HomeMenuAction::ReadingStats:
             onReadingStatsOpen();
             break;
+          case HomeMenuAction::PowerStats:
+            onPowerStatsOpen();
+            break;
           case HomeMenuAction::Bookmarks:
             onSavedItemsOpen();
             break;
@@ -1468,21 +1583,67 @@ void HomeActivity::loop() {
             onFileTransferOpen();
             break;
           case HomeMenuAction::ContinueReading:
+            onContinueReading();
+            break;
           case HomeMenuAction::Settings:
+            onSettingsOpen();
             break;
         }
       }
       return;
     }
 
-    if (canSwapHomeBook() && mappedInput.isFrontButtonPressed(HalGPIO::BTN_BACK) &&
+    if (homeBookSwapLongPressHandled) {
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+          !mappedInput.isPressed(MappedInputManager::Button::Back)) {
+        homeBookSwapLongPressHandled = false;
+      }
+      return;
+    }
+
+    const bool hasCurrentBook = !recentBooks.empty();
+    if (isDashboardTheme()) {
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+        loadHomeMenuContext();
+        {
+          RenderLock lock(*this);
+          minimalMenuOpen = true;
+          minimalMenuIndex = 0;
+        }
+        requestUpdate();
+        return;
+      }
+      if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+        if (hasCurrentBook) {
+          onContinueReading();
+        } else {
+          onFileBrowserOpen();
+        }
+        return;
+      }
+      if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+        if (yacpHasPreviousBook) {
+          showAdjacentYacpBook(-1);
+        }
+        return;
+      }
+      if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+        if (yacpHasNextBook) {
+          showAdjacentYacpBook(1);
+        }
+        return;
+      }
+      return;
+    }
+
+    if (canSwapHomeBook() && mappedInput.isPressed(MappedInputManager::Button::Back) &&
         mappedInput.getHeldTime() >= HOME_BOOK_SWAP_LONG_PRESS_MS) {
       homeBookSwapLongPressHandled = true;
       showNextRecentBookOnHome();
       return;
     }
 
-    const int homeNavCount = minimalHomeNavCount(!recentBooks.empty());
+    const int homeNavCount = minimalHomeNavCount(hasCurrentBook);
     if (minimalHomeNavIndex >= homeNavCount) {
       minimalHomeNavIndex = homeNavCount - 1;
     }
@@ -1518,30 +1679,24 @@ void HomeActivity::loop() {
       }
     };
 
-    if (releasedFrontButton == HalGPIO::BTN_BACK) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       minimalHomeNavIndex = 0;
       activateMinimalHomeNav(minimalHomeNavIndex);
       return;
     }
-    if (releasedFrontButton == HalGPIO::BTN_CONFIRM) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       minimalHomeNavIndex = 1;
       activateMinimalHomeNav(minimalHomeNavIndex);
       return;
     }
-    if (releasedFrontButton == HalGPIO::BTN_LEFT) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
       minimalHomeNavIndex = 2;
       activateMinimalHomeNav(minimalHomeNavIndex);
       return;
     }
-    if (releasedFrontButton == HalGPIO::BTN_RIGHT) {
-      if (!recentBooks.empty()) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+      if (hasCurrentBook) {
         minimalHomeNavIndex = 3;
-        activateMinimalHomeNav(minimalHomeNavIndex);
-      }
-      return;
-    }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      if (minimalHomeNavIndex >= 0) {
         activateMinimalHomeNav(minimalHomeNavIndex);
       }
       return;
@@ -1657,6 +1812,9 @@ void HomeActivity::loop() {
       case HomeMenuAction::ReadingStats:
         onReadingStatsOpen();
         break;
+      case HomeMenuAction::PowerStats:
+        onPowerStatsOpen();
+        break;
       case HomeMenuAction::Bookmarks:
         onSavedItemsOpen();
         break;
@@ -1677,48 +1835,96 @@ void HomeActivity::render(RenderLock&&) {
 
   if (usesMinimalHomeInteraction()) {
     renderer.clearScreen();
+    const bool isYacpTheme = isDashboardTheme();
+    const Rect yacpSafeArea =
+        isYacpTheme ? UITheme::getInstance().getScreenSafeArea(renderer, true, false)
+                    : Rect{0, 0, pageWidth, pageHeight};
+    const Rect headerRect{yacpSafeArea.x, yacpSafeArea.y + metrics.topPadding, yacpSafeArea.width,
+                          metrics.homeTopPadding};
 
     if (minimalMenuOpen) {
-      GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
-      const auto menuItems = buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
-      GUI.drawButtonMenu(
-          renderer, Rect{0, metrics.homeTopPadding, pageWidth, pageHeight - metrics.homeTopPadding},
-          static_cast<int>(menuItems.size()), minimalMenuIndex,
-          [&menuItems](int index) { return menuItems[index].label; },
-          [&menuItems](int index) { return menuItems[index].icon; });
+      GUI.drawHeader(renderer, headerRect, nullptr);
+      const auto menuItems = isYacpTheme
+                                 ? buildYacpMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings)
+                                 : buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
+      const Rect menuRect{yacpSafeArea.x, yacpSafeArea.y + metrics.homeTopPadding, yacpSafeArea.width,
+                          std::max(0, yacpSafeArea.height - metrics.homeTopPadding)};
+      GUI.drawButtonMenu(renderer, menuRect, static_cast<int>(menuItems.size()), minimalMenuIndex,
+                         [&menuItems](int index) { return menuItems[index].label; },
+                         [&menuItems](int index) { return menuItems[index].icon; });
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       renderer.displayBuffer();
       return;
     }
 
+    const Rect homeRect =
+        isYacpTheme
+            ? Rect{yacpSafeArea.x, yacpSafeArea.y + metrics.homeTopPadding, yacpSafeArea.width,
+                   std::max(0, yacpSafeArea.height - metrics.homeTopPadding)}
+            : Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
+    const Rect cacheRect = isYacpTheme ? DashboardTheme::homeCoverCacheRect(renderer, homeRect)
+                                       : MinimalTheme::homeCoverCacheRect(renderer, homeRect);
+    coverRectX = cacheRect.x;
+    coverRectY = cacheRect.y;
+    coverRectW = cacheRect.width;
+    coverRectH = cacheRect.height;
+
     bool bufferRestored = coverBufferStored && restoreCoverBuffer();
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
+    GUI.drawHeader(renderer, headerRect, nullptr);
 
-    coverRectX = 0;
-    coverRectY = metrics.homeTopPadding;
-    coverRectW = pageWidth;
-    coverRectH = metrics.homeCoverTileHeight;
-
-    GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
-                            recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
+    GUI.drawRecentBookCover(renderer, homeRect, recentBooks, selectorIndex, coverRendered, coverBufferStored,
+                            bufferRestored,
                             std::bind(&HomeActivity::storeCoverBuffer, this),
                             hasAnyBookStats(currentBookStats) ? &currentBookStats : nullptr, currentBookProgressPercent,
                             &globalStats, currentBookChapterTitle.c_str());
 
-    const int homeNavCount = minimalHomeNavCount(!recentBooks.empty());
+    const bool hasCurrentBook = !recentBooks.empty();
+    const int homeNavCount = minimalHomeNavCount(hasCurrentBook);
     if (minimalHomeNavIndex >= homeNavCount) {
       minimalHomeNavIndex = homeNavCount - 1;
     }
-    MinimalTheme::setHomeButtonHintSelection(minimalHomeNavIndex);
-    GUI.drawButtonHints(renderer, tr(STR_MENU), tr(STR_BROWSE), tr(STR_SETTINGS_SHORT),
-                        recentBooks.empty() ? "" : tr(STR_READ));
 
-    renderer.displayBuffer();
+    const char* semanticLabels[] = {
+        tr(STR_MENU), isYacpTheme ? (hasCurrentBook ? tr(STR_READ) : tr(STR_BROWSE)) : tr(STR_BROWSE),
+        isYacpTheme ? (yacpHasPreviousBook ? tr(STR_PREVIOUS_SHORT) : "") : tr(STR_SETTINGS_SHORT),
+        isYacpTheme ? (yacpHasNextBook ? tr(STR_NEXT_SHORT) : "") : (hasCurrentBook ? tr(STR_READ) : "")};
+    const auto labels =
+        mappedInput.mapLabels(semanticLabels[0], semanticLabels[1], semanticLabels[2], semanticLabels[3]);
+    int selectedPhysicalIndex = -1;
+    if (minimalHomeNavIndex >= 0) {
+      const int selectedSemanticIndex = minimalHomeNavIndex;
+      // Place a unique marker through the same logical-to-physical mapping.
+      // Pointer identity is unambiguous even if two translations are equal.
+      const char selectedMarker[] = {'\x01', '\0'};
+      const auto selectedLabels =
+          mappedInput.mapLabels(selectedSemanticIndex == 0 ? selectedMarker : "",
+                                selectedSemanticIndex == 1 ? selectedMarker : "",
+                                selectedSemanticIndex == 2 ? selectedMarker : "",
+                                selectedSemanticIndex == 3 ? selectedMarker : "");
+      const char* physicalSelection[] = {selectedLabels.btn1, selectedLabels.btn2, selectedLabels.btn3,
+                                         selectedLabels.btn4};
+      for (int i = 0; i < 4; ++i) {
+        if (physicalSelection[i] == selectedMarker) {
+          selectedPhysicalIndex = i;
+          break;
+        }
+      }
+    }
+    MinimalTheme::setHomeButtonHintSelection(selectedPhysicalIndex);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+
+    // YACP uses gray surfaces that retain text ghosting after a fast update.
+    // Clean the panel once when this Home instance first appears; navigation
+    // and returns from its secondary screens stay on the normal fast path.
+    renderer.displayBuffer(isYacpTheme && !firstRenderDone ? HalDisplay::FULL_REFRESH
+                                                           : HalDisplay::FAST_REFRESH);
 
     if (!firstRenderDone) {
       firstRenderDone = true;
-      requestUpdate();
+      if (!recentsLoaded) {
+        requestUpdate();
+      }
       return;
     }
 
@@ -1891,6 +2097,7 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onReadingStatsOpen() {
+  loadReadingStatsContext();
   const int highlightedBookIdx = getHighlightedBookIndex();
   const std::string bookTitle =
       highlightedBookIdx >= 0 ? recentBooks[highlightedBookIdx].title : std::string(tr(STR_READING_STATS));
@@ -1931,6 +2138,13 @@ void HomeActivity::onReadingStatsOpen() {
           requestUpdate();
         });
   }
+}
+
+void HomeActivity::onPowerStatsOpen() {
+  startActivityForResult(std::make_unique<PowerStatsActivity>(renderer, mappedInput), [this](const ActivityResult&) {
+    mappedInput.suppressNextConfirmRelease();
+    requestUpdate();
+  });
 }
 
 void HomeActivity::onSavedItemsOpen() {

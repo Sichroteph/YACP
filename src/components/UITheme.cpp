@@ -81,14 +81,13 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentMetrics = &MinimalMetrics::values;
       break;
     case CrossPointSettings::UI_THEME::DASHBOARD:
-      LOG_DBG("UI", "Using Dashboard theme");
+      LOG_DBG("UI", "Using YACP theme");
       currentTheme = std::make_unique<DashboardTheme>();
       currentMetrics = &DashboardMetrics::values;
       break;
     default:
-      LOG_ERR("UI", "Unknown theme %d, falling back to Classic", static_cast<int>(type));
-      currentTheme = std::make_unique<BaseTheme>();
-      currentMetrics = &BaseMetrics::values;
+      LOG_ERR("UI", "Unknown theme %d, falling back to product default", static_cast<int>(type));
+      setTheme(CrossPointSettings::DEFAULT_UI_THEME);
       break;
   }
 }
