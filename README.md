@@ -7,7 +7,6 @@ YACP is a personal, opinionated firmware for Xteink X3 and X4 readers. It is bui
 This is not a community project. Issues, pull requests, feature requests, support requests, and project contact are not accepted at this time. The source is public so the work can be inspected or forked.
 
 [![Build firmware](https://github.com/Sichroteph/YACP/actions/workflows/ci.yml/badge.svg)](https://github.com/Sichroteph/YACP/actions/workflows/ci.yml)
-[![Support YACP on PayPal](https://img.shields.io/badge/Support_YACP-PayPal-003087?logo=paypal&logoColor=white)](https://www.paypal.com/paypalme/ChrJeannette)
 
 ## Origin
 
