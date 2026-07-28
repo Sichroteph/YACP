@@ -1,3 +1,12 @@
+## [v1.4.0-yacp.93] - 2026-07-28
+
+### Changed
+
+- The centered YACP mark on the current-book Home card is now pale gray, using a sparse e-ink dither that remains
+  visible on its light-gray background without a duplicated bitmap.
+- Project documentation now demonstrates the YACP Home recent-book switcher and groups Reading Stats, Reading Rhythm,
+  and Autonomy with dedicated grayscale media previews that remain clear when resized.
+
 ## [v1.4.0-yacp.92] - 2026-07-28
 
 ### Changed
