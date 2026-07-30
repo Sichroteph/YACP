@@ -17,6 +17,8 @@ class CrossPointSettings {
   static CrossPointSettings instance;
 
  public:
+  static constexpr size_t BUTTON_LAYOUT_PROMPT_VERSION_CAPACITY = 32;
+
   // Delete copy constructor and assignment
   CrossPointSettings(const CrossPointSettings&) = delete;
   CrossPointSettings& operator=(const CrossPointSettings&) = delete;
@@ -190,7 +192,15 @@ class CrossPointSettings {
     REFRESH_10 = 2,
     REFRESH_15 = 3,
     REFRESH_30 = 4,
+    REFRESH_60 = 5,
+    REFRESH_NEVER = 6,
     REFRESH_FREQUENCY_COUNT
+  };
+
+  enum REFRESH_ACTION {
+    REFRESH_ACTION_FULL = 0,
+    REFRESH_ACTION_BW_REINFORCEMENT = 1,
+    REFRESH_ACTION_COUNT
   };
 
   enum FILE_BROWSER_DISPLAY {
@@ -223,6 +233,7 @@ class CrossPointSettings {
     JOIN_NETWORK = 19,
     CREATE_HOTSPOT = 20,
     CREATE_CLIPPING = 21,
+    REINFORCE_SCREEN = 22,
     SHORT_PWRBTN_COUNT
   };
 
@@ -287,6 +298,7 @@ class CrossPointSettings {
     LONG_MENU_JOIN_NETWORK = 18,
     LONG_MENU_CREATE_HOTSPOT = 19,
     LONG_MENU_CREATE_CLIPPING = 20,
+    LONG_MENU_REINFORCE_SCREEN = 21,
     LONG_PRESS_MENU_ACTION_COUNT
   };
 
@@ -359,8 +371,11 @@ class CrossPointSettings {
   uint8_t frontButtonConfirm = FRONT_HW_CONFIRM;
   uint8_t frontButtonLeft = FRONT_HW_LEFT;
   uint8_t frontButtonRight = FRONT_HW_RIGHT;
-  // Set after the initial YACP/CrossInk layout choice has been persisted.
-  uint8_t buttonLayoutPromptSeen = 0;
+  // Exact firmware version for which the YACP/CrossInk setup choice was persisted.
+  // An empty or different value makes the setup panel appear on the next boot.
+  char buttonLayoutPromptVersion[BUTTON_LAYOUT_PROMPT_VERSION_CAPACITY] = "";
+  // Runtime-only migration hint: true when either the version above or the legacy seen flag was loaded.
+  uint8_t buttonLayoutPromptHadPriorChoice = 0;
   // Reader-specific front button remap (overrides system mapping while in reader activities).
   // readerFrontButtonsEnabled = 0 means the reader uses the system mapping above.
   uint8_t readerFrontButtonsEnabled = 0;
@@ -385,8 +400,11 @@ class CrossPointSettings {
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
-  // E-ink refresh frequency (default 15 pages)
-  uint8_t refreshFrequency = REFRESH_15;
+  // E-ink refresh frequency (default 30 pages)
+  uint8_t refreshFrequency = REFRESH_30;
+  // Periodic reader maintenance action. X3 B/W reinforcement uses the OEM
+  // differential settle waveform; required cleanup refreshes remain full.
+  uint8_t refreshAction = REFRESH_ACTION_FULL;
   uint8_t hyphenationEnabled = 0;
 
   // Reader screen margin settings
@@ -476,6 +494,9 @@ class CrossPointSettings {
       MIN_READING_IDLE_TIME_THRESHOLD_SECONDS / READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
   static constexpr uint8_t MAX_READING_IDLE_TIME_THRESHOLD_UNITS =
       MAX_READING_IDLE_TIME_THRESHOLD_SECONDS / READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
+  static constexpr int REFRESH_COUNTDOWN_FORCE_BW_REINFORCEMENT = -2;
+  static constexpr int REFRESH_COUNTDOWN_DISABLED = -1;
+  static constexpr int REFRESH_COUNTDOWN_FORCE_FULL = 0;
   static constexpr size_t MIN_DEVICE_NAME_LENGTH = 2;
   static constexpr size_t MAX_DEVICE_NAME_LENGTH = sizeof(deviceName) - 1;
 

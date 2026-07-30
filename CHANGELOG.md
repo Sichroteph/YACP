@@ -1,3 +1,264 @@
+## [v1.4.0-yacp.155] - 2026-07-31
+
+### Added
+
+- X3 readers can use the OEM black-and-white reinforcement waveform for periodic screen maintenance without a
+  full-screen flash. It is also available as an assignable manual action.
+- Newly completed EPUB and XTC books now open a Reading Achievement screen with reading time, sessions, average session,
+  favorite reading period, reading span, completed-book count, and total device reading time.
+- Reading Stats now includes a persistent Finished Books view containing the 32 most recently completed books, with
+  five-entry pagination and total device reading time.
+
+### Changed
+
+- Periodic screen maintenance now supports intervals of 1, 5, 10, 15, 30, or 60 pages, or Never. Required cleanup
+  after images, grayscale content, popups, wake, and sleep remains a full refresh.
+- The firmware profile chooser appears once per firmware version. Fresh installations recommend the YACP profile;
+  upgrades safely default to preserving the current configuration.
+- The recommended YACP profile uses Left, Right, Confirm, Back, short-Power sleep, long-Power full refresh, Quick
+  Resume after five minutes, no-flash X3 reinforcement on every page, and text antialiasing off.
+- Home performs one full refresh on entry and after closing its built-in menu, then returns to fast updates.
+- Release firmware names now follow `YACP-<version>-tiny.bin` and `YACP-<version>-xlarge.bin`.
+
+### Fixed
+
+- Finished Books is reachable on X4 and other devices without a real-time clock, and every retained entry is
+  navigable instead of only the first five.
+- Moving a completed EPUB to `/Read/` now migrates its path identity explicitly, so distinct books with the same
+  title no longer overwrite one another in Finished Books.
+- All 26 languages now provide their own label for the 60-page maintenance interval.
+- Finished-books index failures close the SD file before cleanup or backup recovery.
+- Host unit tests now register their PlatformIO target and use compiler-appropriate warning flags on Windows.
+- Release builds no longer retain a variable used only by disabled debug logging in the SD font registry cleanup.
+
+## [v1.4.0-yacp.154] - 2026-07-30
+
+### Changed
+
+- Validated the complete pre-release change set on both Tiny and XLarge firmware targets.
+
+## [v1.4.0-yacp.153] - 2026-07-30
+
+### Changed
+
+- Retried the combined release build with an explicit UTF-8 host environment after Windows CP1252 rejected the
+  translation report.
+
+## [v1.4.0-yacp.152] - 2026-07-30
+
+### Changed
+
+- Validated the complete pre-release change set on the Tiny firmware target.
+
+## [v1.4.0-yacp.151] - 2026-07-30
+
+### Fixed
+
+- Finished-books index failures now always close the SD file before cleanup or recovery.
+
+## [v1.4.0-yacp.150] - 2026-07-30
+
+### Changed
+
+- Re-ran Tiny validation with UTF-8 host output after Windows CP1252 rejected the translation report.
+
+## [v1.4.0-yacp.149] - 2026-07-30
+
+### Changed
+
+- Re-ran Tiny validation in deterministic single-job mode after the Windows host stalled in parallel SCons.
+
+## [v1.4.0-yacp.148] - 2026-07-30
+
+### Changed
+
+- Re-ran Tiny validation after the previous host terminal interrupted PlatformIO output.
+
+## [v1.4.0-yacp.147] - 2026-07-30
+
+### Changed
+
+- Validated the Home refresh and persistent Finished Books page on the Tiny firmware target.
+
+## [v1.4.0-yacp.146] - 2026-07-30
+
+### Changed
+
+- Validated the Home refresh and persistent Finished Books page in the X3 simulator.
+
+## [v1.4.0-yacp.145] - 2026-07-30
+
+### Added
+
+- Reading Stats now includes a persistent Finished Books page after Reading Rhythm, including an empty state and
+  this device's total reading time.
+- A bounded finished-books index is updated on completion and reader exit without scanning the full library.
+
+### Fixed
+
+- Home now performs one full refresh when it is entered and when the built-in YACP menu closes.
+
+## [v1.4.0-yacp.144] - 2026-07-30
+
+### Changed
+
+- Validated short-Power firmware-profile confirmation on the Tiny firmware target.
+
+## [v1.4.0-yacp.143] - 2026-07-30
+
+### Fixed
+
+- A short Power press now confirms the firmware profile even when the previous profile assigned that press to sleep.
+
+## [v1.4.0-yacp.142] - 2026-07-30
+
+### Changed
+
+- Validated the device-wide reading-time card on the Tiny firmware target.
+
+## [v1.4.0-yacp.141] - 2026-07-30
+
+### Changed
+
+- Validated the device-wide reading-time card on the X3 simulator.
+
+## [v1.4.0-yacp.140] - 2026-07-30
+
+### Added
+
+- The book-completion achievement now shows total reading time accumulated on this device, including the session
+  being completed.
+
+## [v1.4.0-yacp.139] - 2026-07-30
+
+### Changed
+
+- Validated the stable firmware-profile chooser and empty Reading Stats entry on the simulator and Tiny target.
+
+## [v1.4.0-yacp.138] - 2026-07-30
+
+### Changed
+
+- The firmware-profile panel now always presents the same YACP, CrossInk, and keep-current choices, defaults safely
+  to keeping current settings on upgrades, and shows the complete effect of the selected profile.
+- Firmware-profile labels are translated directly in all 26 supported languages.
+- Reading Stats now remains available from every Home menu before any book, session, or completion has been recorded.
+
+## [v1.4.0-yacp.137] - 2026-07-30
+
+### Changed
+
+- Validated version-aware setup-panel persistence and legacy-flag migration on the simulator and Tiny target.
+
+## [v1.4.0-yacp.136] - 2026-07-30
+
+### Changed
+
+- A genuinely fresh installation still recommends the YACP preset, while upgrades preselect an already matching
+  YACP, CrossInk, or Custom configuration.
+
+## [v1.4.0-yacp.135] - 2026-07-30
+
+### Changed
+
+- The YACP/CrossInk setup panel now appears once for every newly flashed firmware version, while subsequent boots of
+  that same version continue normally.
+- On firmware upgrades, the panel initially selects the currently matching YACP, CrossInk, or Custom configuration.
+
+## [v1.4.0-yacp.134] - 2026-07-30
+
+### Changed
+
+- Validated the revised first-run YACP preset and Settings-to-Home refresh on the Tiny firmware target.
+
+## [v1.4.0-yacp.133] - 2026-07-30
+
+### Fixed
+
+- The translated first-run setup description now wraps within the narrow display instead of drawing past its edges.
+
+## [v1.4.0-yacp.132] - 2026-07-30
+
+### Changed
+
+- Revalidated the first-run YACP preset and Settings-to-Home refresh in the Linux simulator environment.
+
+## [v1.4.0-yacp.131] - 2026-07-30
+
+### Changed
+
+- Returning from Settings now gives every Home theme one clean full refresh.
+- The recommended first-run YACP preset now enables Quick Resume after a five-minute idle timeout, uses X3 no-flash
+  screen reinforcement on every page, disables text anti-aliasing, and maps the front buttons as Left, Right, OK,
+  Back.
+
+## [v1.4.0-yacp.130] - 2026-07-30
+
+### Changed
+
+- Validated the current completion-achievement statistics and English simulator reference capture together.
+
+## [v1.4.0-yacp.129] - 2026-07-30
+
+### Changed
+
+- Updated simulator QA coverage for the current completion-achievement statistics.
+
+## [v1.4.0-yacp.128] - 2026-07-30
+
+### Changed
+
+- Repository documentation and QA artifacts now reflect only the current Reading Stats feature set.
+
+## [v1.4.0-yacp.127] - 2026-07-30
+
+### Changed
+
+- Integrated the completion-achievement screen with the latest screen-maintenance build.
+
+## [v1.4.0-yacp.126] - 2026-07-30
+
+### Changed
+
+- Screen-maintenance settings and the assignable no-flash refresh action now use shorter, more explicit labels
+  distinguishing the flashing full refresh from the X3 no-flash refresh, translated in all 26 firmware languages.
+
+## [v1.4.0-yacp.125] - 2026-07-30
+
+### Changed
+
+- The completion achievement shows the book's reading span in days.
+
+## [v1.4.0-yacp.123] - 2026-07-30
+
+### Added
+
+- Leaving a newly finished EPUB or XTC book for Home now shows a celebratory achievement screen with the book's
+  reading time, sessions, average session, favorite reading period, reading span, and completed-book count.
+- Completion-achievement labels are translated in all 26 firmware languages.
+
+### Fixed
+
+- Automated Reading Stats demo captures now honor the simulator's English screenshot override.
+
+## [v1.4.0-yacp.111] - 2026-07-30
+
+### Added
+
+- Periodic screen maintenance can now use either a full refresh or the X3 OEM black-and-white reinforcement waveform
+  at the selected page interval. Manual refreshes and cleanup required after images or popups remain full.
+- The same no-flash X3 black-and-white reinforcement is available as an assignable short/long Power action and as a
+  long-press Confirm or Back action; grayscale pages and non-X3 devices retain the full-refresh fallback.
+
+## [v1.4.0-yacp.97] - 2026-07-30
+
+### Changed
+
+- Reader full-refresh frequency now defaults to 30 pages and offers 60 pages or Never; Never keeps required cleanup
+  refreshes after images, indexing, wake, and sleep screens.
+- Choosing the recommended YACP button experience during first-run setup now makes a short Power press sleep and a
+  long Power press refresh the screen, while the CrossInk choice retains its original Power behavior.
+
 ## [v1.4.0-yacp.93] - 2026-07-28
 
 ### Changed

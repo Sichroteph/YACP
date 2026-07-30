@@ -7,7 +7,7 @@ nav_order: 14
 
 ## Web Installer
 
-1. Download the appropriate `YACP-<version>-yacp-<variant>.bin` file from the
+1. Download the appropriate `YACP-<version>-<variant>.bin` file from the
    [YACP releases page](https://github.com/Sichroteph/YACP/releases/latest).
 2. Connect your Xteink X4 or X3 to your computer via USB-C and wake/unlock the device.
 3. Go to <https://crosspointreader.com/#flash-tools> and choose your device.

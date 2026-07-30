@@ -18,6 +18,7 @@
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/EpubReaderActivity.h"
+#include "activities/reader/FinishedBooksIndex.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -192,6 +193,9 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
 
   stats.save(cachePath);
   globalStats.save();
+  if (!FinishedBooksIndex::record(fullPath, title, stats)) {
+    LOG_ERR("BookActions", "Failed to update finished-books index");
+  }
 
   if (SETTINGS.removeReadBooksFromRecents) {
     if (completed) {

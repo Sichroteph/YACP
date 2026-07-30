@@ -35,6 +35,7 @@ class XtcReaderActivity final : public Activity {
   bool longPowerPageTurnHandled = false;
   bool frontButtonLongPressHandled = false;
   bool longPressBackHandled = false;
+  bool showCompletionAchievementOnExit = false;
   ReaderProgressSaveDebouncer progressSaveDebouncer;
   // Next-book suggestion menu for the End-of-Book screen
   EndOfBookOptions endOfBookOptions;
@@ -61,6 +62,9 @@ class XtcReaderActivity final : public Activity {
   void recordForwardPageTurn(uint32_t seconds);
   void commitReadingStats();
   void resetCurrentBookStatsAfterDelete();
+  void handleBookStatsReturn();
+  BookReadingStats achievementStatsPreview(uint32_t* pendingReadingSeconds = nullptr) const;
+  void goHomeOrShowCompletionAchievement();
   void setBookCompleted(bool isCompleted);
   float getCurrentBookProgressPercent() const;
   void openChapterSelection();

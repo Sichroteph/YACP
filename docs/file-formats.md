@@ -227,6 +227,34 @@ Binary layout:
 - `[41-68]` `dayOfWeekSeconds[7]` (`uint32_t` LE each)
 - `[69-72]` `estimatedTimeLeftSeconds` (`uint32_t` LE, `0` means unavailable)
 
+## `/.crosspoint/finished_books.bin`
+
+### Version 1
+
+`finished_books.bin` is a bounded chronological index used by the persistent
+Finished Books statistics page. It holds at most 32 entries, all navigable in
+five-entry pages, and is refreshed
+when completion changes and when a completed EPUB or XTC reader exits. The
+normal reader page-turn path never reads or writes it.
+
+The eight-byte header contains:
+
+- `[0-3]` magic ASCII `CPFB`
+- `[4]` version (`1`)
+- `[5]` entry count (`uint8_t`, maximum `32`)
+- `[6-7]` reserved (`uint16_t`)
+
+Each variable-length entry contains a `uint64_t` path key, total reading seconds
+(`uint32_t`), finish date (`year uint16_t`, `month uint8_t`, `day uint8_t`), a
+title length (`uint16_t`, maximum 160), then the UTF-8 title bytes. Entries are
+stored newest finish date first. Saves use `.tmp` and `.bak` rotation. When an
+EPUB is moved to `/Read/`, its path key is migrated explicitly so two different
+books with the same title remain separate entries.
+
+When the file is first introduced, YACP checks only the bounded recent-books
+list (at most 18 entries) once to recover already-finished books. It never scans
+the full SD-card library.
+
 ## `/.crosspoint/daily_reading.bin`
 
 ### Version 1

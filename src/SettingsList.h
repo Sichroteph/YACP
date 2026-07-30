@@ -270,7 +270,7 @@ inline SettingInfo buildSleepScreenSetting() {
 inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr) {
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v;
-    v.reserve(66);
+    v.reserve(67);
     auto add = [&v](SettingInfo setting) { v.push_back(std::move(setting)); };
 
     // --- Display ---
@@ -291,10 +291,13 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                           StrId::STR_CAT_DISPLAY)
             .withEnumRawValues({CrossPointSettings::HIDE_CLOCK_NEVER, CrossPointSettings::HIDE_CLOCK_IN_READER,
                                 CrossPointSettings::HIDE_CLOCK_ALWAYS}));
-    add(SettingInfo::Enum(
-        StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
-        {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30},
-        "refreshFrequency", StrId::STR_CAT_DISPLAY));
+    add(SettingInfo::Enum(StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
+                          {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15,
+                           StrId::STR_PAGES_30, StrId::STR_PAGES_60, StrId::STR_NEVER},
+                          "refreshFrequency", StrId::STR_CAT_DISPLAY));
+    add(SettingInfo::Enum(StrId::STR_REFRESH_ACTION, &CrossPointSettings::refreshAction,
+                          {StrId::STR_REFRESH_ACTION_FULL, StrId::STR_REFRESH_ACTION_BW_REINFORCEMENT},
+                          "refreshAction", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Enum(
             StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
             {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_MINIMAL, StrId::STR_THEME_DASHBOARD, StrId::STR_THEME_LYRA,
@@ -390,6 +393,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            StrId::STR_READING_STATS,
                            StrId::STR_MARK_FINISHED,
                            StrId::STR_FORCE_REFRESH,
+                           StrId::STR_REINFORCE_SCREEN,
                            StrId::STR_CHANGE_FONT,
                            StrId::STR_TOGGLE_GUIDE_DOTS,
                            StrId::STR_TOGGLE_BIONIC_READING,
@@ -412,6 +416,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                                 CrossPointSettings::READING_STATS,
                                 CrossPointSettings::MARK_FINISHED,
                                 CrossPointSettings::FORCE_REFRESH,
+                                CrossPointSettings::REINFORCE_SCREEN,
                                 CrossPointSettings::TOGGLE_FONT,
                                 CrossPointSettings::TOGGLE_GUIDE_DOTS,
                                 CrossPointSettings::TOGGLE_BIONIC_READING,
@@ -434,6 +439,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            StrId::STR_READING_STATS,
                            StrId::STR_MARK_FINISHED,
                            StrId::STR_FORCE_REFRESH,
+                           StrId::STR_REINFORCE_SCREEN,
                            StrId::STR_CHANGE_FONT,
                            StrId::STR_TOGGLE_GUIDE_DOTS,
                            StrId::STR_TOGGLE_BIONIC_READING,
@@ -456,6 +462,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                                 CrossPointSettings::READING_STATS,
                                 CrossPointSettings::MARK_FINISHED,
                                 CrossPointSettings::FORCE_REFRESH,
+                                CrossPointSettings::REINFORCE_SCREEN,
                                 CrossPointSettings::TOGGLE_FONT,
                                 CrossPointSettings::TOGGLE_GUIDE_DOTS,
                                 CrossPointSettings::TOGGLE_BIONIC_READING,
@@ -477,6 +484,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            StrId::STR_READING_STATS,
                            StrId::STR_MARK_FINISHED,
                            StrId::STR_FORCE_REFRESH,
+                           StrId::STR_REINFORCE_SCREEN,
                            StrId::STR_CHANGE_FONT,
                            StrId::STR_TOGGLE_GUIDE_DOTS,
                            StrId::STR_TOGGLE_BIONIC_READING,
@@ -498,6 +506,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                                 CrossPointSettings::LONG_MENU_READING_STATS,
                                 CrossPointSettings::LONG_MENU_MARK_FINISHED,
                                 CrossPointSettings::LONG_MENU_REFRESH_SCREEN,
+                                CrossPointSettings::LONG_MENU_REINFORCE_SCREEN,
                                 CrossPointSettings::LONG_MENU_CHANGE_FONT,
                                 CrossPointSettings::LONG_MENU_TOGGLE_GUIDE_DOTS,
                                 CrossPointSettings::LONG_MENU_TOGGLE_BIONIC,
@@ -519,6 +528,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            StrId::STR_READING_STATS,
                            StrId::STR_MARK_FINISHED,
                            StrId::STR_FORCE_REFRESH,
+                           StrId::STR_REINFORCE_SCREEN,
                            StrId::STR_CHANGE_FONT,
                            StrId::STR_TOGGLE_GUIDE_DOTS,
                            StrId::STR_TOGGLE_BIONIC_READING,
@@ -540,6 +550,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                                 CrossPointSettings::LONG_MENU_READING_STATS,
                                 CrossPointSettings::LONG_MENU_MARK_FINISHED,
                                 CrossPointSettings::LONG_MENU_REFRESH_SCREEN,
+                                CrossPointSettings::LONG_MENU_REINFORCE_SCREEN,
                                 CrossPointSettings::LONG_MENU_CHANGE_FONT,
                                 CrossPointSettings::LONG_MENU_TOGGLE_GUIDE_DOTS,
                                 CrossPointSettings::LONG_MENU_TOGGLE_BIONIC,
@@ -866,7 +877,7 @@ inline std::vector<SettingInfo> buildControlsSideButtonSettingsList(const std::v
 
 inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> displaySettings;
-  displaySettings.reserve(7);
+  displaySettings.reserve(8);
 
   auto addDisplaySetting = [&](StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
@@ -882,6 +893,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
     addDisplaySetting(StrId::STR_HIDE_CLOCK);
   }
   addDisplaySetting(StrId::STR_REFRESH_FREQ);
+  addDisplaySetting(StrId::STR_REFRESH_ACTION);
   addDisplaySetting(StrId::STR_UI_THEME);
   addDisplaySetting(StrId::STR_RECENT_BOOKS_VIEW);
   addDisplaySetting(StrId::STR_SUNLIGHT_FADING_FIX);

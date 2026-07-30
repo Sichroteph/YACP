@@ -239,7 +239,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["frontButtonConfirm"] = s.frontButtonConfirm;
   doc["frontButtonLeft"] = s.frontButtonLeft;
   doc["frontButtonRight"] = s.frontButtonRight;
-  doc["buttonLayoutPromptSeen"] = s.buttonLayoutPromptSeen;
+  doc["buttonLayoutPromptVersion"] = s.buttonLayoutPromptVersion;
   // Reader-specific front button remap.
   doc["readerFrontButtonsEnabled"] = s.readerFrontButtonsEnabled;
   doc["readerFrontButtonBack"] = s.readerFrontButtonBack;
@@ -281,6 +281,15 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   const bool migrateTiltDirectionSchema =
       !doc["tiltPageTurnDirection"].isNull() &&
       ((doc["tiltPageTurnDirectionSchema"] | static_cast<uint8_t>(1)) < TILT_DIRECTION_SCHEMA_CURRENT);
+  const bool migrateLegacyBwContrast =
+      doc["refreshAction"].isNull() && !doc["bwContrastReinforcement"].isNull();
+  if (migrateLegacyBwContrast) {
+    const uint8_t legacyReinforcement = doc["bwContrastReinforcement"] | static_cast<uint8_t>(0);
+    doc["refreshAction"] =
+        legacyReinforcement != 0 ? CrossPointSettings::REFRESH_ACTION_BW_REINFORCEMENT
+                                 : CrossPointSettings::REFRESH_ACTION_FULL;
+    if (needsResave) *needsResave = true;
+  }
 
   // Legacy migration: if statusBarChapterPageCount is absent this is a pre-refactor settings file.
   // Populate s with migrated values now so the generic loop below picks them up as defaults and clamps them.
@@ -419,7 +428,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
   CrossPointSettings::validateFrontButtonMapping(s);
-  s.buttonLayoutPromptSeen = clamp(doc["buttonLayoutPromptSeen"] | (uint8_t)0, (uint8_t)2, (uint8_t)0);
+  const char* buttonLayoutPromptVersion = doc["buttonLayoutPromptVersion"] | "";
+  strncpy(s.buttonLayoutPromptVersion, buttonLayoutPromptVersion, sizeof(s.buttonLayoutPromptVersion) - 1);
+  s.buttonLayoutPromptVersion[sizeof(s.buttonLayoutPromptVersion) - 1] = '\0';
+  s.buttonLayoutPromptHadPriorChoice =
+      s.buttonLayoutPromptVersion[0] != '\0' || (doc["buttonLayoutPromptSeen"] | (uint8_t)0) != 0;
   // Reader-specific front button remap.
   s.readerFrontButtonsEnabled = clamp(doc["readerFrontButtonsEnabled"] | (uint8_t)0, (uint8_t)2, (uint8_t)0);
   s.readerFrontButtonBack =

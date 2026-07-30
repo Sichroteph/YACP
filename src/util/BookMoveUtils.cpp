@@ -7,6 +7,7 @@
 #include "BookmarkStore.h"
 #include "ClippingStore.h"
 #include "CrossPointState.h"
+#include "activities/reader/FinishedBooksIndex.h"
 #include "RecentBooksStore.h"
 
 namespace {
@@ -56,6 +57,11 @@ bool migrateMovedEpubState(const std::string& oldPath, const std::string& newPat
 
   if (!ClippingStore::migrateForFilePath(oldPath, newPath, title, author, "epub")) {
     LOG_ERR("BookMove", "Failed to migrate clippings for moved book %s -> %s", oldPath.c_str(), newPath.c_str());
+    ok = false;
+  }
+
+  if (!FinishedBooksIndex::migratePath(oldPath, newPath)) {
+    LOG_ERR("BookMove", "Failed to migrate finished-books entry for %s -> %s", oldPath.c_str(), newPath.c_str());
     ok = false;
   }
 

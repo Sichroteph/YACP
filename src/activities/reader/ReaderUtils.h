@@ -3,6 +3,7 @@
 #include <CrossPointSettings.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
+#include <HalGPIO.h>
 #include <HalTiltSensor.h>
 #include <Logging.h>
 
@@ -105,13 +106,53 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   return {tiltPrev || sidePrev || frontPrev, tiltNext || sideNext || frontNext, fromSide, tiltPrev || tiltNext};
 }
 
-inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {
-  if (pagesUntilFullRefresh <= 1) {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+inline bool isRefreshActionDue(const int pagesUntilRefreshAction) {
+  return pagesUntilRefreshAction != CrossPointSettings::REFRESH_COUNTDOWN_DISABLED && pagesUntilRefreshAction <= 1;
+}
+
+inline bool isFullRefreshForced(const int pagesUntilRefreshAction) {
+  return pagesUntilRefreshAction == CrossPointSettings::REFRESH_COUNTDOWN_FORCE_FULL;
+}
+
+inline bool isBwReinforcementForced(const int pagesUntilRefreshAction) {
+  return pagesUntilRefreshAction == CrossPointSettings::REFRESH_COUNTDOWN_FORCE_BW_REINFORCEMENT;
+}
+
+inline void forceFullRefresh(int& pagesUntilRefreshAction) {
+  pagesUntilRefreshAction = CrossPointSettings::REFRESH_COUNTDOWN_FORCE_FULL;
+}
+
+inline void forceBwReinforcement(int& pagesUntilRefreshAction) {
+  pagesUntilRefreshAction = CrossPointSettings::REFRESH_COUNTDOWN_FORCE_BW_REINFORCEMENT;
+}
+
+inline void countOrdinaryRefresh(int& pagesUntilRefreshAction) {
+  if (pagesUntilRefreshAction != CrossPointSettings::REFRESH_COUNTDOWN_DISABLED) {
+    pagesUntilRefreshAction--;
+  }
+}
+
+inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilRefreshAction,
+                                    const bool isBlackAndWhitePage = true) {
+  if (isRefreshActionDue(pagesUntilRefreshAction)) {
+    const bool usePeriodicReinforcement =
+        gpio.deviceIsX3() && isBlackAndWhitePage &&
+        (isBwReinforcementForced(pagesUntilRefreshAction) ||
+         (!isFullRefreshForced(pagesUntilRefreshAction) &&
+          SETTINGS.refreshAction == CrossPointSettings::REFRESH_ACTION_BW_REINFORCEMENT));
+    if (usePeriodicReinforcement) {
+      // X3: the OEM AA-pre-BW(mid) differential waveform changes the page
+      // while gently reinforcing unchanged white and black pixels.
+      renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+    } else {
+      // Forced cleanups (manual refresh, popup/image residue, initial paint)
+      // stay full regardless of the selected periodic maintenance action.
+      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    }
+    pagesUntilRefreshAction = SETTINGS.getRefreshFrequency();
   } else {
     renderer.displayBuffer();
-    pagesUntilFullRefresh--;
+    countOrdinaryRefresh(pagesUntilRefreshAction);
   }
 }
 

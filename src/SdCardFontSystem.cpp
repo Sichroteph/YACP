@@ -134,7 +134,9 @@ void SdCardFontSystem::releaseRegistry() {
     return;
   }
 
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const int familyCount = registry_.getFamilyCount();
+#endif
   registry_.clear();
   registryLoaded_ = false;
   LOG_DBG("SDFS", "Released SD font registry (%d families)", familyCount);

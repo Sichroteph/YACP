@@ -33,7 +33,7 @@ No 18 pt or 20 pt font size. This is the preferred general-purpose build.
 
 ## Flashing A Variant
 
-Download the matching `YACP-<version>-yacp-<variant>.bin` from the
+Download the matching `YACP-<version>-<variant>.bin` from the
 [YACP releases page](https://github.com/Sichroteph/YACP/releases/latest), or build and upload locally with PlatformIO:
 
 ```sh

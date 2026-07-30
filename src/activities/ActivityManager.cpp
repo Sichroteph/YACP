@@ -262,6 +262,7 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 }
 
 void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
+  const bool returningFromSettings = currentActivity && currentActivity->name == "Settings";
   if (initialMenuItem == HomeMenuItem::NONE && currentActivity) {
     const auto& activityName = currentActivity->name;
     if (activityName == "FileBrowser") {
@@ -278,7 +279,7 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     }
   }
-  replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem));
+  replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, returningFromSettings));
 }
 void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<CrashActivity>(renderer, mappedInput)); }
 
@@ -311,7 +312,11 @@ bool ActivityManager::isReaderActivity() const {
   }
 
   return std::any_of(stackActivities.begin(), stackActivities.end(),
-                     [](const auto& activity) { return activity && activity->isReaderActivity(); });
+                      [](const auto& activity) { return activity && activity->isReaderActivity(); });
+}
+
+bool ActivityManager::handlesPowerButtonLocally() const {
+  return currentActivity && currentActivity->handlesPowerButtonLocally();
 }
 
 bool ActivityManager::canEnterReaderIdlePowerSaving() const {

@@ -324,6 +324,10 @@ bool TxtReaderActivity::executePowerButtonAction() {
       case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
         activityManager.goToFileBrowser(txt ? txt->getPath() : "");
         return true;
+      case CrossPointSettings::SHORT_PWRBTN::REINFORCE_SCREEN:
+        ReaderUtils::forceBwReinforcement(pagesUntilFullRefresh);
+        requestUpdate();
+        return true;
       case CrossPointSettings::SHORT_PWRBTN::CREATE_CLIPPING:
         return false;
       default:
@@ -354,7 +358,11 @@ bool TxtReaderActivity::executeLongPressBackAction() {
       enterDeepSleep();
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_REFRESH_SCREEN:
-      pagesUntilFullRefresh = 1;
+      ReaderUtils::forceFullRefresh(pagesUntilFullRefresh);
+      requestUpdate();
+      return true;
+    case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_REINFORCE_SCREEN:
+      ReaderUtils::forceBwReinforcement(pagesUntilFullRefresh);
       requestUpdate();
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_TRANSFER:
@@ -603,9 +611,10 @@ void TxtReaderActivity::renderPage() {
   GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
                             ReaderUtils::readerDarkModeEnabled());
 
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && ReaderUtils::readerForegroundBlack();
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, !needsTextGrayscale);
 
-  if (SETTINGS.textAntiAliasing && ReaderUtils::readerForegroundBlack()) {
+  if (needsTextGrayscale) {
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
   }
   // scope destructor clears font cache via FontCacheManager

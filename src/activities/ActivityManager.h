@@ -121,6 +121,7 @@ class ActivityManager {
   bool preventAutoSleep() const;
   bool isHomeActivity() const;
   bool isReaderActivity() const;
+  bool handlesPowerButtonLocally() const;
   bool canEnterReaderIdlePowerSaving() const;
   bool canSnapshotForSleepOverlay() const;
   bool skipLoopDelay() const;

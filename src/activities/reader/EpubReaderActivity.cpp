@@ -32,6 +32,7 @@
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
+#include "FinishedBooksIndex.h"
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
@@ -1490,7 +1491,13 @@ void EpubReaderActivity::applyBookStatsEditsFromDisk() {
 }
 
 void EpubReaderActivity::handleBookStatsReturn() {
+  const bool wasCompleted = stats.isCompleted;
   applyBookStatsEditsFromDisk();
+  if (!wasCompleted && stats.isCompleted) {
+    showCompletionAchievementOnExit = true;
+  } else if (!stats.isCompleted) {
+    showCompletionAchievementOnExit = false;
+  }
   completionPromptShown = stats.isCompleted;
   if (stats.isCompleted && SETTINGS.moveFinishedToReadFolder && epub && !isInReadFolder(epub->getPath())) {
     pendingReadFolderMove = true;
@@ -1499,6 +1506,61 @@ void EpubReaderActivity::handleBookStatsReturn() {
   }
   resumeReadingPaceTimer("book_stats_return");
   requestUpdate();
+}
+
+BookReadingStats EpubReaderActivity::achievementStatsPreview(uint32_t* pendingReadingSeconds) const {
+  BookReadingStats preview = stats;
+  if (pendingReadingSeconds) {
+    *pendingReadingSeconds = 0;
+  }
+  if (!SETTINGS.shouldTrackReadingStats()) {
+    return preview;
+  }
+
+  uint32_t pendingSeconds = sessionReadingSeconds;
+  uint32_t currentPageSeconds = 0;
+  if (currentPageReadingSecondsForStats(currentPageSeconds, "achievement_preview")) {
+    pendingSeconds = pendingSeconds > UINT32_MAX - currentPageSeconds ? UINT32_MAX : pendingSeconds + currentPageSeconds;
+  }
+  if (pendingReadingSeconds) {
+    *pendingReadingSeconds = pendingSeconds;
+  }
+  preview.totalReadingSeconds =
+      preview.totalReadingSeconds > UINT32_MAX - pendingSeconds ? UINT32_MAX : preview.totalReadingSeconds + pendingSeconds;
+  if (pendingSeconds >= 60 && preview.sessionCount < UINT16_MAX) {
+    ++preview.sessionCount;
+  }
+  if (pendingSeconds >= 10 && hasSessionStartLocalDateTime) {
+    preview.recordReadingSpan(sessionStartLocalDateTime, pendingSeconds);
+  }
+  return preview;
+}
+
+void EpubReaderActivity::goHomeOrShowCompletionAchievement() {
+  if (!showCompletionAchievementOnExit || !stats.isCompleted || !epub) {
+    onGoHome();
+    return;
+  }
+
+  showCompletionAchievementOnExit = false;
+  uint32_t pendingReadingSeconds = 0;
+  const BookReadingStats achievementStats = achievementStatsPreview(&pendingReadingSeconds);
+  GlobalReadingStats achievementGlobalStats = globalStats;
+  if (pendingReadingSeconds >= 10) {
+    achievementGlobalStats.totalReadingSeconds =
+        achievementGlobalStats.totalReadingSeconds > UINT32_MAX - pendingReadingSeconds
+            ? UINT32_MAX
+            : achievementGlobalStats.totalReadingSeconds + pendingReadingSeconds;
+  }
+  auto achievement = makeUniqueNoThrow<BookStatsActivity>(
+      renderer, mappedInput, epub->getTitle(), std::string{}, achievementStats, 100.0f, false, 0,
+      achievementGlobalStats, true, BookStatsActivity::InitialPage::Achievement);
+  if (!achievement) {
+    LOG_ERR("ERS", "Could not allocate completion achievement screen");
+    onGoHome();
+    return;
+  }
+  activityManager.replaceActivity(std::move(achievement));
 }
 
 void EpubReaderActivity::initializeCompletionPromptTrigger() {
@@ -1854,6 +1916,10 @@ void EpubReaderActivity::onExit() {
     globalStats.save();
     dailyReadingHistory.save();
   }
+  if (epub && stats.isCompleted &&
+      !FinishedBooksIndex::record(epub->getPath(), epub->getTitle(), stats)) {
+    LOG_ERR("ERS", "Failed to refresh finished-books index on reader exit");
+  }
 
   // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
   // pre-footnote position so the book reopens at the link origin, not the footnote.
@@ -2115,7 +2181,7 @@ void EpubReaderActivity::loop() {
         activityManager.goToReader(openPath);
         return;
       case EndOfBookOptions::Action::GoHome:
-        onGoHome();
+        goHomeOrShowCompletionAchievement();
         return;
       case EndOfBookOptions::Action::LastPage:
         currentSpineIndex = std::max(epub->getSpineItemsCount() - 1, 0);
@@ -2167,7 +2233,7 @@ void EpubReaderActivity::loop() {
       restoreSavedPosition();
       return;
     }
-    onGoHome();
+    goHomeOrShowCompletionAchievement();
     return;
   }
 
@@ -2247,7 +2313,7 @@ void EpubReaderActivity::loop() {
       if (SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP) {
         if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
           if (nextLongPressed) {
-            onGoHome();
+            goHomeOrShowCompletionAchievement();
           } else {
             currentSpineIndex = epub->getSpineItemsCount() - 1;
             nextPageNumber = 0;
@@ -2310,7 +2376,7 @@ void EpubReaderActivity::loop() {
       return;
     }
     if (nextTriggered) {
-      onGoHome();
+      goHomeOrShowCompletionAchievement();
     } else {
       currentSpineIndex = epub->getSpineItemsCount() - 1;
       nextPageNumber = 0;
@@ -2572,7 +2638,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::GO_HOME: {
-      onGoHome();
+      goHomeOrShowCompletionAchievement();
       return;
     }
     case EpubReaderMenuActivity::MenuAction::DELETE_STATS: {
@@ -2638,7 +2704,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
             if (cacheDeleted) {
               delay(1000);
             }
-            onGoHome();
+            goHomeOrShowCompletionAchievement();
           });
       break;
     }
@@ -3157,6 +3223,7 @@ void EpubReaderActivity::resetReadingPaceData() {
 
 void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   stats = BookReadingStats{};
+  showCompletionAchievementOnExit = false;
   sessionReadingSeconds = 0;
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
@@ -3187,7 +3254,11 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::BOOKMARK_TOGGLE);
       break;
     case CrossPointSettings::LONG_MENU_REFRESH_SCREEN:
-      pagesUntilFullRefresh = 1;  // Forces HALF_REFRESH on next render
+      ReaderUtils::forceFullRefresh(pagesUntilFullRefresh);
+      requestUpdate();
+      break;
+    case CrossPointSettings::LONG_MENU_REINFORCE_SCREEN:
+      ReaderUtils::forceBwReinforcement(pagesUntilFullRefresh);
       requestUpdate();
       break;
     case CrossPointSettings::LONG_MENU_SYNC_PROGRESS:
@@ -3349,6 +3420,9 @@ bool EpubReaderActivity::executeShortPowerButtonAction() {
     case CrossPointSettings::SHORT_PWRBTN::READING_STATS:
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_READING_STATS);
       return true;
+    case CrossPointSettings::SHORT_PWRBTN::REINFORCE_SCREEN:
+      executeReaderQuickAction(CrossPointSettings::LONG_MENU_REINFORCE_SCREEN);
+      return true;
     case CrossPointSettings::SHORT_PWRBTN::SCREENSHOT:
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_SCREENSHOT);
       return true;
@@ -3441,6 +3515,9 @@ bool EpubReaderActivity::executeLongPowerButtonAction() {
       mappedInput.suppressNextPowerConfirmRelease();
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_READING_STATS);
       return true;
+    case CrossPointSettings::SHORT_PWRBTN::REINFORCE_SCREEN:
+      executeReaderQuickAction(CrossPointSettings::LONG_MENU_REINFORCE_SCREEN);
+      return true;
     case CrossPointSettings::SHORT_PWRBTN::SCREENSHOT:
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_SCREENSHOT);
       return true;
@@ -3492,6 +3569,7 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   }
 
   stats.isCompleted = isCompleted;
+  showCompletionAchievementOnExit = isCompleted;
   if (isCompleted && !stats.finishedDateManual) {
     ReadingStatsDateTime now;
     if (getCurrentLocalReadingStatsDateTime(now)) {
@@ -3522,6 +3600,9 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   refreshCachedTimeLeftEstimate();
   stats.save(epub->getCachePath());
   globalStats.save();
+  if (!FinishedBooksIndex::record(epub->getPath(), epub->getTitle(), stats)) {
+    LOG_ERR("ERS", "Failed to update finished-books index");
+  }
 }
 
 void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {
@@ -3857,7 +3938,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         GUI.drawPopup(renderer, tr(STR_INDEXING));
         // The popup's own refresh is a plain FAST, so force the page that replaces it onto the HALF
         // ghost-cleanup path -- otherwise the "INDEXING" text ghosts under the rendered page.
-        pagesUntilFullRefresh = 1;
+        ReaderUtils::forceFullRefresh(pagesUntilFullRefresh);
         const bool buildSucceeded = section->createSectionFile(
             fontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents,
             SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled,
@@ -4557,9 +4638,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // text there ghosts gray (#2190). Force the next ordinary page onto the
     // HALF ghost-cleanup path, which drives every pixel to its target
     // regardless of residue.
-    pagesUntilFullRefresh = 1;
+    ReaderUtils::forceFullRefresh(pagesUntilFullRefresh);
   } else if (needsAnyGrayscale) {
-    if (pagesUntilFullRefresh <= 1) {
+    if (ReaderUtils::isRefreshActionDue(pagesUntilFullRefresh)) {
       // Cleanup turns still need the stronger HALF pass, but X3 grayscale
       // overlays settle better if the OEM precondition step runs before the
       // gray planes are written.
@@ -4571,7 +4652,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       // closer to the final anti-aliased result instead of flashing darker
       // text first and softening after the grayscale overlay.
       renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
-      pagesUntilFullRefresh--;
+      ReaderUtils::countOrdinaryRefresh(pagesUntilFullRefresh);
     }
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);

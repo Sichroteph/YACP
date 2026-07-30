@@ -130,6 +130,9 @@ class EpubReaderActivity final : public Activity {
   bool pendingCompletedFeedback = false;
   bool completedFeedbackIsFinished = false;
   unsigned long completedFeedbackShowTime = 0UL;
+  // Armed only on the unfinished -> finished transition. The next Home exit
+  // becomes a lightweight achievement screen instead of skipping straight home.
+  bool showCompletionAchievementOnExit = false;
   bool pendingTiltPageTurnFeedback = false;
   bool tiltPageTurnFeedbackEnabled = false;
   unsigned long tiltPageTurnFeedbackShowTime = 0UL;
@@ -205,6 +208,8 @@ class EpubReaderActivity final : public Activity {
   void refreshCachedTimeLeftEstimate();
   void applyBookStatsEditsFromDisk();
   void handleBookStatsReturn();
+  BookReadingStats achievementStatsPreview(uint32_t* pendingReadingSeconds = nullptr) const;
+  void goHomeOrShowCompletionAchievement();
   void resetCurrentBookStatsAfterDelete();
   void openFileTransfer();
   void openAutoPageTurnIntervalPicker(bool ignoreInitialConfirmRelease = false);

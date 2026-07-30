@@ -252,6 +252,7 @@ const char* savedItemsLabel(bool hasBookmarks, bool hasClippings) {
 
 void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks,
                          bool hasClippings) {
+  (void)hasReadingStats;
   items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
   items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
 
@@ -277,6 +278,7 @@ HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bo
 }
 
 HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
+  (void)hasReadingStats;
   HomeMenuEntries items;
   items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
 
@@ -286,9 +288,7 @@ HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats,
   if (hasBookmarks || hasClippings) {
     items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
   }
-  if (hasReadingStats) {
-    items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
-  }
+  items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   items.push({tr(STR_POWER_STATS_TITLE), Power, HomeMenuAction::PowerStats});
 
   items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
@@ -296,12 +296,11 @@ HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats,
 }
 
 HomeMenuEntries buildYacpMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
+  (void)hasReadingStats;
   HomeMenuEntries items;
   items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
   items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
-  if (hasReadingStats) {
-    items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
-  }
+  items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   items.push({tr(STR_POWER_STATS_TITLE), Power, HomeMenuAction::PowerStats});
   if (hasBookmarks || hasClippings) {
     items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
@@ -902,6 +901,10 @@ void HomeActivity::loadHomeMenuContext() {
 
 void HomeActivity::onEnter() {
   Activity::onEnter();
+  // Home is the visual synchronization point after every child activity.
+  // Arm only its first frame; later in-place updates (book navigation, battery)
+  // stay fast unless an overlay explicitly requests cleanup.
+  forceFullRefreshOnNextDisplay = true;
 
   const bool isYacpTheme = isDashboardTheme();
   const bool isCarouselTheme =
@@ -1555,6 +1558,7 @@ void HomeActivity::loop() {
           RenderLock lock(*this);
           minimalMenuOpen = false;
           minimalHomeNavIndex = -1;
+          forceFullRefreshOnNextDisplay = true;
         }
         requestUpdate();
         return;
@@ -1829,6 +1833,12 @@ void HomeActivity::loop() {
 }
 
 void HomeActivity::render(RenderLock&&) {
+  const auto displayHomeBuffer = [this](const bool fullRefreshNormally = false) {
+    const bool useFullRefresh = forceFullRefreshOnNextDisplay || fullRefreshNormally;
+    renderer.displayBuffer(useFullRefresh ? HalDisplay::FULL_REFRESH : HalDisplay::FAST_REFRESH);
+    forceFullRefreshOnNextDisplay = false;
+  };
+
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -1854,7 +1864,7 @@ void HomeActivity::render(RenderLock&&) {
                          [&menuItems](int index) { return menuItems[index].icon; });
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-      renderer.displayBuffer();
+      displayHomeBuffer();
       return;
     }
 
@@ -1917,8 +1927,7 @@ void HomeActivity::render(RenderLock&&) {
     // YACP uses gray surfaces that retain text ghosting after a fast update.
     // Clean the panel once when this Home instance first appears; navigation
     // and returns from its secondary screens stay on the normal fast path.
-    renderer.displayBuffer(isYacpTheme && !firstRenderDone ? HalDisplay::FULL_REFRESH
-                                                           : HalDisplay::FAST_REFRESH);
+    displayHomeBuffer(isYacpTheme && !firstRenderDone);
 
     if (!firstRenderDone) {
       firstRenderDone = true;
@@ -1970,7 +1979,7 @@ void HomeActivity::render(RenderLock&&) {
         }
       }
 
-      renderer.displayBuffer();
+      displayHomeBuffer();
       // E-ink refresh complete — pre-render the missing adjacent frame while idle.
       updateSlidingWindowCache(centerIdx, bookCount);
       // Mirror the slow-path trigger: generate missing thumbnails on the second
@@ -2024,7 +2033,7 @@ void HomeActivity::render(RenderLock&&) {
                                       : mappedInput.mapLabels("", tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  renderer.displayBuffer();
+  displayHomeBuffer();
 
   if (!firstRenderDone) {
     firstRenderDone = true;

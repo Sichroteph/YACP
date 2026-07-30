@@ -29,11 +29,15 @@ target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}
   ${REPO_ROOT}/lib
 )
-target_compile_options(crosspoint_test_common INTERFACE
-  -Wall
-  -Wextra
-  -pedantic
-)
+if(MSVC)
+  target_compile_options(crosspoint_test_common INTERFACE /W4 /permissive- /FS)
+else()
+  target_compile_options(crosspoint_test_common INTERFACE
+    -Wall
+    -Wextra
+    -pedantic
+  )
+endif()
 
 enable_testing()
 include(GoogleTest)

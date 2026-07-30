@@ -21,6 +21,19 @@ YACP is expected to use less energy and perform less incidental work than its ba
 measured battery-life claim yet. Long-running current analysis continues so future choices can be based on repeatable
 hardware measurements rather than optimistic estimates.
 
+## What is new in 1.4.0-yacp.155
+
+- **No-flash X3 screen maintenance:** the OEM black-and-white reinforcement waveform can settle text ghosting during
+  the page turn itself, without the full-screen black/white flash used by a full refresh.
+- **A real ending for every book:** completing an EPUB or XTC now opens a Reading Achievement page with the book's
+  reading time, sessions, average session, favorite reading period, reading span, and updated lifetime totals.
+- **Finished Books history:** Reading Stats now exposes the 32 most recently completed books in five-entry pages,
+  using a bounded SD index instead of scanning the whole card.
+
+This release also adds a per-update profile chooser, improves Home refresh behavior, extends periodic maintenance to
+1, 5, 10, 15, 30, or 60 pages (or Never), and includes smaller reliability and documentation fixes. See the
+[changelog](CHANGELOG.md) for the complete inventory.
+
 ## Direction
 
 In order, YACP aims to:
@@ -77,9 +90,9 @@ The design choices are functional:
 Real page text is not reconstructed merely to decorate Home because that would add SD reads, deserialization, and
 memory use. Other inherited themes remain available because an inactive theme has no reading-path cost.
 
-On first startup, YACP offers its recommended `Left, Right, Confirm, Back` button order—the layout demonstrated
-above—the familiar CrossInk order, or preservation of an existing custom mapping. The choice is stored and is not
-asked again.
+After each firmware update, YACP offers its recommended `Left, Right, Confirm, Back` profile—the layout demonstrated
+above—the familiar CrossInk profile, or preservation of every current setting. Upgrades preselect the safe
+keep-current choice, while a fresh installation recommends YACP.
 
 ## Implemented direction
 
@@ -96,6 +109,24 @@ asked again.
 The X3 before and after recording shows the Quick Resume flashes removed by this path:
 
 <video src="https://github.com/user-attachments/assets/a3de8027-e6e2-45ea-9f48-99801f550def" controls></video>
+
+### No-flash X3 screen maintenance
+
+Periodic screen maintenance can use the X3 OEM black-and-white reinforcement waveform instead of a flashing full
+refresh. The reinforcement is the page turn itself, not a second display update, so unchanged black and white pixels
+are settled without a full-screen flash. It can run every 1, 5, 10, 15, 30, or 60 pages, or periodic maintenance can
+be disabled.
+
+Required cleanup remains conservative: pages containing images or grayscale, indexing and popup residue, wake and
+sleep transitions, manual full refreshes, and non-X3 devices continue to use the full-refresh path.
+
+The release demonstration compares the previous behavior with the new waveform over the same ten-second reading
+sequence. The same video adjustments are applied to both clips to make faint ghosting easier to see.
+
+<video src="https://github.com/Sichroteph/YACP/releases/download/v1.4.0-yacp.155/YACP-ghosting-before-after.mp4"
+       controls></video>
+
+[Open the no-flash screen-maintenance comparison](https://github.com/Sichroteph/YACP/releases/download/v1.4.0-yacp.155/YACP-ghosting-before-after.mp4)
 
 ### Rendering and storage
 
@@ -116,20 +147,32 @@ making the most useful numbers readable without moving between two separate pane
 Reading Rhythm shows daily intensity, weekly reading time, reading days, and current and best streaks over the latest
 12 months. Its daily history remains separate from the existing synchronized totals.
 
+Finishing a new EPUB or XTC opens a Reading Achievement screen with the book's reading time, sessions, average session,
+favorite reading period, reading span, completed-book count, and total reading time on the device. The following
+Finished Books view keeps the 32 most recently completed books in a bounded SD index and exposes all retained entries
+in five-book pages. Existing installations recover completed entries from their recent-books list without scanning
+the entire SD card.
+
 <table>
   <tr>
     <td align="center">
+      <img src="docs/images/yacp/media/reading-achievement.png"
+           alt="YACP Reading Achievement page shown after finishing Dune"
+           width="244">
+    </td>
+    <td align="center">
       <img src="docs/images/yacp/media/reading-stats.png"
            alt="YACP Reading Stats summary combining the current book and this device on one screen"
-           width="264">
+           width="244">
     </td>
     <td align="center">
       <img src="docs/images/yacp/media/reading-rhythm.png"
            alt="Reading Rhythm rendered by the X3 simulator"
-           width="264">
+           width="244">
     </td>
   </tr>
   <tr>
+    <td align="center">Reading Achievement</td>
     <td align="center">Reading Stats summary</td>
     <td align="center">Reading Rhythm</td>
   </tr>
@@ -166,8 +209,8 @@ Download binaries and checksums from [GitHub Releases](https://github.com/Sichro
 
 | File | Intended font sizes |
 | --- | --- |
-| `YACP-<version>-yacp-tiny.bin` | 10, 12, 14, and 16 pt |
-| `YACP-<version>-yacp-xlarge.bin` | 16, 18, and 20 pt |
+| `YACP-<version>-tiny.bin` | 10, 12, 14, and 16 pt |
+| `YACP-<version>-xlarge.bin` | 16, 18, and 20 pt |
 
 See the [installation guide](docs/installation.md) before flashing. A successful build proves compilation only, so
 the release notes state the hardware-validation status of each binary.
@@ -178,7 +221,7 @@ PlatformIO is the source of truth:
 
 ```sh
 pio run -e tiny -e xlarge
-pio run -e simulator_x3
+pio run -e simulator
 ```
 
 Every firmware build uses a new `crossink_version`. The release workflow builds both variants, generates SHA-256

@@ -50,6 +50,7 @@ class Activity {
   virtual bool isReaderActivity() const { return false; }
   virtual bool allowReaderIdlePowerSaving() const { return false; }
   virtual bool allowPowerAsConfirmInReaderMode() const { return false; }
+  virtual bool handlesPowerButtonLocally() const { return false; }
   virtual bool canSnapshotForSleepOverlay() const { return false; }
   virtual std::string getCurrentBookPath() const { return {}; }
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }

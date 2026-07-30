@@ -1053,6 +1053,81 @@ void renderReadingRhythmPage(GfxRenderer& renderer, const MappedInputManager* ma
   }
 }
 
+void renderFinishedBooksPage(GfxRenderer& renderer, const MappedInputManager* mappedInput,
+                             const std::vector<FinishedBookEntry>& finishedBooks,
+                             const GlobalReadingStats& globalStats, const size_t pageIndex,
+                             const bool showButtonHints, const bool showPreviousPage,
+                             const bool showNextPage, const bool showMoreButton) {
+  renderer.clearScreen();
+  CompactHeader::drawTitle(renderer, tr(STR_ACHIEVEMENT_BOOKS_COMPLETED));
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int screenW = renderer.getScreenWidth();
+  const int screenH = renderer.getScreenHeight();
+  const int cardX = metrics.contentSidePadding;
+  const int cardW = screenW - metrics.contentSidePadding * 2;
+  const int headerBottom = metrics.topPadding + metrics.headerHeight;
+  const int buttonTop = screenH - (showButtonHints ? metrics.buttonHintsHeight : metrics.verticalSpacing);
+  const int totalCardY = headerBottom + metrics.verticalSpacing;
+  const int totalCardH = std::max(62, renderer.getLineHeight(UI_12_FONT_ID) + renderer.getLineHeight(SMALL_FONT_ID) + 20);
+
+  renderer.drawRoundedRect(cardX, totalCardY, cardW, totalCardH, 2, 10, true);
+  char duration[32];
+  BookReadingStats::formatDuration(globalStats.totalReadingSeconds, duration, sizeof(duration));
+  renderer.drawCenteredText(UI_12_FONT_ID, totalCardY + 10, duration, true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(SMALL_FONT_ID, totalCardY + totalCardH - renderer.getLineHeight(SMALL_FONT_ID) - 8,
+                            tr(STR_STATS_TOTAL_READING_TIME_LBL));
+
+  const int listY = totalCardY + totalCardH + metrics.verticalSpacing;
+  const int availableListH = std::max(0, buttonTop - listY - metrics.verticalSpacing);
+  const int rowGap = std::max(4, metrics.verticalSpacing / 2);
+  const int desiredRowH = std::max(54, renderer.getLineHeight(UI_10_FONT_ID) +
+                                           renderer.getLineHeight(SMALL_FONT_ID) + 18);
+  const int maxRows =
+      std::min<int>(FINISHED_BOOKS_ENTRIES_PER_PAGE, (availableListH + rowGap) / (desiredRowH + rowGap));
+  const size_t firstEntry = pageIndex * FINISHED_BOOKS_ENTRIES_PER_PAGE;
+  const size_t remainingEntries = firstEntry < finishedBooks.size() ? finishedBooks.size() - firstEntry : 0;
+
+  if (remainingEntries == 0 || maxRows <= 0) {
+    const int emptyY = listY + std::max(0, (availableListH - renderer.getLineHeight(UI_12_FONT_ID) -
+                                          renderer.getLineHeight(UI_10_FONT_ID) - 8) /
+                                                 2);
+    renderer.drawCenteredText(UI_12_FONT_ID, emptyY, "0", true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, emptyY + renderer.getLineHeight(UI_12_FONT_ID) + 8,
+                              tr(STR_ACHIEVEMENT_BOOKS_COMPLETED));
+  } else {
+    const int visibleRows = std::min<int>(maxRows, remainingEntries);
+    const int rowH = std::min(desiredRowH, (availableListH - rowGap * (visibleRows - 1)) / visibleRows);
+    for (int index = 0; index < visibleRows; ++index) {
+      const auto& entry = finishedBooks[firstEntry + index];
+      const int rowY = listY + index * (rowH + rowGap);
+      renderer.drawRoundedRect(cardX, rowY, cardW, rowH, 1, 8, true);
+
+      const auto title =
+          renderer.truncatedText(UI_10_FONT_ID, entry.title.c_str(), cardW - metrics.contentSidePadding * 2,
+                                 EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, cardX + metrics.contentSidePadding, rowY + 7, title.c_str(), true,
+                        EpdFontFamily::BOLD);
+
+      char date[24];
+      char readingTime[24];
+      char subtitle[56];
+      formatReadingStatsShortDate(entry.finishedDate, date, sizeof(date));
+      BookReadingStats::formatDuration(entry.totalReadingSeconds, readingTime, sizeof(readingTime));
+      snprintf(subtitle, sizeof(subtitle), "%s - %s", date, readingTime);
+      renderer.drawText(SMALL_FONT_ID, cardX + metrics.contentSidePadding,
+                        rowY + rowH - renderer.getLineHeight(SMALL_FONT_ID) - 7, subtitle);
+    }
+  }
+
+  if (showButtonHints && mappedInput) {
+    const char* previousLabel = showPreviousPage ? tr(STR_PREVIOUS_SHORT) : tr(STR_BACK);
+    const char* nextLabel = showNextPage ? tr(STR_NEXT_SHORT) : (showMoreButton ? tr(STR_MORE) : "");
+    const auto labels = mappedInput->mapLabels(tr(STR_HOME), tr(STR_HOME), previousLabel, nextLabel);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
 void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput,
                                   const std::string& bookTitle, const BookReadingStats& bookStats,
                                   const float progressPercent, const bool hasEstimatedTimeLeft,
@@ -1094,7 +1169,7 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_HOME), "", "", "");
+    const auto labels = mappedInput->mapLabels(tr(STR_HOME), tr(STR_HOME), "", tr(STR_MORE));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
@@ -1161,6 +1236,120 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
 
   if (showButtonHints && mappedInput) {
     const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_NEXT_FIELD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+void renderReadingAchievementPage(GfxRenderer& renderer, const MappedInputManager* mappedInput,
+                                  const std::string& bookTitle, const BookReadingStats& stats,
+                                  const GlobalReadingStats& globalStats, const bool showButtonHints) {
+  renderer.clearScreen();
+  CompactHeader::drawTitle(renderer, tr(STR_ACHIEVEMENT_TITLE));
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int screenW = renderer.getScreenWidth();
+  const int screenH = renderer.getScreenHeight();
+  const bool compact = screenH < 620;
+  const int centerX = screenW / 2;
+  const int medalSize = compact ? 62 : 82;
+  const int medalY = metrics.topPadding + (compact ? 76 : 88);
+  const int medalX = centerX - medalSize / 2;
+
+  const int ray = compact ? 18 : 24;
+  renderer.drawLine(centerX, medalY - ray, centerX, medalY - 5, 2, true);
+  renderer.drawLine(centerX, medalY + medalSize + 5, centerX, medalY + medalSize + ray, 2, true);
+  renderer.drawLine(medalX - ray, medalY + medalSize / 2, medalX - 5, medalY + medalSize / 2, 2, true);
+  renderer.drawLine(medalX + medalSize + 5, medalY + medalSize / 2, medalX + medalSize + ray,
+                    medalY + medalSize / 2, 2, true);
+  renderer.drawLine(medalX - 13, medalY - 13, medalX - 4, medalY - 4, 2, true);
+  renderer.drawLine(medalX + medalSize + 4, medalY - 4, medalX + medalSize + 13, medalY - 13, 2, true);
+
+  renderer.fillRoundedRect(medalX, medalY, medalSize, medalSize, medalSize / 2, Color::Black);
+  renderer.fillRoundedRect(medalX + 7, medalY + 7, medalSize - 14, medalSize - 14, (medalSize - 14) / 2,
+                           Color::White);
+  renderer.drawLine(medalX + medalSize / 4, medalY + medalSize / 2,
+                    medalX + medalSize * 2 / 5, medalY + medalSize * 2 / 3, compact ? 4 : 5, true);
+  renderer.drawLine(medalX + medalSize * 2 / 5, medalY + medalSize * 2 / 3,
+                    medalX + medalSize * 3 / 4, medalY + medalSize / 3, compact ? 4 : 5, true);
+
+  const int celebrationY = medalY + medalSize + (compact ? 12 : 18);
+  renderer.drawCenteredText(UI_12_FONT_ID, celebrationY, tr(STR_ACHIEVEMENT_SUBTITLE), true,
+                            EpdFontFamily::BOLD);
+  const std::string visibleTitle =
+      renderer.truncatedText(UI_10_FONT_ID, bookTitle.c_str(), screenW - metrics.contentSidePadding * 4,
+                             EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, celebrationY + renderer.getLineHeight(UI_12_FONT_ID) + 7,
+                            visibleTitle.c_str(), true, EpdFontFamily::BOLD);
+
+  const int cardX = metrics.contentSidePadding;
+  const int cardW = screenW - metrics.contentSidePadding * 2;
+  const int cardY = celebrationY + renderer.getLineHeight(UI_12_FONT_ID) +
+                    renderer.getLineHeight(UI_10_FONT_ID) + (compact ? 14 : 24);
+  const int rowH = compact ? 74 : 94;
+  const int cardH = rowH * 2;
+  renderer.drawRoundedRect(cardX, cardY, cardW, cardH, 2, 12, true);
+  renderer.drawLine(cardX, cardY + rowH, cardX + cardW, cardY + rowH);
+  const int thirdW = cardW / 3;
+  for (int column = 1; column < 3; ++column) {
+    renderer.drawLine(cardX + thirdW * column, cardY, cardX + thirdW * column, cardY + cardH);
+  }
+
+  char value[32];
+  BookReadingStats::formatDuration(stats.totalReadingSeconds, value, sizeof(value));
+  drawStatCell(renderer, cardX, thirdW, cardY, rowH, value, tr(STR_STATS_TIME_LBL));
+
+  snprintf(value, sizeof(value), "%u", static_cast<unsigned>(stats.sessionCount));
+  drawStatCell(renderer, cardX + thirdW, thirdW, cardY, rowH, value, tr(STR_STATS_SESSIONS_LBL));
+
+  const uint32_t averageSeconds = stats.sessionCount > 0 ? stats.totalReadingSeconds / stats.sessionCount : 0;
+  BookReadingStats::formatDuration(averageSeconds, value, sizeof(value));
+  drawStatCell(renderer, cardX + thirdW * 2, thirdW, cardY, rowH, value, tr(STR_STATS_AVG_SESSION_LBL));
+
+  size_t favoriteBucket = 0;
+  for (size_t bucket = 1; bucket < stats.timeOfDaySeconds.size(); ++bucket) {
+    if (stats.timeOfDaySeconds[bucket] > stats.timeOfDaySeconds[favoriteBucket]) {
+      favoriteBucket = bucket;
+    }
+  }
+  const char* favoriteValue =
+      stats.totalReadingSeconds > 0 ? I18N.get(TIME_BUCKET_LABELS[favoriteBucket]) : tr(STR_STATS_NEW_READER);
+  drawStatCell(renderer, cardX, thirdW, cardY + rowH, rowH, favoriteValue, tr(STR_ACHIEVEMENT_FAVORITE_TIME));
+
+  const uint16_t readingDays =
+      stats.startDate.isValid() && stats.finishedDate.isValid()
+          ? readingSpanDaysInclusive(stats.startDate, stats.finishedDate)
+          : 0;
+  snprintf(value, sizeof(value), "%u", static_cast<unsigned>(readingDays));
+  drawStatCell(renderer, cardX + thirdW, thirdW, cardY + rowH, rowH, value, dayCountText(readingDays));
+
+  snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(globalStats.completedBooks));
+  drawStatCell(renderer, cardX + thirdW * 2, thirdW, cardY + rowH, rowH, value,
+               tr(STR_ACHIEVEMENT_BOOKS_COMPLETED));
+
+  const int totalReadingCardY = cardY + cardH + (compact ? 10 : 44);
+  if (!compact && stats.startDate.isValid() && stats.finishedDate.isValid()) {
+    char startDate[20];
+    char finishDate[20];
+    formatReadingStatsShortDate(stats.startDate, startDate, sizeof(startDate));
+    formatReadingStatsShortDate(stats.finishedDate, finishDate, sizeof(finishDate));
+    char timeline[64];
+    snprintf(timeline, sizeof(timeline), tr(STR_ACHIEVEMENT_TIMELINE_FORMAT), startDate, finishDate,
+             static_cast<unsigned>(readingDays));
+    renderer.drawCenteredText(SMALL_FONT_ID, cardY + cardH + 18, timeline);
+  }
+
+  const int buttonHintsTop =
+      screenH - (showButtonHints ? metrics.buttonHintsHeight : metrics.contentSidePadding);
+  const int totalReadingCardH = std::min(compact ? 54 : 68, buttonHintsTop - totalReadingCardY - 10);
+  if (totalReadingCardH >= 44) {
+    BookReadingStats::formatDuration(globalStats.totalReadingSeconds, value, sizeof(value));
+    renderer.drawRoundedRect(cardX, totalReadingCardY, cardW, totalReadingCardH, 2, 12, true);
+    drawStatCell(renderer, cardX, cardW, totalReadingCardY, totalReadingCardH, value,
+                 tr(STR_STATS_TOTAL_READING_TIME_LBL));
+  }
+
+  if (showButtonHints && mappedInput) {
+    const auto labels = mappedInput->mapLabels(tr(STR_HOME), tr(STR_HOME), "", tr(STR_HOME));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }

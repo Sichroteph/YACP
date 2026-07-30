@@ -31,6 +31,9 @@ static bool isImagePreviewFile(const std::string& path) {
 int ReaderActivity::initialRefreshCountdown() const {
   if (!allowFastInitialRefresh) return 0;
   const int refreshFrequency = SETTINGS.getRefreshFrequency();
+  if (refreshFrequency == CrossPointSettings::REFRESH_COUNTDOWN_DISABLED) {
+    return CrossPointSettings::REFRESH_COUNTDOWN_DISABLED;
+  }
   return refreshFrequency > 1 ? refreshFrequency : 2;
 }
 

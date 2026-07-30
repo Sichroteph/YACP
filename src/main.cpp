@@ -90,6 +90,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "network/UsbSerialFileTransfer.h"
 #include "power/PowerHistory.h"
 #ifdef SIMULATOR
+#include "simulator/SimulatorReadingStatsDemo.h"
 #include "simulator/SimulatorSmokeTest.h"
 #endif
 #include "images/LoadingIcon.h"
@@ -124,6 +125,11 @@ Language languageForSimulatorRun() {
       (screenshotsAfterWake != nullptr && screenshotsAfterWake[0] != '\0')) {
     LOG_INF("SIM", "Automated screenshot run: forcing English UI");
     return Language::EN;
+  }
+  const char* readingStatsDemo = std::getenv("CROSSINK_SIMULATOR_STATS_DEMO");
+  if (readingStatsDemo != nullptr && readingStatsDemo[0] != '\0') {
+    LOG_INF("SIM", "Reading statistics demo: forcing French UI");
+    return Language::FR;
   }
   return static_cast<Language>(SETTINGS.language);
 }
@@ -516,6 +522,21 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
       return true;
     }
+    case CrossPointSettings::SHORT_PWRBTN::REINFORCE_SCREEN: {
+      // Readers route this through their render path so grayscale pages can
+      // keep the mandatory full-cleanup fallback.
+      if (activityManager.isReaderActivity()) {
+        return false;
+      }
+      LOG_DBG("MAIN", "Manual B/W screen reinforcement triggered");
+      RenderLock lock;
+      if (gpio.deviceIsX3()) {
+        renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+      } else {
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      }
+      return true;
+    }
     case CrossPointSettings::SHORT_PWRBTN::SCREENSHOT: {
       if (activityManager.canSnapshotForSleepOverlay()) {
         return false;
@@ -905,7 +926,13 @@ void setup() {
   } else if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
-  } else if (!SETTINGS.buttonLayoutPromptSeen) {
+  }
+#ifdef SIMULATOR
+  else if (startSimulatorReadingStatsDemo()) {
+    // The deterministic demo replaces normal boot routing for screenshot QA.
+  }
+#endif
+  else if (strcmp(SETTINGS.buttonLayoutPromptVersion, CROSSINK_VERSION) != 0) {
     auto setupActivity = makeUniqueNoThrow<ButtonLayoutSetupActivity>(renderer, mappedInputManager);
     if (setupActivity) {
       activityManager.replaceActivity(std::move(setupActivity));
@@ -1038,7 +1065,8 @@ void loop() {
     return;
   }
 
-  if (millis() >= allowSleepAt && handleGlobalPowerButtonAction(getPowerButtonAction())) {
+  if (millis() >= allowSleepAt && !activityManager.handlesPowerButtonLocally() &&
+      handleGlobalPowerButtonAction(getPowerButtonAction())) {
     lastActivityTime = millis();
     return;
   }

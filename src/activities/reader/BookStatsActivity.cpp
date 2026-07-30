@@ -1,15 +1,19 @@
 #include "BookStatsActivity.h"
 
 #include <I18n.h>
+#include <Logging.h>
+
+#include <algorithm>
 
 #include "BookStatsView.h"
+#include "FinishedBooksIndex.h"
 #include "MappedInputManager.h"
 
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                      const std::string& bookCachePath, const BookReadingStats& stats,
                                      const float progressPercent, const bool hasEstimatedTimeLeft,
                                      const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
-                                     const bool returnToHomeOnExit)
+                                     const bool returnToHomeOnExit, const InitialPage initialPage)
     : Activity("BookStats", renderer, mappedInput),
       bookTitle(title),
       bookCachePath(bookCachePath),
@@ -18,13 +22,15 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
       returnToHomeOnExit(returnToHomeOnExit),
       progressPercent(progressPercent),
       hasEstimatedTimeLeft(hasEstimatedTimeLeft),
-      estimatedTimeLeftSeconds(estimatedTimeLeftSeconds) {}
+      estimatedTimeLeftSeconds(estimatedTimeLeftSeconds),
+      page(initialPage == InitialPage::Achievement ? Page::Achievement : Page::Summary) {}
 
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                      const std::string& bookCachePath, const BookReadingStats& stats,
                                      const float progressPercent, const bool hasEstimatedTimeLeft,
                                      const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
-                                     const GlobalReadingStats& allDevicesStats, const bool returnToHomeOnExit)
+                                     const GlobalReadingStats& allDevicesStats, const bool returnToHomeOnExit,
+                                     const InitialPage initialPage)
     : Activity("BookStats", renderer, mappedInput),
       bookTitle(title),
       bookCachePath(bookCachePath),
@@ -35,7 +41,8 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
       returnToHomeOnExit(returnToHomeOnExit),
       progressPercent(progressPercent),
       hasEstimatedTimeLeft(hasEstimatedTimeLeft),
-      estimatedTimeLeftSeconds(estimatedTimeLeftSeconds) {}
+      estimatedTimeLeftSeconds(estimatedTimeLeftSeconds),
+      page(initialPage == InitialPage::Achievement ? Page::Achievement : Page::Summary) {}
 
 void BookStatsActivity::refreshAllDevicesStats() {
   if (showAllDevicesStats) {
@@ -50,6 +57,9 @@ void BookStatsActivity::saveStats() {
 
   stats.save(bookCachePath);
   globalStats.save();
+  if (!FinishedBooksIndex::record(bookCachePath, bookTitle, stats)) {
+    LOG_ERR("BSTATS", "Failed to update finished-books index");
+  }
   refreshAllDevicesStats();
   didChangeStats = false;
 }
@@ -218,6 +228,7 @@ void BookStatsActivity::adjustSelectedDateField(const int delta) {
 void BookStatsActivity::onEnter() {
   Activity::onEnter();
   dailyReadingHistory.load(globalStats);
+  finishedBooks = FinishedBooksIndex::load();
   requestUpdate();
 }
 
@@ -242,7 +253,12 @@ void BookStatsActivity::exitStatsActivity(const bool viaBack) {
 }
 
 void BookStatsActivity::loop() {
-  if (usesNoRtcSingleScreenLayout()) {
+  const bool previousShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+                                       mappedInput.wasPressed(MappedInputManager::Button::Left);
+  const bool moreShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+                                   mappedInput.wasPressed(MappedInputManager::Button::Right);
+
+  if (usesNoRtcSingleScreenLayout() && page == Page::Summary) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       exitStatsActivity(true);
       return;
@@ -251,13 +267,13 @@ void BookStatsActivity::loop() {
       exitStatsActivity(false);
       return;
     }
+    if (moreShortcutPressed) {
+      finishedBooksPage = 0;
+      page = Page::FinishedBooks;
+      requestUpdate();
+    }
     return;
   }
-
-  const bool previousShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-                                       mappedInput.wasPressed(MappedInputManager::Button::Left);
-  const bool moreShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-                                   mappedInput.wasPressed(MappedInputManager::Button::Right);
 
   if (page == Page::EditDates) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -289,6 +305,13 @@ void BookStatsActivity::loop() {
     return;
   }
 
+  if (page == Page::Achievement) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || moreShortcutPressed) {
+      exitStatsActivity(false);
+    }
+    return;
+  }
+
   if (page == Page::Summary) {
     if (hasEditableBook() && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       page = Page::EditDates;
@@ -312,8 +335,9 @@ void BookStatsActivity::loop() {
     return;
   }
 
-  if (page == Page::ReadingRhythm && showAllDevicesStats && moreShortcutPressed) {
-    page = Page::AllDevices;
+  if (page == Page::ReadingRhythm && moreShortcutPressed) {
+    finishedBooksPage = 0;
+    page = Page::FinishedBooks;
     requestUpdate();
     return;
   }
@@ -324,14 +348,39 @@ void BookStatsActivity::loop() {
     return;
   }
 
+  if (page == Page::FinishedBooks) {
+    const size_t pageCount =
+        std::max<size_t>(1, (finishedBooks.size() + FINISHED_BOOKS_ENTRIES_PER_PAGE - 1) /
+                                FINISHED_BOOKS_ENTRIES_PER_PAGE);
+    if (moreShortcutPressed) {
+      if (finishedBooksPage + 1 < pageCount) {
+        finishedBooksPage++;
+        requestUpdate();
+      } else if (showAllDevicesStats) {
+        page = Page::AllDevices;
+        requestUpdate();
+      }
+      return;
+    }
+    if (previousShortcutPressed) {
+      if (finishedBooksPage > 0) {
+        finishedBooksPage--;
+      } else {
+        page = usesNoRtcSingleScreenLayout() ? Page::Summary : Page::ReadingRhythm;
+      }
+      requestUpdate();
+      return;
+    }
+  }
+
   if (page == Page::AllDevices && previousShortcutPressed) {
-    page = Page::ReadingRhythm;
+    page = Page::FinishedBooks;
     requestUpdate();
   }
 }
 
 void BookStatsActivity::render(RenderLock&&) {
-  if (usesNoRtcSingleScreenLayout()) {
+  if (usesNoRtcSingleScreenLayout() && page == Page::Summary) {
     renderNoRtcCombinedStatsPage(renderer, &mappedInput, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
                                  estimatedTimeLeftSeconds, globalStats,
                                  showAllDevicesStats ? &allDevicesStats : nullptr, true);
@@ -345,7 +394,21 @@ void BookStatsActivity::render(RenderLock&&) {
                               estimatedTimeLeftSeconds, globalStats, true, hasEditableBook(), true);
       break;
     case Page::ReadingRhythm:
-      renderReadingRhythmPage(renderer, &mappedInput, dailyReadingHistory, globalStats, true, showAllDevicesStats);
+      renderReadingRhythmPage(renderer, &mappedInput, dailyReadingHistory, globalStats, true, true);
+      break;
+    case Page::FinishedBooks:
+      {
+        const size_t pageCount =
+            std::max<size_t>(1, (finishedBooks.size() + FINISHED_BOOKS_ENTRIES_PER_PAGE - 1) /
+                                    FINISHED_BOOKS_ENTRIES_PER_PAGE);
+        const bool hasPreviousPage = finishedBooksPage > 0;
+        const bool hasNextPage = finishedBooksPage + 1 < pageCount;
+        renderFinishedBooksPage(renderer, &mappedInput, finishedBooks, globalStats, finishedBooksPage, true,
+                                hasPreviousPage, hasNextPage, showAllDevicesStats);
+      }
+      break;
+    case Page::Achievement:
+      renderReadingAchievementPage(renderer, &mappedInput, bookTitle, stats, globalStats, true);
       break;
     case Page::AllDevices:
       renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_ALL_DEVICES_SCREEN), allDevicesStats, true, false);

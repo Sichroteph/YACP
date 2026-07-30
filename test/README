@@ -10,6 +10,10 @@ in the development cycle.
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
 
+Host unit tests:
+- Run `pio run -e tiny -t unit-tests` from the repo root.
+- The custom target uses CMake/CTest and does not compile a firmware image.
+
 Simulator smoke test:
 - Run `./scripts/run_simulator_smoke_test.py` from the repo root.
 - The script builds `env:simulator`, creates a temporary `fs_`, copies a test EPUB into it, opens common screens, renders them, drives reader page/menu input, and fails on crashes or missing success output.

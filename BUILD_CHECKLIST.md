@@ -9,7 +9,7 @@ This checklist is printed in the GitHub Actions build summary and attached to ea
 - [ ] User-facing additions, changes, and fixes are described factually.
 - [ ] `pio run -e tiny` succeeds.
 - [ ] `pio run -e xlarge` succeeds.
-- [ ] Firmware files use the `YACP-<version>-yacp-<variant>.bin` naming rule.
+- [ ] Firmware files use the `YACP-<version>-<variant>.bin` naming rule.
 - [ ] SHA-256 checksums are generated.
 
 ## Required when applicable

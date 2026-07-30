@@ -56,6 +56,15 @@ fs_/.crosspoint/daily_reading.bin
 
 It refuses to replace those files unless `--force` is present.
 
+To open the deterministic completion achievement directly:
+
+```sh
+CROSSINK_SIMULATOR_STATS_DEMO=achievement pio run -e simulator_x3 -t run_simulator
+```
+
+The demo uses French for interactive review. Automated captures still use English
+when `CROSSPOINT_SIM_SCREENSHOTS` is present, as required below.
+
 ## Autonomy demo
 
 The autonomy screen has deterministic in-memory demo data. It does not create or
@@ -103,6 +112,16 @@ regardless of the language saved in `fs_`. This keeps all automated screenshots
 intended for GitHub consistent without changing the saved simulator preference.
 All screenshots published on GitHub, including manually triggered captures, must
 show the English UI.
+
+For example, this command captures the completion achievement after generating
+the Reading Stats demo data:
+
+```sh
+CROSSINK_SIMULATOR_STATS_DEMO=achievement \
+CROSSPOINT_SIM_INPUT_SCRIPT='3000:QUIT' \
+CROSSPOINT_SIM_SCREENSHOTS='1800:./qa-artifacts/reading-achievement-en.bmp' \
+  .pio/build/simulator_x3/program
+```
 
 The committed Reading Rhythm image was produced from this path and converted to PNG.
 The original PNG and GIF captures remain 1-bit representations of the e-ink

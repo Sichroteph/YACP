@@ -28,6 +28,7 @@ class HomeActivity final : public Activity {
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;
+  bool forceFullRefreshOnNextDisplay = false;
   bool hasReadingStats = false;
   bool hasBookmarks = false;
   bool hasClippings = false;
@@ -117,8 +118,11 @@ class HomeActivity final : public Activity {
 
  public:
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                        HomeMenuItem initialMenuItemValue = HomeMenuItem::NONE)
-      : Activity("Home", renderer, mappedInput), initialMenuItem(initialMenuItemValue) {}
+                        HomeMenuItem initialMenuItemValue = HomeMenuItem::NONE,
+                        bool forceFullRefreshOnFirstDisplay = false)
+      : Activity("Home", renderer, mappedInput),
+        forceFullRefreshOnNextDisplay(forceFullRefreshOnFirstDisplay),
+        initialMenuItem(initialMenuItemValue) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

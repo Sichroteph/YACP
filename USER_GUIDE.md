@@ -179,7 +179,9 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "In Reader" - Show battery percentage everywhere except in reading mode
   - "Always" - Always hide battery percentage
 
-- **Refresh Frequency**: Set how often the screen does a full refresh while reading to reduce ghosting; options are every 1, 5, 10, 15, or 30 pages.
+- **Refresh Frequency**: Set the interval for periodic screen maintenance while reading; options are every 1, 5, 10, 15, 30, or 60 pages, or never. "Never" disables only periodic maintenance; cleanup refreshes required after images, indexing, wake, and sleep screens still run.
+
+- **Periodic Screen Maintenance**: Choose a full refresh for maximum ghost cleanup, or B/W Reinforcement on X3 for maintenance without a full-screen flash. At the selected interval, reinforcement is part of that page turn rather than a separate second update. Manual refreshes and cleanup required after images, grayscale content, or popups remain full.
 
 - **UI Theme**: Set which UI theme to use:
   - "Classic" - The original Crosspoint theme
@@ -262,7 +264,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "Ignore" (default) - Require a long press to turn off the device
   - "Sleep" - A short press puts the device into sleep mode
   - "Page Turn" - A short press in reading mode turns to the next page; a long press turns the device off
-  - "Toggle Bookmark", "Reading Stats", "Mark Finished", "Refresh", "Change Font", "Guide Dots", "Bionic Reading", "Auto Page Turn", "Sync Progress", "File Transfer", "Screenshot", or "Dark Mode" - Run the matching reader action
+  - "Toggle Bookmark", "Reading Stats", "Mark Finished", "Refresh", "Reinforce B/W Without Flash (X3)", "Change Font", "Guide Dots", "Bionic Reading", "Auto Page Turn", "Sync Progress", "File Transfer", "Screenshot", or "Dark Mode" - Run the matching reader action. B/W reinforcement redraws the current black-and-white page with the X3 OEM settle waveform; grayscale pages and non-X3 devices use the full-refresh fallback.
   - "Footnotes" - A short press in reading mode opens the footnotes submenu; if only one footnote is present on the page, the referenced page is opened directly. The short press on the power button can be used to select the footnote in the submenu, and to go back to the original page after finish reading the footnote (like the back button).
 
 - **Quick-return from footnotes**: Toggles on and off the quick return functionality from the footnotes. When the functionality it's active, a short press of the power button will act as the back button from the footnotes page.
@@ -575,6 +577,18 @@ Available options include:
 - **Sync Progress** – Push or pull reading progress with a KOReader sync server (see [KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)).
 - **Reading Stats** – Open the current book's reading stats.
 - **Mark Finished / Mark Unfinished** – Toggle whether the current book is marked as finished.
+
+When a book changes from unfinished to finished, the next return to Home first shows a congratulation screen with
+reading time, sessions, average session length, favorite reading time, reading span, and completed-book count.
+
+From Reading Stats, choose **More** to open Reading Rhythm and then **More** again to open **Finished Books**. On an
+X4 or another device without a real-time clock, the first **More** opens Finished Books directly. The page shows this
+device's total reading time and the 32 most recently completed EPUB or XTC books, five at a time. Use **Next** and
+**Prev.** to move through every retained entry.
+
+The bounded list avoids scanning the complete SD card or allocating a full-library catalogue. After upgrading from an
+older version, YACP imports completed books found in the recent-books list; books completed afterward are added
+automatically.
 
 Press **Back** at any time to close the menu and return to your current page.
 

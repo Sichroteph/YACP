@@ -1,6 +1,6 @@
 """
 PlatformIO post-load script: register a `unit-tests` custom target so
-`pio run -t unit-tests` builds and runs the host gtest suites under test/.
+`pio run -e tiny -t unit-tests` builds and runs the host gtest suites under test/.
 
 The target shells out to CMake/CTest; the gtest framework is fetched and
 the suites are built outside the PlatformIO/ESP-IDF toolchain (this is a
@@ -20,8 +20,8 @@ env.AddCustomTarget(  # noqa: F821
     dependencies=None,
     actions=[
         f'cmake -S "{TEST_SRC_DIR}" -B "{BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release',
-        f'cmake --build "{BUILD_DIR}"',
-        f'ctest --test-dir "{BUILD_DIR}" --output-on-failure -j',
+        f'cmake --build "{BUILD_DIR}" --config Release',
+        f'ctest --test-dir "{BUILD_DIR}" -C Release --output-on-failure -j',
     ],
     title="Host unit tests",
     description="Build and run gtest suites in test/ via CMake/CTest",

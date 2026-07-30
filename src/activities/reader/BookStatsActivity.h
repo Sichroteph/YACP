@@ -2,15 +2,21 @@
 
 #include <HalClock.h>
 
+#include <memory>
 #include <string>
 
 #include "../Activity.h"
 #include "BookReadingStats.h"
 #include "DailyReadingHistory.h"
+#include "FinishedBooksIndex.h"
 #include "GlobalReadingStats.h"
 
 class BookStatsActivity final : public Activity {
-  enum class Page : uint8_t { Summary, ReadingRhythm, AllDevices, EditDates };
+ public:
+  enum class InitialPage : uint8_t { Summary, Achievement };
+
+ private:
+  enum class Page : uint8_t { Summary, ReadingRhythm, FinishedBooks, Achievement, AllDevices, EditDates };
 
   std::string bookTitle;
   std::string bookCachePath;
@@ -20,12 +26,14 @@ class BookStatsActivity final : public Activity {
   // Kept in the heap-allocated activity so rendering never allocates or places
   // the 730-day history on the task stack.
   DailyReadingHistory dailyReadingHistory;
+  std::vector<FinishedBookEntry> finishedBooks;
   bool showAllDevicesStats = false;
   bool returnToHomeOnExit = false;
   float progressPercent = -1.0f;
   bool hasEstimatedTimeLeft = false;
   uint32_t estimatedTimeLeftSeconds = 0;
   Page page = Page::Summary;
+  size_t finishedBooksPage = 0;
   int selectedEditField = 0;
   bool didChangeStats = false;
 
@@ -46,11 +54,12 @@ class BookStatsActivity final : public Activity {
   BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                     const std::string& bookCachePath, const BookReadingStats& stats, float progressPercent,
                     bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
-                    bool returnToHomeOnExit = false);
+                    bool returnToHomeOnExit = false, InitialPage initialPage = InitialPage::Summary);
   BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                     const std::string& bookCachePath, const BookReadingStats& stats, float progressPercent,
                     bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
-                    const GlobalReadingStats& allDevicesStats, bool returnToHomeOnExit = false);
+                    const GlobalReadingStats& allDevicesStats, bool returnToHomeOnExit = false,
+                    InitialPage initialPage = InitialPage::Summary);
 
   void onEnter() override;
   void onExit() override;

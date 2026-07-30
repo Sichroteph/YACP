@@ -21,6 +21,7 @@ DEFAULT_OUTPUT_DIR = DEFAULT_SOURCE_DIR / "media"
 DEFAULT_ASSETS = (
     "home.png",
     "home-switcher.gif",
+    "reading-achievement.png",
     "reading-stats.png",
     "reading-rhythm.png",
     "autonomy.png",

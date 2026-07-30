@@ -79,8 +79,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-publish
-          cp .pio/build/tiny/firmware-tiny.bin "dist-publish/YACP-${VERSION}-yacp-tiny.bin"
-          cp .pio/build/xlarge/firmware-xlarge.bin "dist-publish/YACP-${VERSION}-yacp-xlarge.bin"
+          cp .pio/build/tiny/firmware-tiny.bin "dist-publish/YACP-${VERSION}-tiny.bin"
+          cp .pio/build/xlarge/firmware-xlarge.bin "dist-publish/YACP-${VERSION}-xlarge.bin"
           cd dist-publish
           sha256sum ./*.bin > SHA256SUMS.txt
 
@@ -132,6 +132,6 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            dist-publish/YACP-${{ steps.version.outputs.value }}-yacp-tiny.bin
-            dist-publish/YACP-${{ steps.version.outputs.value }}-yacp-xlarge.bin
+            dist-publish/YACP-${{ steps.version.outputs.value }}-tiny.bin
+            dist-publish/YACP-${{ steps.version.outputs.value }}-xlarge.bin
             dist-publish/SHA256SUMS.txt
