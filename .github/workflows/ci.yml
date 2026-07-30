@@ -3,6 +3,13 @@ name: Build firmware
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - "scripts/build_media_previews.py"
+      - "scripts/generate_reading_stats_demo.py"
+      - "src/simulator/**"
+      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 permissions:

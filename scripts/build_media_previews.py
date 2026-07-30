@@ -22,6 +22,7 @@ DEFAULT_ASSETS = (
     "home.png",
     "home-switcher.gif",
     "reading-achievement.png",
+    "finished-books.png",
     "reading-stats.png",
     "reading-rhythm.png",
     "autonomy.png",

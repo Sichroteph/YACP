@@ -24,7 +24,9 @@ bool startSimulatorReadingStatsDemo() {
   if (requestedPage == nullptr || requestedPage[0] == '\0') {
     return false;
   }
-  if (std::strcmp(requestedPage, "achievement") != 0) {
+  const bool showAchievement = std::strcmp(requestedPage, "achievement") == 0;
+  const bool showFinishedBooks = std::strcmp(requestedPage, "finished-books") == 0;
+  if (!showAchievement && !showFinishedBooks) {
     LOG_ERR("SIM", "Unknown reading statistics demo: %s", requestedPage);
     return false;
   }
@@ -44,13 +46,13 @@ bool startSimulatorReadingStatsDemo() {
 
   auto activity = makeUniqueNoThrow<BookStatsActivity>(
       renderer, mappedInputManager, "Dune - Frank Herbert", std::string{}, stats, 100.0f, false, 0, globalStats, true,
-      BookStatsActivity::InitialPage::Achievement);
+      showAchievement ? BookStatsActivity::InitialPage::Achievement : BookStatsActivity::InitialPage::Summary);
   if (!activity) {
     LOG_ERR("SIM", "Could not allocate reading statistics demo");
     return false;
   }
 
-  LOG_INF("SIM", "Starting reading achievement demo");
+  LOG_INF("SIM", "Starting reading statistics demo: %s", requestedPage);
   activityManager.replaceActivity(std::move(activity));
   return true;
 }

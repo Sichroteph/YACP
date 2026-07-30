@@ -52,6 +52,7 @@ The generator writes only:
 ```text
 fs_/.crosspoint/global_stats.bin
 fs_/.crosspoint/daily_reading.bin
+fs_/.crosspoint/finished_books.bin
 ```
 
 It refuses to replace those files unless `--force` is present.
@@ -60,6 +61,17 @@ To open the deterministic completion achievement directly:
 
 ```sh
 CROSSINK_SIMULATOR_STATS_DEMO=achievement pio run -e simulator_x3 -t run_simulator
+```
+
+The same demo can open the normal statistics flow for an automated **Books
+Finished** capture. Generate the demo files first, then move from Summary to
+Reading Rhythm and Books Finished with two Right inputs:
+
+```sh
+CROSSINK_SIMULATOR_STATS_DEMO=finished-books \
+CROSSPOINT_SIM_INPUT_SCRIPT='2200:RIGHT;3200:RIGHT;5200:QUIT' \
+CROSSPOINT_SIM_SCREENSHOTS='4300:./qa-artifacts/finished-books-en.bmp' \
+  .pio/build/simulator_x3/program
 ```
 
 The demo uses French for interactive review. Automated captures still use English

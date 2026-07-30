@@ -123,7 +123,7 @@ sleep transitions, manual full refreshes, and non-X3 devices continue to use the
 The release demonstration compares the previous behavior with the new waveform over the same ten-second reading
 sequence. The same video adjustments are applied to both clips to make faint ghosting easier to see.
 
-<video src="https://github.com/Sichroteph/YACP/releases/download/v1.4.0-yacp.155/YACP-ghosting-before-after.mp4"
+<video src="https://github.com/user-attachments/assets/06bacfcf-597c-4017-9074-67e3561071f8"
        controls></video>
 
 [Open the no-flash screen-maintenance comparison](https://github.com/Sichroteph/YACP/releases/download/v1.4.0-yacp.155/YACP-ghosting-before-after.mp4)
@@ -158,27 +158,37 @@ the entire SD card.
     <td align="center">
       <img src="docs/images/yacp/media/reading-achievement.png"
            alt="YACP Reading Achievement page shown after finishing Dune"
-           width="244">
+           width="264">
     </td>
     <td align="center">
-      <img src="docs/images/yacp/media/reading-stats.png"
-           alt="YACP Reading Stats summary combining the current book and this device on one screen"
-           width="244">
-    </td>
-    <td align="center">
-      <img src="docs/images/yacp/media/reading-rhythm.png"
-           alt="Reading Rhythm rendered by the X3 simulator"
-           width="244">
+      <img src="docs/images/yacp/media/finished-books.png"
+           alt="YACP Books Finished history populated with deterministic sample books"
+           width="264">
     </td>
   </tr>
   <tr>
     <td align="center">Reading Achievement</td>
+    <td align="center">Books Finished</td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/images/yacp/media/reading-stats.png"
+           alt="YACP Reading Stats summary combining the current book and this device on one screen"
+           width="264">
+    </td>
+    <td align="center">
+      <img src="docs/images/yacp/media/reading-rhythm.png"
+           alt="Reading Rhythm rendered by the X3 simulator"
+           width="264">
+    </td>
+  </tr>
+  <tr>
     <td align="center">Reading Stats summary</td>
     <td align="center">Reading Rhythm</td>
   </tr>
 </table>
 
-Both screenshots use deterministic generated data and contain no personal history. Reproduction commands are in the
+These screenshots use deterministic generated data and contain no personal history. Reproduction commands are in the
 [simulator guide](docs/simulator.md).
 
 ### Autonomy

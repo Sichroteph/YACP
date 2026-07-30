@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate deterministic simulator data for the Reading Rhythm screen."""
+"""Generate deterministic simulator data for the reading statistics screens."""
 
 from __future__ import annotations
 
@@ -13,6 +13,16 @@ HISTORY_DAYS = 730
 HISTORY_BYTES = 92
 GLOBAL_STATS_SIZE = 159
 EPOCH = date(2000, 1, 1)
+FINISHED_BOOKS = (
+    ("Dune", 11 * 3600 + 48 * 60, date(2026, 7, 28)),
+    ("The Hobbit", 8 * 3600 + 21 * 60, date(2026, 7, 19)),
+    ("Project Hail Mary", 13 * 3600 + 7 * 60, date(2026, 7, 8)),
+    ("1984", 6 * 3600 + 42 * 60, date(2026, 6, 24)),
+    ("Pride and Prejudice", 9 * 3600 + 16 * 60, date(2026, 6, 11)),
+    ("The Left Hand of Darkness", 7 * 3600 + 35 * 60, date(2026, 5, 29)),
+    ("The Count of Monte Cristo", 18 * 3600 + 52 * 60, date(2026, 5, 12)),
+    ("The Little Prince", 2 * 3600 + 4 * 60, date(2026, 4, 30)),
+)
 
 
 def day_index(value: date) -> int:
@@ -93,6 +103,28 @@ def build_global_stats(anchor: date, minutes: list[int]) -> bytes:
     return bytes(payload)
 
 
+def build_finished_books() -> bytes:
+    payload = bytearray(b"CPFB")
+    payload.extend(struct.pack("<BBH", 1, len(FINISHED_BOOKS), 0))
+    for path_key, (title, total_seconds, finished_date) in enumerate(
+        FINISHED_BOOKS, start=1
+    ):
+        title_bytes = title.encode("utf-8")
+        payload.extend(
+            struct.pack(
+                "<QI HBB H",
+                path_key,
+                total_seconds,
+                finished_date.year,
+                finished_date.month,
+                finished_date.day,
+                len(title_bytes),
+            )
+        )
+        payload.extend(title_bytes)
+    return bytes(payload)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Create plausible reading statistics for simulator screenshots."
@@ -122,8 +154,13 @@ def main() -> int:
     stats_dir = args.output_root / ".crosspoint"
     global_path = stats_dir / "global_stats.bin"
     daily_path = stats_dir / "daily_reading.bin"
+    finished_books_path = stats_dir / "finished_books.bin"
 
-    existing = [path for path in (global_path, daily_path) if path.exists()]
+    existing = [
+        path
+        for path in (global_path, daily_path, finished_books_path)
+        if path.exists()
+    ]
     if existing and not args.force:
         joined = ", ".join(str(path) for path in existing)
         raise SystemExit(f"Refusing to replace existing files without --force: {joined}")
@@ -134,11 +171,13 @@ def main() -> int:
 
     daily_header = b"CRHM" + bytes([1]) + struct.pack("<I", day_index(args.anchor_date))
     daily_path.write_bytes(daily_header + bytes(minutes))
+    finished_books_path.write_bytes(build_finished_books())
 
     print(f"Generated Reading Rhythm demo for {args.anchor_date.isoformat()}")
     print(f"Reading days: {sum(1 for value in minutes if value)}")
     print(f"Total reading time: {sum(minutes) // 60} h {sum(minutes) % 60} min")
     print(f"Longest streak: {longest_streak(minutes)} days")
+    print(f"Finished books: {len(FINISHED_BOOKS)}")
     print(f"Output: {stats_dir}")
     return 0
 
