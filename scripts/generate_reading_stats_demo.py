@@ -13,15 +13,16 @@ HISTORY_DAYS = 730
 HISTORY_BYTES = 92
 GLOBAL_STATS_SIZE = 159
 EPOCH = date(2000, 1, 1)
+# Most recently finished first; each sample starts the day after the older one ended.
 FINISHED_BOOKS = (
-    ("Dune", 8 * 3600 + 42 * 60, date(2026, 6, 12), date(2026, 8, 1)),
-    ("The Hobbit", 8 * 3600 + 21 * 60, date(2026, 7, 1), date(2026, 7, 19)),
-    ("Project Hail Mary", 13 * 3600 + 7 * 60, date(2026, 6, 16), date(2026, 7, 8)),
-    ("1984", 6 * 3600 + 42 * 60, date(2026, 6, 10), date(2026, 6, 24)),
-    ("Pride and Prejudice", 9 * 3600 + 16 * 60, date(2026, 5, 18), date(2026, 6, 11)),
-    ("The Left Hand of Darkness", 7 * 3600 + 35 * 60, date(2026, 5, 7), date(2026, 5, 29)),
-    ("The Count of Monte Cristo", 18 * 3600 + 52 * 60, date(2026, 3, 20), date(2026, 5, 12)),
-    ("The Little Prince", 2 * 3600 + 4 * 60, date(2026, 4, 29), date(2026, 4, 30)),
+    ("Dune", 8 * 3600 + 42 * 60, date(2026, 7, 20), date(2026, 8, 1)),
+    ("The Hobbit", 8 * 3600 + 21 * 60, date(2026, 7, 9), date(2026, 7, 19)),
+    ("Project Hail Mary", 13 * 3600 + 7 * 60, date(2026, 6, 25), date(2026, 7, 8)),
+    ("1984", 6 * 3600 + 42 * 60, date(2026, 6, 12), date(2026, 6, 24)),
+    ("Pride and Prejudice", 9 * 3600 + 16 * 60, date(2026, 5, 30), date(2026, 6, 11)),
+    ("The Left Hand of Darkness", 7 * 3600 + 35 * 60, date(2026, 5, 17), date(2026, 5, 29)),
+    ("The Count of Monte Cristo", 18 * 3600 + 52 * 60, date(2026, 4, 25), date(2026, 5, 16)),
+    ("The Little Prince", 2 * 3600 + 4 * 60, date(2026, 4, 22), date(2026, 4, 24)),
 )
 
 
