@@ -1,6 +1,6 @@
 # Build checklist
 
-This checklist is printed in the GitHub Actions build summary and attached to each draft release.
+This checklist is printed in the GitHub Actions build summary. It is not copied into public release notes.
 
 ## Required for every main build
 
@@ -24,3 +24,10 @@ This checklist is printed in the GitHub Actions build summary and attached to ea
 ## Release status
 
 A CI success means the source compiled. It does not imply hardware validation. Draft releases must state hardware status before publication.
+
+## Release preparation
+
+- Pushes to `main` build and retain downloadable workflow artifacts without creating GitHub release drafts.
+- To prepare a real release, run the **Build firmware** workflow manually with **Prepare release** enabled.
+- The draft starts with the current user-facing changelog only. Refine it and state the actual hardware-validation
+  status before publication.

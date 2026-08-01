@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths-ignore:
+      - "AGENTS.md"
+      - "BUILD_CHECKLIST.md"
       - "README.md"
       - "docs/**"
       - "scripts/build_media_previews.py"
@@ -11,6 +13,12 @@ on:
       - "src/simulator/**"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
+    inputs:
+      prepare_release:
+        description: Create or update the draft release for this version
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -98,7 +106,13 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "# YACP ${VERSION}"
+            echo "## Changes"
+            echo
+            awk 'NR == 1 { next } /^## \[/ { exit } { print }' CHANGELOG.md
+          } > dist-publish/RELEASE_NOTES.md
+
+          {
+            echo "# YACP ${VERSION} build"
             echo
             echo "Commit: \`${GITHUB_SHA}\`"
             echo
@@ -112,10 +126,6 @@ jobs:
             echo "## Current changelog"
             echo
             awk 'NR == 1 { print; next } /^## \[/ { exit } { print }' CHANGELOG.md
-          } > dist-publish/RELEASE_NOTES.md
-
-          cat dist-publish/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
-          {
             echo
             echo "## Firmware size"
             grep -E "RAM:\\s|Flash:\\s" pio.log | while read -r line; do echo "- ${line}"; done
@@ -128,7 +138,8 @@ jobs:
           path: dist-publish/
           if-no-files-found: error
 
-      - name: Create or update draft release
+      - name: Create or update release draft on request
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.prepare_release }}
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.value }}
@@ -136,7 +147,7 @@ jobs:
           name: YACP ${{ steps.version.outputs.value }}
           body_path: dist-publish/RELEASE_NOTES.md
           draft: true
-          prerelease: true
+          prerelease: false
           fail_on_unmatched_files: true
           files: |
             dist-publish/YACP-${{ steps.version.outputs.value }}-tiny.bin
