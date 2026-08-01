@@ -1,8 +1,13 @@
-# CrossInk User Guide
+# YACP User Guide
 
-Welcome to the **CrossInk** firmware. This guide outlines the hardware controls, navigation, and reading features of the device.
+Welcome to the **YACP** firmware. This guide outlines the hardware controls, navigation, and reading features of the device.
 
-- [CrossInk User Guide](#CrossInk-user-guide)
+YACP is built for one primary path: open a book, keep the reader responsive, use as little battery and incidental work
+as practical, and read sequentially until the book is finished. It is not intended as a general-purpose handheld, game
+platform, or feature-collection firmware. Extra features are kept only when they do not compromise the normal reading
+path.
+
+- [YACP User Guide](#yacp-user-guide)
   - [1. Hardware Overview](#1-hardware-overview)
     - [Button Layout](#button-layout)
     - [Taking a Screenshot](#taking-a-screenshot)

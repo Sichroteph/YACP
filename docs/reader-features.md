@@ -5,9 +5,15 @@ nav_order: 17
 
 # Reader Features
 
-This page covers a subset of CrossInk reader features that go beyond basic page turning. It is not a complete list of every reader setting or action. For a more complete list of features as they were released, see the [releases page](https://github.com/uxjulia/CrossInk/releases).
+YACP is built for one primary path: open a book, keep the reader responsive, use as little battery and incidental work
+as practical, and read sequentially until the book is finished. It is not intended as a general-purpose handheld, game
+platform, or feature-collection firmware. Extra features are kept only when they do not compromise the normal reading
+path.
 
-The sections here focus on larger CrossInk-specific reader features. Small fixes, implementation details, and features that only arrived from upstream CrossPoint are intentionally left out.
+This page covers the reader features that remain useful within that path. It is not a complete list of every inherited
+CrossInk setting or action.
+
+Small fixes, implementation details, and features that only arrived from upstream CrossPoint are intentionally left out.
 
 ## In-book Reader Options
 
