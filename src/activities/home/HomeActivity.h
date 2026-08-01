@@ -110,6 +110,7 @@ class HomeActivity final : public Activity {
   void initializeYacpBookNavigation();
   void showAdjacentYacpBook(int direction);
   void updateHighlightedBookContext();
+  void syncHighlightedFinishedBookIndex();
   void loadReadingStatsContext();
   void loadHomeMenuContext();
   void loadRecentBooks(int maxBooks, bool resolveCoverPaths);

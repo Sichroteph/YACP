@@ -507,6 +507,7 @@ STR_NEARBY_STATS_SIMULATOR_UNAVAILABLE: "Синхронизация статис
 STR_CHANGE_FONT: "Изменить шрифт"
 STR_CHANGE_FONT_SIZE: "Изменить размер шрифта"
 STR_CHAPTER_SKIP_OPT: "Пропустить главу"
+STR_PREVIOUS_PAGE_OPT: "Предыдущая страница"
 STR_DISPLAY_SLEEP_SCREEN: "Экран сна"
 STR_FORCE_PARAGRAPH_INDENTS: "Принудительные отступы абзацев"
 STR_FRONT_BUTTONS: "Передние кнопки"

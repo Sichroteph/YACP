@@ -255,7 +255,8 @@ void TxtReaderActivity::loop() {
     }
   }
 
-  auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
+  auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] =
+      ReaderUtils::detectPageTurn(mappedInput, sideButtonLongPressHandled);
   (void)fromSideBtn;
   (void)fromTilt;
   if (!prevTriggered && !nextTriggered) {

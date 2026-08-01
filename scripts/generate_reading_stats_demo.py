@@ -14,14 +14,14 @@ HISTORY_BYTES = 92
 GLOBAL_STATS_SIZE = 159
 EPOCH = date(2000, 1, 1)
 FINISHED_BOOKS = (
-    ("Dune", 11 * 3600 + 48 * 60, date(2026, 7, 28)),
-    ("The Hobbit", 8 * 3600 + 21 * 60, date(2026, 7, 19)),
-    ("Project Hail Mary", 13 * 3600 + 7 * 60, date(2026, 7, 8)),
-    ("1984", 6 * 3600 + 42 * 60, date(2026, 6, 24)),
-    ("Pride and Prejudice", 9 * 3600 + 16 * 60, date(2026, 6, 11)),
-    ("The Left Hand of Darkness", 7 * 3600 + 35 * 60, date(2026, 5, 29)),
-    ("The Count of Monte Cristo", 18 * 3600 + 52 * 60, date(2026, 5, 12)),
-    ("The Little Prince", 2 * 3600 + 4 * 60, date(2026, 4, 30)),
+    ("Dune", 8 * 3600 + 42 * 60, date(2026, 6, 12), date(2026, 8, 1)),
+    ("The Hobbit", 8 * 3600 + 21 * 60, date(2026, 7, 1), date(2026, 7, 19)),
+    ("Project Hail Mary", 13 * 3600 + 7 * 60, date(2026, 6, 16), date(2026, 7, 8)),
+    ("1984", 6 * 3600 + 42 * 60, date(2026, 6, 10), date(2026, 6, 24)),
+    ("Pride and Prejudice", 9 * 3600 + 16 * 60, date(2026, 5, 18), date(2026, 6, 11)),
+    ("The Left Hand of Darkness", 7 * 3600 + 35 * 60, date(2026, 5, 7), date(2026, 5, 29)),
+    ("The Count of Monte Cristo", 18 * 3600 + 52 * 60, date(2026, 3, 20), date(2026, 5, 12)),
+    ("The Little Prince", 2 * 3600 + 4 * 60, date(2026, 4, 29), date(2026, 4, 30)),
 )
 
 
@@ -105,16 +105,19 @@ def build_global_stats(anchor: date, minutes: list[int]) -> bytes:
 
 def build_finished_books() -> bytes:
     payload = bytearray(b"CPFB")
-    payload.extend(struct.pack("<BBH", 1, len(FINISHED_BOOKS), 0))
-    for path_key, (title, total_seconds, finished_date) in enumerate(
+    payload.extend(struct.pack("<BBH", 2, len(FINISHED_BOOKS), 0))
+    for path_key, (title, total_seconds, start_date, finished_date) in enumerate(
         FINISHED_BOOKS, start=1
     ):
         title_bytes = title.encode("utf-8")
         payload.extend(
             struct.pack(
-                "<QI HBB H",
+                "<QI HBB HBB H",
                 path_key,
                 total_seconds,
+                start_date.year,
+                start_date.month,
+                start_date.day,
                 finished_date.year,
                 finished_date.month,
                 finished_date.day,

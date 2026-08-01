@@ -146,14 +146,6 @@ class EpubReaderActivity final : public Activity {
   size_t renderModeToastRegionBufferSize = 0;
   ToastRect renderModeToastRegion;
   bool renderModeToastRegionSaved = false;
-  int completionTriggerSpineIndex = -1;
-  float completionTriggerSpineProgress = 1.0f;
-  bool completionPromptQueued = false;
-  bool completionPromptShown = false;
-  bool completionTriggerSeenBelow = false;
-  bool completionTriggerCrossed = false;
-  bool lastAtOrPastCompletionTrigger = false;
-
   // Tracks whether this book is currently removed from Recent Books by the
   // removeReadBooksFromRecents feature (set at End-of-Book, cleared if paged back in).
   bool recentsEntryRemoved = false;
@@ -207,6 +199,7 @@ class EpubReaderActivity final : public Activity {
   bool formatTimeLeftLabel(char* buf, size_t len) const;
   void refreshCachedTimeLeftEstimate();
   void applyBookStatsEditsFromDisk();
+  void syncFinishedBookIndex();
   void handleBookStatsReturn();
   BookReadingStats achievementStatsPreview(uint32_t* pendingReadingSeconds = nullptr) const;
   void goHomeOrShowCompletionAchievement();
@@ -246,10 +239,6 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void pageTurn(bool isForwardTurn, const char* source = "unknown");
   float getCurrentBookProgressPercent() const;
-  void initializeCompletionPromptTrigger();
-  bool isAtOrPastCompletionTrigger() const;
-  bool shouldQueueCompletionPromptOnChapterExit() const;
-  void queueCompletionPromptIfNeeded();
   void setBookCompleted(bool isCompleted);
   void showCompletedFeedback(bool isCompleted);
   void showTiltPageTurnFeedback(bool enabled);

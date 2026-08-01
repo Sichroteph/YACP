@@ -50,11 +50,16 @@ namespace {
 // Binary layout v5 (73 bytes):
 //   [0-68]   v4 fields
 //   [69-72]  estimatedTimeLeftSeconds  uint32_t LE, 0 means unavailable
-static constexpr uint8_t STATS_FILE_VERSION = 5;
+//
+// Binary layout v6 (73 bytes):
+//   Same fields as v5; flags bit2 persists a pending first-completion achievement,
+//   and bit3 suppresses a declined rounded-100% exit prompt until reading advances.
+static constexpr uint8_t STATS_FILE_VERSION = 6;
 static constexpr uint8_t STATS_FILE_VERSION_V2 = 2;
 static constexpr uint8_t STATS_FILE_VERSION_V1 = 1;
 static constexpr uint8_t STATS_FILE_VERSION_V3 = 3;
 static constexpr uint8_t STATS_FILE_VERSION_V4 = 4;
+static constexpr uint8_t STATS_FILE_VERSION_V5 = 5;
 static constexpr int STATS_FILE_SIZE_V1 = 11;
 static constexpr int STATS_FILE_SIZE_V2 = 12;
 static constexpr int STATS_FILE_SIZE_V3 = 16;
@@ -63,7 +68,8 @@ static constexpr int STATS_FILE_SIZE = 73;
 static constexpr uint16_t MAX_PACE_SAMPLE_COUNT = 1000;
 static constexpr uint8_t FLAG_START_DATE_MANUAL = 1u << 0;
 static constexpr uint8_t FLAG_FINISHED_DATE_MANUAL = 1u << 1;
-static constexpr uint8_t PREVIOUS_VERSIONED_STATS_FILE_VERSION = STATS_FILE_VERSION - 1;
+static constexpr uint8_t FLAG_COMPLETION_ACHIEVEMENT_PENDING = 1u << 2;
+static constexpr uint8_t FLAG_COMPLETION_PROMPT_DISMISSED_AT_HUNDRED = 1u << 3;
 static constexpr const char* LEGACY_STATS_FILE_NAME = "stats.bin";
 
 std::string statsFileNameForVersion(const uint8_t version) {
@@ -78,13 +84,14 @@ bool openStatsFileForRead(const std::string& cachePath, FsFile& f) {
     return true;
   }
 
-  // When bumping STATS_FILE_VERSION, this automatically tries the previous
-  // versioned filename (e.g. v6 falls back to stats_v5.bin) before the original
-  // unversioned stats.bin migration source.
-  const std::string previousName = statsFileNameForVersion(PREVIOUS_VERSIONED_STATS_FILE_VERSION);
-  if (Storage.openFileForRead("STATS", cachePath + "/" + previousName, f)) {
-    LOG_DBG("STATS", "Migrating %s to %s", previousName.c_str(), currentName.c_str());
-    return true;
+  // Keep both compatible predecessors readable so an older stats file cannot
+  // reappear after an explicit stats deletion or a skipped firmware version.
+  for (const uint8_t version : {STATS_FILE_VERSION_V5, STATS_FILE_VERSION_V4}) {
+    const std::string previousName = statsFileNameForVersion(version);
+    if (Storage.openFileForRead("STATS", cachePath + "/" + previousName, f)) {
+      LOG_DBG("STATS", "Migrating %s to %s", previousName.c_str(), currentName.c_str());
+      return true;
+    }
   }
 
   if (Storage.openFileForRead("STATS", cachePath + "/" + LEGACY_STATS_FILE_NAME, f)) {
@@ -172,7 +179,7 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return stats;
   }
-  if (n == STATS_FILE_SIZE && data[0] != STATS_FILE_VERSION) {
+  if (n == STATS_FILE_SIZE && data[0] != STATS_FILE_VERSION && data[0] != STATS_FILE_VERSION_V5) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return stats;
   }
@@ -183,6 +190,10 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   const uint8_t flags = data[16];
   stats.startDateManual = (flags & FLAG_START_DATE_MANUAL) != 0;
   stats.finishedDateManual = (flags & FLAG_FINISHED_DATE_MANUAL) != 0;
+  stats.completionAchievementPending =
+      data[0] == STATS_FILE_VERSION && (flags & FLAG_COMPLETION_ACHIEVEMENT_PENDING) != 0;
+  stats.completionPromptDismissedAtHundred =
+      data[0] == STATS_FILE_VERSION && (flags & FLAG_COMPLETION_PROMPT_DISMISSED_AT_HUNDRED) != 0;
   stats.startDate = readDate(data, 17);
   stats.finishedDate = readDate(data, 21);
   for (size_t i = 0; i < stats.timeOfDaySeconds.size(); ++i) {
@@ -255,7 +266,10 @@ void BookReadingStats::save(const std::string& cachePath) const {
   data[11] = isCompleted ? 1 : 0;
   writeLe16(data, 12, avgSecondsPerForwardPage);
   writeLe16(data, 14, paceSampleCount);
-  data[16] = (startDateManual ? FLAG_START_DATE_MANUAL : 0u) | (finishedDateManual ? FLAG_FINISHED_DATE_MANUAL : 0u);
+  data[16] = (startDateManual ? FLAG_START_DATE_MANUAL : 0u) |
+             (finishedDateManual ? FLAG_FINISHED_DATE_MANUAL : 0u) |
+             (completionAchievementPending ? FLAG_COMPLETION_ACHIEVEMENT_PENDING : 0u) |
+             (completionPromptDismissedAtHundred ? FLAG_COMPLETION_PROMPT_DISMISSED_AT_HUNDRED : 0u);
   writeLe16(data, 17, startDate.isValid() ? startDate.year : 0);
   data[19] = startDate.isValid() ? startDate.month : 0;
   data[20] = startDate.isValid() ? startDate.day : 0;
@@ -282,11 +296,13 @@ bool BookReadingStats::remove(const std::string& cachePath) {
     ok = false;
   }
 
-  const std::string previousStatsFileName = statsFileNameForVersion(PREVIOUS_VERSIONED_STATS_FILE_VERSION);
-  const std::string previousStatsPath = cachePath + "/" + previousStatsFileName;
-  if (Storage.exists(previousStatsPath.c_str()) && !Storage.remove(previousStatsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", previousStatsFileName.c_str());
-    ok = false;
+  for (const uint8_t version : {STATS_FILE_VERSION_V5, STATS_FILE_VERSION_V4}) {
+    const std::string previousStatsFileName = statsFileNameForVersion(version);
+    const std::string previousStatsPath = cachePath + "/" + previousStatsFileName;
+    if (Storage.exists(previousStatsPath.c_str()) && !Storage.remove(previousStatsPath.c_str())) {
+      LOG_ERR("STATS", "Could not delete %s", previousStatsFileName.c_str());
+      ok = false;
+    }
   }
 
   const std::string legacyStatsPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;

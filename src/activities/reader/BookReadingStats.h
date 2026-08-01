@@ -5,7 +5,7 @@
 
 #include "ReadingStatsUtils.h"
 
-// Per-book reading statistics, persisted to cachePath/stats_v5.bin.
+// Per-book reading statistics, persisted to cachePath/stats_v6.bin.
 struct BookReadingStats {
   uint16_t sessionCount = 0;              // Total times this book was opened
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
@@ -16,21 +16,23 @@ struct BookReadingStats {
   uint32_t estimatedTimeLeftSeconds = 0;  // Last live reader book time-left estimate; 0 means unavailable
   bool startDateManual = false;           // Permanent user override for the reading start date
   bool finishedDateManual = false;        // Permanent user override for the finished date
+  bool completionAchievementPending = false;  // First completion was saved but not celebrated yet
+  bool completionPromptDismissedAtHundred = false;  // Do not repeat a declined 100% exit prompt without progress
   ReadingStatsDate startDate;             // First qualifying reading date (or manual override)
-  ReadingStatsDate finishedDate;          // Manual or auto-finished date on X3
+  ReadingStatsDate finishedDate;          // First manual or automatic completion date
   std::array<uint32_t, READING_TIME_BUCKET_COUNT> timeOfDaySeconds{};
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
 
-  // Loads stats from cachePath/stats_v5.bin, with fallback reads from the
-  // previous versioned filename and legacy cachePath/stats.bin. Returns
+  // Loads stats from cachePath/stats_v6.bin, with fallback reads from the two
+  // previous versioned filenames and legacy cachePath/stats.bin. Returns
   // default-constructed stats if no compatible file exists.
   static BookReadingStats load(const std::string& cachePath);
 
-  // Saves stats to cachePath/stats_v5.bin.
+  // Saves stats to cachePath/stats_v6.bin.
   void save(const std::string& cachePath) const;
 
-  // Deletes cachePath/stats_v5.bin, the previous versioned filename, and legacy
-  // cachePath/stats.bin. Missing files are treated as success.
+  // Deletes cachePath/stats_v6.bin, the two previous versioned filenames, and
+  // legacy cachePath/stats.bin. Missing files are treated as success.
   static bool remove(const std::string& cachePath);
 
   // Updates the running reading pace with one forward page dwell sample.

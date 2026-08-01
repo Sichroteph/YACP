@@ -42,6 +42,10 @@ When set to `Orientation Change`, hold a side button for about 2 seconds:
 - Up cycles through the orientations in the following order: `Landscape CCW` -> `Inverted` -> `Landscape CW` -> `Portrait`
 - Down cycles through the orientations in the following order: `Landscape CW` -> `Inverted` -> `Landscape CCW` -> `Portrait`
 
+When set to `Previous Page`, holding either side button turns back exactly one page as soon as the hold threshold is
+reached. The normal short press keeps the configured page-turn direction. Release the button before another long-press
+page turn can occur. This action is available in EPUB, TXT, and XTC readers.
+
 
 ## Power, Back, and Menu Button Actions
 

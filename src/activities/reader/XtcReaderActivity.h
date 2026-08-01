@@ -32,7 +32,9 @@ class XtcReaderActivity final : public Activity {
   DailyReadingHistory dailyReadingHistory;
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
+  bool sessionAdvancedPage = false;
   bool longPowerPageTurnHandled = false;
+  bool sideButtonLongPressHandled = false;
   bool frontButtonLongPressHandled = false;
   bool longPressBackHandled = false;
   bool showCompletionAchievementOnExit = false;
@@ -62,6 +64,7 @@ class XtcReaderActivity final : public Activity {
   void recordForwardPageTurn(uint32_t seconds);
   void commitReadingStats();
   void resetCurrentBookStatsAfterDelete();
+  void syncFinishedBookIndex();
   void handleBookStatsReturn();
   BookReadingStats achievementStatsPreview(uint32_t* pendingReadingSeconds = nullptr) const;
   void goHomeOrShowCompletionAchievement();

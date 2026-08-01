@@ -23,7 +23,9 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
       progressPercent(progressPercent),
       hasEstimatedTimeLeft(hasEstimatedTimeLeft),
       estimatedTimeLeftSeconds(estimatedTimeLeftSeconds),
-      page(initialPage == InitialPage::Achievement ? Page::Achievement : Page::Summary) {}
+      page(initialPage == InitialPage::Achievement   ? Page::Achievement
+           : initialPage == InitialPage::FinishedBooks ? Page::FinishedBooks
+                                                       : Page::Summary) {}
 
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                      const std::string& bookCachePath, const BookReadingStats& stats,
@@ -42,7 +44,9 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
       progressPercent(progressPercent),
       hasEstimatedTimeLeft(hasEstimatedTimeLeft),
       estimatedTimeLeftSeconds(estimatedTimeLeftSeconds),
-      page(initialPage == InitialPage::Achievement ? Page::Achievement : Page::Summary) {}
+      page(initialPage == InitialPage::Achievement   ? Page::Achievement
+           : initialPage == InitialPage::FinishedBooks ? Page::FinishedBooks
+                                                       : Page::Summary) {}
 
 void BookStatsActivity::refreshAllDevicesStats() {
   if (showAllDevicesStats) {
@@ -57,9 +61,6 @@ void BookStatsActivity::saveStats() {
 
   stats.save(bookCachePath);
   globalStats.save();
-  if (!FinishedBooksIndex::record(bookCachePath, bookTitle, stats)) {
-    LOG_ERR("BSTATS", "Failed to update finished-books index");
-  }
   refreshAllDevicesStats();
   didChangeStats = false;
 }
@@ -93,6 +94,8 @@ void BookStatsActivity::applyCompletedState(const bool completed) {
   }
 
   stats.isCompleted = completed;
+  stats.completionAchievementPending = completed;
+  stats.completionPromptDismissedAtHundred = false;
   if (completed) {
     globalStats.completedBooks++;
     if (!stats.finishedDateManual && !stats.finishedDate.isValid()) {

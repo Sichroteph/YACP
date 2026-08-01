@@ -177,7 +177,9 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
   BookReadingStats stats = BookReadingStats::load(cachePath);
   completed = !stats.isCompleted;
   stats.isCompleted = completed;
-  if (completed && !stats.finishedDateManual) {
+  stats.completionAchievementPending = completed;
+  stats.completionPromptDismissedAtHundred = false;
+  if (completed && !stats.finishedDateManual && !stats.finishedDate.isValid()) {
     ReadingStatsDateTime now;
     if (getCurrentLocalReadingStatsDateTime(now)) {
       stats.finishedDate = now.date;

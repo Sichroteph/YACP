@@ -17,7 +17,7 @@ The main data directory is `.crosspoint` on the SD card. It stores render caches
 ├── global_stats.bin.bak    # Backup used if the main global stats file is corrupt
 ├── daily_reading.bin       # Rolling 730-day reading-duration history for the heatmap
 ├── daily_reading.bin.bak   # Automatic recovery copy for the daily history
-├── finished_books.bin      # Bounded chronological index for the Finished Books stats page
+├── finished_books.bin      # Bounded dated timeline index for the Finished Books stats page
 ├── finished_books.bin.bak  # Automatic recovery copy for the finished-books index
 ├── synced_stats/           # Stats snapshots received from other readers
 ├── crossink-settings.json  # CrossInk device settings
@@ -37,7 +37,7 @@ The main data directory is `.crosspoint` on the SD card. It stores render caches
 ├── epub_12471232/          # Each EPUB is cached to epub_<hash>
 │   ├── progress.bin        # Reading position (chapter, page, etc.)
 │   ├── stats.bin           # Legacy per-book reading stats
-│   ├── stats_v5.bin        # Version 5 per-book reading stats
+│   ├── stats_v6.bin        # Version 6 per-book reading stats
 │   ├── reader_settings.bin # Per-book reader settings, render mode, and auto-page-turn interval
 │   ├── cover.bmp           # Book cover image, once generated
 │   ├── thumb_*.bmp         # Home/recent-books thumbnail images

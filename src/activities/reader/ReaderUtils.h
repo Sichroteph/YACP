@@ -81,16 +81,44 @@ struct PageTurnResult {
   bool fromTilt;
 };
 
-inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
+struct SidePageTurnResult {
+  bool prev;
+  bool next;
+};
+
+inline SidePageTurnResult detectSidePageTurn(const MappedInputManager& input, bool& longPreviousHandled) {
   // Side buttons fire on press only when long-press action is OFF (nothing to detect).
   const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
+  const bool previousOnLongPress =
+      SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_PREVIOUS_PAGE;
+
+  const bool backReleased = input.wasReleased(MappedInputManager::Button::PageBack);
+  const bool forwardReleased = input.wasReleased(MappedInputManager::Button::PageForward);
+  if (previousOnLongPress && longPreviousHandled) {
+    if (backReleased || forwardReleased || (!input.isPressed(MappedInputManager::Button::PageBack) &&
+                                            !input.isPressed(MappedInputManager::Button::PageForward))) {
+      longPreviousHandled = false;
+    }
+    return {false, false};
+  }
+
+  const bool longPressReady = input.getHeldTime() >= SKIP_HOLD_MS;
+  const bool sideHeld = input.isPressed(MappedInputManager::Button::PageBack) ||
+                        input.isPressed(MappedInputManager::Button::PageForward);
+  if (previousOnLongPress && longPressReady && sideHeld) {
+    longPreviousHandled = true;
+    return {true, false};
+  }
+
+  return {sideUsePress ? input.wasPressed(MappedInputManager::Button::PageBack) : backReleased,
+          sideUsePress ? input.wasPressed(MappedInputManager::Button::PageForward) : forwardReleased};
+}
+
+inline PageTurnResult detectPageTurn(const MappedInputManager& input, bool& sideButtonLongPressHandled) {
+  const auto sideTurn = detectSidePageTurn(input, sideButtonLongPressHandled);
 
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
-  const bool sidePrev = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageBack)
-                                     : input.wasReleased(MappedInputManager::Button::PageBack);
-  const bool sideNext = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageForward)
-                                     : input.wasReleased(MappedInputManager::Button::PageForward);
 
   const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
@@ -102,8 +130,9 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool frontNext = input.wasReleased(MappedInputManager::Button::Right) || powerTurn;
 
   // fromSideBtn is true when only side buttons contributed to this page turn.
-  const bool fromSide = (sidePrev || sideNext) && !(frontPrev || frontNext);
-  return {tiltPrev || sidePrev || frontPrev, tiltNext || sideNext || frontNext, fromSide, tiltPrev || tiltNext};
+  const bool fromSide = (sideTurn.prev || sideTurn.next) && !(frontPrev || frontNext);
+  return {tiltPrev || sideTurn.prev || frontPrev, tiltNext || sideTurn.next || frontNext, fromSide,
+          tiltPrev || tiltNext};
 }
 
 inline bool isRefreshActionDue(const int pagesUntilRefreshAction) {

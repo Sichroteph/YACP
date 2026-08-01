@@ -13,7 +13,7 @@
 
 class BookStatsActivity final : public Activity {
  public:
-  enum class InitialPage : uint8_t { Summary, Achievement };
+  enum class InitialPage : uint8_t { Summary, Achievement, FinishedBooks };
 
  private:
   enum class Page : uint8_t { Summary, ReadingRhythm, FinishedBooks, Achievement, AllDevices, EditDates };

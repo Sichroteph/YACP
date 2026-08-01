@@ -46,7 +46,7 @@ bool startSimulatorReadingStatsDemo() {
 
   auto activity = makeUniqueNoThrow<BookStatsActivity>(
       renderer, mappedInputManager, "Dune - Frank Herbert", std::string{}, stats, 100.0f, false, 0, globalStats, true,
-      showAchievement ? BookStatsActivity::InitialPage::Achievement : BookStatsActivity::InitialPage::Summary);
+      showAchievement ? BookStatsActivity::InitialPage::Achievement : BookStatsActivity::InitialPage::FinishedBooks);
   if (!activity) {
     LOG_ERR("SIM", "Could not allocate reading statistics demo");
     return false;

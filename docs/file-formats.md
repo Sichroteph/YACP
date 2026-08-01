@@ -196,31 +196,32 @@ book is renamed or moved outside CrossInk, the path hash changes, so the old
 clipping file may no longer be associated with the book until the file is moved
 back or the clipping store is migrated.
 
-## `stats_v5.bin`
+## `stats_v6.bin`
 
-### Version 5
+### Version 6
 
-`stats_v5.bin` stores per-book reading statistics for stats schema version 5.
+`stats_v6.bin` stores per-book reading statistics for stats schema version 6.
 Versioned filenames let firmware branches with different stats schemas keep
-their own per-book stats files without overwriting each other. Version 5 extends
-version 4 with a cached live reader book time-left estimate so Home and Reading
-Stats can show the same estimate the reader last computed.
+their own per-book stats files without overwriting each other. Version 6 adds a
+persisted pending-achievement flag so a saved first completion can still be
+celebrated after the reader activity is replaced or restarted, plus a declined
+100% exit-prompt flag that is cleared by further reading progress.
 
-When `stats_v5.bin` is missing, CrossInk can read the previous versioned stats
-filename (`stats_v4.bin` for version 5, `stats_v5.bin` after a future version 6
-bump) before falling back to legacy `stats.bin` files with compatible stats
-payloads. Future changes are always saved to the current versioned filename.
+When `stats_v6.bin` is missing, YACP can read compatible `stats_v5.bin` and
+`stats_v4.bin` predecessors before falling back to legacy `stats.bin` files.
+Future changes are always saved to the current versioned filename.
 
 Binary layout:
 
-- `[0]` version (`5`)
+- `[0]` version (`6`)
 - `[1-2]` `sessionCount` (`uint16_t` LE)
 - `[3-6]` `totalReadingSeconds` (`uint32_t` LE)
 - `[7-10]` `totalPagesTurned` (`uint32_t` LE)
 - `[11]` `isCompleted` (`uint8_t`)
 - `[12-13]` `avgSecondsPerForwardPage` (`uint16_t` LE)
 - `[14-15]` `paceSampleCount` (`uint16_t` LE)
-- `[16]` flags (`bit0=startDateManual`, `bit1=finishedDateManual`)
+- `[16]` flags (`bit0=startDateManual`, `bit1=finishedDateManual`,
+  `bit2=completionAchievementPending`, `bit3=completionPromptDismissedAtHundred`)
 - `[17-20]` `startDate` (`year uint16_t` LE, `month uint8_t`, `day uint8_t`)
 - `[21-24]` `finishedDate` (`year uint16_t` LE, `month uint8_t`, `day uint8_t`)
 - `[25-40]` `timeOfDaySeconds[4]` (`uint32_t` LE each)
@@ -229,7 +230,7 @@ Binary layout:
 
 ## `/.crosspoint/finished_books.bin`
 
-### Version 1
+### Version 2
 
 `finished_books.bin` is a bounded chronological index used by the persistent
 Finished Books statistics page. It holds at most 32 entries, all navigable in
@@ -240,16 +241,22 @@ normal reader page-turn path never reads or writes it.
 The eight-byte header contains:
 
 - `[0-3]` magic ASCII `CPFB`
-- `[4]` version (`1`)
+- `[4]` version (`2`)
 - `[5]` entry count (`uint8_t`, maximum `32`)
 - `[6-7]` reserved (`uint16_t`)
 
 Each variable-length entry contains a `uint64_t` path key, total reading seconds
-(`uint32_t`), finish date (`year uint16_t`, `month uint8_t`, `day uint8_t`), a
-title length (`uint16_t`, maximum 160), then the UTF-8 title bytes. Entries are
-stored newest finish date first. Saves use `.tmp` and `.bak` rotation. When an
-EPUB is moved to `/Read/`, its path key is migrated explicitly so two different
-books with the same title remain separate entries.
+(`uint32_t`), start date and finish date (each `year uint16_t`, `month uint8_t`,
+`day uint8_t`), a title length (`uint16_t`, maximum 160), then the UTF-8 title
+bytes. Entries are stored newest finish date first. Saves use `.tmp` and `.bak`
+rotation. When an EPUB is moved to `/Read/`, its path key is migrated explicitly
+so two different books with the same title remain separate entries.
+
+Version 1 entries, which contain no start date, remain readable. Their timeline
+falls back to the finish date with its year and the reading time until Reading
+Stats reconciles the entry with the completed book's persistent statistics. The
+next index write uses version 2 and the real book-path key; accidental cache-path
+entries are merged during the same reconciliation.
 
 When the file is first introduced, YACP checks only the bounded recent-books
 list (at most 18 entries) once to recover already-finished books. It never scans

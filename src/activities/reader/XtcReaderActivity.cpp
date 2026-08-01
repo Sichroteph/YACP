@@ -73,6 +73,7 @@ void XtcReaderActivity::onEnter() {
   loadProgress();
 
   stats = BookReadingStats::load(xtc->getCachePath());
+  showCompletionAchievementOnExit = stats.completionAchievementPending;
   globalStats = GlobalReadingStats::load();
   dailyReadingHistory.load(globalStats);
   sessionReadingSeconds = 0;
@@ -101,9 +102,8 @@ void XtcReaderActivity::onExit() {
   APP_STATE.saveToFile();
 
   commitReadingStats();
-  if (xtc && stats.isCompleted &&
-      !FinishedBooksIndex::record(xtc->getPath(), xtc->getTitle(), stats)) {
-    LOG_ERR("XTR", "Failed to refresh finished-books index on reader exit");
+  if (stats.isCompleted) {
+    syncFinishedBookIndex();
   }
 
   // Generate carousel thumbnails while XTC is still loaded so the home screen
@@ -189,15 +189,11 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  // Side buttons fire on press only when long-press action is OFF.
-  const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
-
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
-  const bool sidePrev = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageBack)
-                                     : mappedInput.wasReleased(MappedInputManager::Button::PageBack);
-  const bool sideNext = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageForward)
-                                     : mappedInput.wasReleased(MappedInputManager::Button::PageForward);
+  const auto sideTurn = ReaderUtils::detectSidePageTurn(mappedInput, sideButtonLongPressHandled);
+  const bool sidePrev = sideTurn.prev;
+  const bool sideNext = sideTurn.next;
   const bool frontPrev = mappedInput.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
   if (powerReleased && longPowerPageTurnHandled) {
@@ -296,6 +292,9 @@ void XtcReaderActivity::loop() {
         currentPage += 10;
         if (currentPage >= xtc->getPageCount()) {
           currentPage = xtc->getPageCount();
+          if (!stats.isCompleted) {
+            setBookCompleted(true);
+          }
         }
         if (shouldRecordForwardRead) {
           recordForwardPageTurn(forwardReadSeconds);
@@ -361,6 +360,9 @@ void XtcReaderActivity::loop() {
     currentPage += skipAmount;
     if (currentPage >= xtc->getPageCount()) {
       currentPage = xtc->getPageCount();  // Allow showing "End of book"
+      if (!stats.isCompleted) {
+        setBookCompleted(true);
+      }
     }
     if (shouldRecordForwardRead) {
       recordForwardPageTurn(forwardReadSeconds);
@@ -436,6 +438,8 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source) {
 
 void XtcReaderActivity::recordForwardPageTurn(uint32_t seconds) {
   (void)seconds;
+  sessionAdvancedPage = true;
+  stats.completionPromptDismissedAtHundred = false;
   stats.totalPagesTurned++;
   globalStats.totalPagesTurned++;
 }
@@ -459,7 +463,8 @@ void XtcReaderActivity::commitReadingStats() {
       globalStats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
       dailyReadingHistory.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
     }
-    if (elapsedSecs >= 120 && !stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime) {
+    const bool qualifiesReadingStart = elapsedSecs >= 120 && (sessionAdvancedPage || elapsedSecs >= 300);
+    if (qualifiesReadingStart && !stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime) {
       stats.startDate = sessionStartLocalDateTime.date;
     }
   }
@@ -472,7 +477,15 @@ void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
   stats = BookReadingStats{};
   showCompletionAchievementOnExit = false;
   sessionReadingSeconds = 0;
+  sessionAdvancedPage = false;
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+}
+
+void XtcReaderActivity::syncFinishedBookIndex() {
+  if (xtc &&
+      !FinishedBooksIndex::recordCanonical(xtc->getPath(), xtc->getCachePath(), xtc->getTitle(), stats)) {
+    LOG_ERR("XTR", "Failed to synchronize finished-book entry");
+  }
 }
 
 void XtcReaderActivity::handleBookStatsReturn() {
@@ -486,6 +499,7 @@ void XtcReaderActivity::handleBookStatsReturn() {
   } else if (!stats.isCompleted) {
     showCompletionAchievementOnExit = false;
   }
+  syncFinishedBookIndex();
   resumeReadingStatsTimer("book_stats_return");
   requestUpdate();
 }
@@ -519,12 +533,40 @@ BookReadingStats XtcReaderActivity::achievementStatsPreview(uint32_t* pendingRea
 }
 
 void XtcReaderActivity::goHomeOrShowCompletionAchievement() {
+  const uint32_t pageCount = xtc ? xtc->getPageCount() : 0;
+  const bool atEndOfBook = xtc && pageCount > 0 && currentPage >= pageCount;
+  const bool onFinalPage = xtc && pageCount > 0 && currentPage == pageCount - 1;
+  const bool displaysHundredPercent = getCurrentBookProgressPercent() >= 99.5f;
+
+  if (!stats.isCompleted && atEndOfBook) {
+    setBookCompleted(true);
+  } else if (!stats.isCompleted && !stats.completionPromptDismissedAtHundred &&
+             (onFinalPage || displaysHundredPercent)) {
+    pauseReadingStatsTimer("final_page_completion_confirm");
+    startActivityForResult(
+        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_MARK_FINISHED_PROMPT_TITLE), ""),
+        [this](const ActivityResult& result) {
+          resumeReadingStatsTimer("final_page_completion_return");
+          if (result.isCancelled) {
+            stats.completionPromptDismissedAtHundred = true;
+            if (xtc) {
+              stats.save(xtc->getCachePath());
+            }
+            onGoHome();
+            return;
+          }
+          setBookCompleted(true);
+          goHomeOrShowCompletionAchievement();
+        });
+    return;
+  }
+
+  showCompletionAchievementOnExit = stats.completionAchievementPending;
   if (!showCompletionAchievementOnExit || !stats.isCompleted || !xtc) {
     onGoHome();
     return;
   }
 
-  showCompletionAchievementOnExit = false;
   uint32_t pendingReadingSeconds = 0;
   const BookReadingStats achievementStats = achievementStatsPreview(&pendingReadingSeconds);
   GlobalReadingStats achievementGlobalStats = globalStats;
@@ -542,6 +584,9 @@ void XtcReaderActivity::goHomeOrShowCompletionAchievement() {
     onGoHome();
     return;
   }
+  stats.completionAchievementPending = false;
+  showCompletionAchievementOnExit = false;
+  stats.save(xtc->getCachePath());
   activityManager.replaceActivity(std::move(achievement));
 }
 
@@ -552,7 +597,9 @@ void XtcReaderActivity::setBookCompleted(const bool isCompleted) {
 
   stats.isCompleted = isCompleted;
   showCompletionAchievementOnExit = isCompleted;
-  if (isCompleted && !stats.finishedDateManual) {
+  stats.completionAchievementPending = isCompleted;
+  stats.completionPromptDismissedAtHundred = false;
+  if (isCompleted && !stats.finishedDateManual && !stats.finishedDate.isValid()) {
     ReadingStatsDateTime now;
     if (getCurrentLocalReadingStatsDateTime(now)) {
       stats.finishedDate = now.date;
@@ -567,9 +614,7 @@ void XtcReaderActivity::setBookCompleted(const bool isCompleted) {
 
   stats.save(xtc->getCachePath());
   globalStats.save();
-  if (!FinishedBooksIndex::record(xtc->getPath(), xtc->getTitle(), stats)) {
-    LOG_ERR("XTR", "Failed to update finished-books index");
-  }
+  syncFinishedBookIndex();
 }
 
 float XtcReaderActivity::getCurrentBookProgressPercent() const {
@@ -603,6 +648,10 @@ void XtcReaderActivity::openReadingStats() {
     resumeReadingStatsTimer("book_stats_no_book");
     requestUpdate();
     return;
+  }
+
+  if (stats.isCompleted) {
+    syncFinishedBookIndex();
   }
 
   BookReadingStats displayStats = stats;

@@ -21,18 +21,19 @@ YACP is expected to use less energy and perform less incidental work than its ba
 measured battery-life claim yet. Long-running current analysis continues so future choices can be based on repeatable
 hardware measurements rather than optimistic estimates.
 
-## What is new in 1.4.0-yacp.155
+## What is new in 1.4.0-yacp.167
 
-- **No-flash X3 screen maintenance:** the OEM black-and-white reinforcement waveform can settle text ghosting during
-  the page turn itself, without the full-screen black/white flash used by a full refresh.
-- **A real ending for every book:** completing an EPUB or XTC now opens a Reading Achievement page with the book's
-  reading time, sessions, average session, favorite reading period, reading span, and updated lifetime totals.
-- **Finished Books history:** Reading Stats now exposes the 32 most recently completed books in five-entry pages,
-  using a bounded SD index instead of scanning the whole card.
+- **Reliable book completion:** reaching the real EPUB or XTC ending completes the book automatically, while leaving
+  from its final page or a rounded 100% asks for confirmation. The first completion date remains stable across rereads.
+- **Dated Finished Books timelines:** every known reading span now shows its start date, finish date, both years, and
+  active reading time. Opening Reading Stats repairs older retained entries from the book's persistent dates.
+- **Safer reading start dates:** a short preview no longer starts a book's timeline; YACP waits for meaningful active
+  reading and forward progress.
+- **Previous Page on a side-button hold:** the optional long-press action turns back exactly one page in EPUB, TXT,
+  and XTC while preserving the side button's normal short-press direction.
 
-This release also adds a per-update profile chooser, improves Home refresh behavior, extends periodic maintenance to
-1, 5, 10, 15, 30, or 60 pages (or Never), and includes smaller reliability and documentation fixes. See the
-[changelog](CHANGELOG.md) for the complete inventory.
+This is a focused reliability release built on the no-flash screen maintenance, Reading Achievement, Finished Books,
+and Home improvements introduced in `.155`. See the [changelog](CHANGELOG.md) for the complete inventory.
 
 ## Direction
 
@@ -103,6 +104,8 @@ keep-current choice, while a fresh installation recommends YACP.
 - A detected button edge receives a prompt confirmation sample without increasing the continuous polling rate.
 - USB checks are rate limited, and the CPU can return to the lower frequency while the e-ink controller is busy.
 - EPUB, TXT, and XTC progress writes are debounced, then flushed on normal reader exit.
+- Either side button can optionally turn back one page on a long press without changing its normal short-press page
+  direction; one hold triggers one turn and must be released before another.
 - Automatic sleep defaults to Quick Resume. The X3 path avoids the full-screen black synchronization pass when
   entering sleep and restoring the cached page.
 
@@ -147,11 +150,16 @@ making the most useful numbers readable without moving between two separate pane
 Reading Rhythm shows daily intensity, weekly reading time, reading days, and current and best streaks over the latest
 12 months. Its daily history remains separate from the existing synchronized totals.
 
-Finishing a new EPUB or XTC opens a Reading Achievement screen with the book's reading time, sessions, average session,
-favorite reading period, reading span, completed-book count, and total reading time on the device. The following
-Finished Books view keeps the 32 most recently completed books in a bounded SD index and exposes all retained entries
-in five-book pages. Existing installations recover completed entries from their recent-books list without scanning
-the entire SD card.
+Crossing the real end of an EPUB or XTC completes it automatically. Leaving from its final page or while its rounded
+progress reads 100% asks for confirmation instead, so a direct jump or trailing material cannot silently finish the
+book. The first completion date stays unchanged when the book is reopened or reread.
+
+Finishing a new book opens a Reading Achievement screen with its reading time, sessions, average session, favorite
+reading period, reading span, completed-book count, and total reading time on the device. The following Finished Books
+view keeps the 32 most recently completed books in a bounded SD index and presents each known reading span as a compact
+start-to-finish timeline with the year on both dates and the reading time. Existing installations recover completed
+entries from their recent-books list without scanning the entire SD card. Opening Reading Stats also reconciles a
+completed book's persistent dates with its retained entry, so legacy timelines repair themselves without a fake edit.
 
 <table>
   <tr>

@@ -25,6 +25,7 @@
 #include "../reader/BookReadingStats.h"
 #include "../reader/BookStatsActivity.h"
 #include "../reader/EpubReaderUtils.h"
+#include "../reader/FinishedBooksIndex.h"
 #include "BookmarkStore.h"
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
@@ -444,7 +445,7 @@ void appendCarouselCoverStateToKey(std::string& key, const RecentBook& book) {
   if (!cachePath.empty()) {
     appendHashedFileStateToKey(key, cachePath + "/progress.bin");
     if (FsHelpers::hasEpubExtension(book.path) || FsHelpers::hasXtcExtension(book.path)) {
-      appendHashedFileStateToKey(key, cachePath + "/stats_v5.bin");
+      appendHashedFileStateToKey(key, cachePath + "/stats_v6.bin");
     }
   } else {
     key += "no-cache-path";
@@ -1109,6 +1110,24 @@ void HomeActivity::updateHighlightedBookContext() {
                     (showAllDevicesStats && hasAnyGlobalStats(allDevicesGlobalStats));
   LOG_DBG("HOME", "updateHighlightedBookContext idx=%d cached=%s took %lums", idx, useCachedStats ? "yes" : "no",
           millis() - start);
+}
+
+void HomeActivity::syncHighlightedFinishedBookIndex() {
+  const int idx = getHighlightedBookIndex();
+  if (idx < 0 || !currentBookStats.isCompleted) {
+    return;
+  }
+
+  const RecentBook& book = recentBooks[idx];
+  if (!FsHelpers::hasEpubExtension(book.path) && !FsHelpers::hasXtcExtension(book.path)) {
+    return;
+  }
+
+  const std::string cachePath = getRecentBookCachePath(book);
+  if (cachePath.empty() ||
+      !FinishedBooksIndex::recordCanonical(book.path, cachePath, book.title, currentBookStats)) {
+    LOG_ERR("HOME", "Failed to synchronize highlighted finished-book entry");
+  }
 }
 
 void HomeActivity::onExit() {
@@ -2107,12 +2126,13 @@ void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onReadingStatsOpen() {
   loadReadingStatsContext();
+  syncHighlightedFinishedBookIndex();
   const int highlightedBookIdx = getHighlightedBookIndex();
   const std::string bookTitle =
       highlightedBookIdx >= 0 ? recentBooks[highlightedBookIdx].title : std::string(tr(STR_READING_STATS));
   const std::string bookPath = getCurrentBookPath();
-  const std::string cachePath =
-      FsHelpers::hasEpubExtension(bookPath) ? Epub::cachePathForFilePath(bookPath, "/.crosspoint") : std::string{};
+  const std::string cachePath = highlightedBookIdx >= 0 ? getRecentBookCachePath(recentBooks[highlightedBookIdx])
+                                                        : std::string{};
   if (showAllDevicesStats) {
     startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, cachePath,
                                                                currentBookStats, currentBookProgressPercent, false, 0,
@@ -2127,6 +2147,7 @@ void HomeActivity::onReadingStatsOpen() {
                                    showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
                                bookStatsCached = false;
                                updateHighlightedBookContext();
+                               syncHighlightedFinishedBookIndex();
                              }
                              requestUpdate();
                            });
@@ -2143,6 +2164,7 @@ void HomeActivity::onReadingStatsOpen() {
             allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
             bookStatsCached = false;
             updateHighlightedBookContext();
+            syncHighlightedFinishedBookIndex();
           }
           requestUpdate();
         });

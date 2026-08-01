@@ -86,6 +86,20 @@ constexpr std::array<StrId, READING_DAY_OF_WEEK_COUNT> DAY_LABELS = {
 
 const char* dayCountText(const uint16_t days) { return days == 1 ? tr(STR_STATS_DAY) : tr(STR_STATS_DAYS); }
 
+void formatFinishedBookDate(const ReadingStatsDate& date, char* buf, const size_t len) {
+  if (!buf || len == 0) {
+    return;
+  }
+  if (!date.isValid()) {
+    snprintf(buf, len, "-");
+    return;
+  }
+
+  char shortDate[16];
+  formatReadingStatsShortDate(date, shortDate, sizeof(shortDate));
+  snprintf(buf, len, "%s, %u", shortDate, static_cast<unsigned>(date.year));
+}
+
 void readingIntensityStyle(const uint8_t minutes, const int activeDotSize, const int inactiveDotSize, int& dotSize,
                            Color& color) {
   if (minutes == 0) {
@@ -1109,14 +1123,38 @@ void renderFinishedBooksPage(GfxRenderer& renderer, const MappedInputManager* ma
       renderer.drawText(UI_10_FONT_ID, cardX + metrics.contentSidePadding, rowY + 7, title.c_str(), true,
                         EpdFontFamily::BOLD);
 
-      char date[24];
+      char startDate[24];
+      char finishDate[24];
       char readingTime[24];
-      char subtitle[56];
-      formatReadingStatsShortDate(entry.finishedDate, date, sizeof(date));
+      formatFinishedBookDate(entry.startDate, startDate, sizeof(startDate));
+      formatFinishedBookDate(entry.finishedDate, finishDate, sizeof(finishDate));
       BookReadingStats::formatDuration(entry.totalReadingSeconds, readingTime, sizeof(readingTime));
-      snprintf(subtitle, sizeof(subtitle), "%s - %s", date, readingTime);
-      renderer.drawText(SMALL_FONT_ID, cardX + metrics.contentSidePadding,
-                        rowY + rowH - renderer.getLineHeight(SMALL_FONT_ID) - 7, subtitle);
+      const int subtitleY = rowY + rowH - renderer.getLineHeight(SMALL_FONT_ID) - 7;
+      const int timelineY = subtitleY + renderer.getLineHeight(SMALL_FONT_ID) / 2;
+      const int subtitleRight = cardX + cardW - metrics.contentSidePadding;
+      int subtitleX = cardX + metrics.contentSidePadding;
+      if (entry.startDate.isValid() && entry.finishedDate.isValid()) {
+        renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, startDate);
+        subtitleX += renderer.getTextWidth(SMALL_FONT_ID, startDate) + 6;
+        const int fixedTextWidth = renderer.getTextWidth(SMALL_FONT_ID, finishDate) +
+                                   renderer.getTextWidth(SMALL_FONT_ID, readingTime) + 20;
+        const int timelineWidth = std::clamp(subtitleRight - subtitleX - fixedTextWidth, 18, 46);
+        renderer.drawLine(subtitleX, timelineY, subtitleX + timelineWidth, timelineY);
+        subtitleX += timelineWidth + 6;
+
+        renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, finishDate);
+        subtitleX += renderer.getTextWidth(SMALL_FONT_ID, finishDate) + 8;
+        renderer.drawLine(subtitleX, timelineY, subtitleX + 1, timelineY, 2, true);
+        subtitleX += 8;
+      } else {
+        renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, finishDate);
+        subtitleX += renderer.getTextWidth(SMALL_FONT_ID, finishDate) + 8;
+        renderer.drawLine(subtitleX, timelineY, subtitleX + 1, timelineY, 2, true);
+        subtitleX += 8;
+      }
+      const auto visibleReadingTime = renderer.truncatedText(
+          SMALL_FONT_ID, readingTime, std::max(0, subtitleRight - subtitleX));
+      renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, visibleReadingTime.c_str());
     }
   }
 

@@ -1482,12 +1482,21 @@ void EpubReaderActivity::applyBookStatsEditsFromDisk() {
     stats.isCompleted = diskStats.isCompleted;
     stats.startDateManual = diskStats.startDateManual;
     stats.finishedDateManual = diskStats.finishedDateManual;
+    stats.completionAchievementPending = diskStats.completionAchievementPending;
+    stats.completionPromptDismissedAtHundred = diskStats.completionPromptDismissedAtHundred;
     stats.startDate = diskStats.startDate;
     stats.finishedDate = diskStats.finishedDate;
   }
 
   const GlobalReadingStats diskGlobalStats = GlobalReadingStats::load();
   globalStats.completedBooks = diskGlobalStats.completedBooks;
+}
+
+void EpubReaderActivity::syncFinishedBookIndex() {
+  if (epub &&
+      !FinishedBooksIndex::recordCanonical(epub->getPath(), epub->getCachePath(), epub->getTitle(), stats)) {
+    LOG_ERR("ERS", "Failed to synchronize finished-book entry");
+  }
 }
 
 void EpubReaderActivity::handleBookStatsReturn() {
@@ -1498,12 +1507,12 @@ void EpubReaderActivity::handleBookStatsReturn() {
   } else if (!stats.isCompleted) {
     showCompletionAchievementOnExit = false;
   }
-  completionPromptShown = stats.isCompleted;
   if (stats.isCompleted && SETTINGS.moveFinishedToReadFolder && epub && !isInReadFolder(epub->getPath())) {
     pendingReadFolderMove = true;
   } else if (!stats.isCompleted) {
     pendingReadFolderMove = false;
   }
+  syncFinishedBookIndex();
   resumeReadingPaceTimer("book_stats_return");
   requestUpdate();
 }
@@ -1537,12 +1546,44 @@ BookReadingStats EpubReaderActivity::achievementStatsPreview(uint32_t* pendingRe
 }
 
 void EpubReaderActivity::goHomeOrShowCompletionAchievement() {
+  const int spineCount = epub ? epub->getSpineItemsCount() : 0;
+  const bool atEndOfBook = epub && spineCount > 0 && currentSpineIndex >= spineCount;
+  const bool onFinalPage = epub && section && spineCount > 0 && currentSpineIndex == spineCount - 1 &&
+                           section->pageCount > 0 && section->currentPage >= section->pageCount - 1;
+  const bool displaysHundredPercent = getCurrentBookProgressPercent() >= 99.5f;
+
+  // Crossing beyond the final readable page is definitive completion evidence.
+  // A final page or rounded 100% can also come from a direct jump, so ask the
+  // reader instead of treating either as automatic completion evidence.
+  if (!stats.isCompleted && atEndOfBook) {
+    setBookCompleted(true);
+  } else if (!stats.isCompleted && !stats.completionPromptDismissedAtHundred &&
+             (onFinalPage || displaysHundredPercent)) {
+    pauseReadingPaceTimer("final_page_completion_confirm");
+    startActivityForResult(
+        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_MARK_FINISHED_PROMPT_TITLE), ""),
+        [this](const ActivityResult& result) {
+          resumeReadingPaceTimer("final_page_completion_return");
+          if (result.isCancelled) {
+            stats.completionPromptDismissedAtHundred = true;
+            if (epub) {
+              stats.save(epub->getCachePath());
+            }
+            onGoHome();
+            return;
+          }
+          setBookCompleted(true);
+          goHomeOrShowCompletionAchievement();
+        });
+    return;
+  }
+
+  showCompletionAchievementOnExit = stats.completionAchievementPending;
   if (!showCompletionAchievementOnExit || !stats.isCompleted || !epub) {
     onGoHome();
     return;
   }
 
-  showCompletionAchievementOnExit = false;
   uint32_t pendingReadingSeconds = 0;
   const BookReadingStats achievementStats = achievementStatsPreview(&pendingReadingSeconds);
   GlobalReadingStats achievementGlobalStats = globalStats;
@@ -1560,114 +1601,10 @@ void EpubReaderActivity::goHomeOrShowCompletionAchievement() {
     onGoHome();
     return;
   }
+  stats.completionAchievementPending = false;
+  showCompletionAchievementOnExit = false;
+  stats.save(epub->getCachePath());
   activityManager.replaceActivity(std::move(achievement));
-}
-
-void EpubReaderActivity::initializeCompletionPromptTrigger() {
-  completionTriggerSpineIndex = -1;
-  completionTriggerSpineProgress = 1.0f;
-  completionPromptQueued = false;
-  completionPromptShown = stats.isCompleted;
-  completionTriggerSeenBelow = false;
-  completionTriggerCrossed = false;
-  lastAtOrPastCompletionTrigger = false;
-
-  if (!epub) {
-    return;
-  }
-
-  const size_t bookSize = epub->getBookSize();
-  const int spineCount = epub->getSpineItemsCount();
-  if (bookSize == 0 || spineCount <= 0) {
-    return;
-  }
-
-  int locationSpineIndex = 0;
-  float locationSpineProgress = 0.0f;
-  if (epub->resolveLocationPercentToSpineProgress(99, locationSpineIndex, locationSpineProgress)) {
-    completionTriggerSpineIndex = locationSpineIndex;
-    completionTriggerSpineProgress = locationSpineProgress;
-    return;
-  }
-
-  size_t targetSize = (bookSize / 100) * 99 + (bookSize % 100) * 99 / 100;
-  if (targetSize >= bookSize) {
-    targetSize = bookSize - 1;
-  }
-
-  int targetSpineIndex = spineCount - 1;
-  size_t prevCumulative = 0;
-
-  for (int i = 0; i < spineCount; i++) {
-    const size_t cumulative = epub->getCumulativeSpineItemSize(i);
-    if (targetSize <= cumulative) {
-      targetSpineIndex = i;
-      prevCumulative = (i > 0) ? epub->getCumulativeSpineItemSize(i - 1) : 0;
-      break;
-    }
-  }
-
-  const size_t cumulative = epub->getCumulativeSpineItemSize(targetSpineIndex);
-  const size_t spineSize = (cumulative > prevCumulative) ? (cumulative - prevCumulative) : 0;
-
-  completionTriggerSpineIndex = targetSpineIndex;
-  completionTriggerSpineProgress =
-      (spineSize == 0) ? 0.0f : static_cast<float>(targetSize - prevCumulative) / static_cast<float>(spineSize);
-
-  if (completionTriggerSpineProgress < 0.0f) {
-    completionTriggerSpineProgress = 0.0f;
-  } else if (completionTriggerSpineProgress > 1.0f) {
-    completionTriggerSpineProgress = 1.0f;
-  }
-}
-
-bool EpubReaderActivity::isAtOrPastCompletionTrigger() const {
-  const int totalPages = section ? section->pageCount : 0;
-  if (!epub || !section || totalPages == 0 || completionTriggerSpineIndex < 0) {
-    return false;
-  }
-
-  if (currentSpineIndex > completionTriggerSpineIndex) {
-    return true;
-  }
-  if (currentSpineIndex < completionTriggerSpineIndex) {
-    return false;
-  }
-
-  const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(totalPages);
-  return chapterProgress >= completionTriggerSpineProgress;
-}
-
-bool EpubReaderActivity::shouldQueueCompletionPromptOnChapterExit() const {
-  if (completionPromptShown || completionPromptQueued || stats.isCompleted || footnoteDepth > 0 ||
-      !completionTriggerCrossed || !epub || !section || section->pageCount == 0 || completionTriggerSpineIndex < 0 ||
-      section->currentPage < 0) {
-    return false;
-  }
-
-  if (currentSpineIndex != completionTriggerSpineIndex) {
-    return false;
-  }
-
-  return section->currentPage >= section->pageCount - 1;
-}
-
-void EpubReaderActivity::queueCompletionPromptIfNeeded() {
-  if (completionPromptShown || completionPromptQueued || stats.isCompleted || footnoteDepth > 0) {
-    return;
-  }
-
-  const bool atOrPastTrigger = isAtOrPastCompletionTrigger();
-
-  if (!atOrPastTrigger) {
-    completionTriggerSeenBelow = true;
-  }
-
-  if (completionTriggerSeenBelow && !lastAtOrPastCompletionTrigger && atOrPastTrigger) {
-    completionTriggerCrossed = true;
-  }
-
-  lastAtOrPastCompletionTrigger = atOrPastTrigger;
 }
 
 void EpubReaderActivity::captureGlobalReaderSettings() {
@@ -1840,6 +1777,7 @@ void EpubReaderActivity::onEnter() {
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
   stats = BookReadingStats::load(epub->getCachePath());
+  showCompletionAchievementOnExit = stats.completionAchievementPending;
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const uint32_t cumulativeAvgSeconds =
       stats.totalPagesTurned > 0 ? stats.totalReadingSeconds / stats.totalPagesTurned : 0;
@@ -1854,8 +1792,6 @@ void EpubReaderActivity::onEnter() {
 
   globalStats = GlobalReadingStats::load();
   dailyReadingHistory.load(globalStats);
-
-  initializeCompletionPromptTrigger();
 
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
@@ -1904,7 +1840,9 @@ void EpubReaderActivity::onExit() {
         globalStats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
         dailyReadingHistory.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
       }
-      if (elapsedSecs >= 120 && !stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime) {
+      const bool qualifiesReadingStart = elapsedSecs >= 120 && (sessionPaceSampleCount > 0 || elapsedSecs >= 300);
+      if (qualifiesReadingStart && !stats.startDateManual && !stats.startDate.isValid() &&
+          hasSessionStartLocalDateTime) {
         stats.startDate = sessionStartLocalDateTime.date;
       }
     }
@@ -1916,9 +1854,8 @@ void EpubReaderActivity::onExit() {
     globalStats.save();
     dailyReadingHistory.save();
   }
-  if (epub && stats.isCompleted &&
-      !FinishedBooksIndex::record(epub->getPath(), epub->getTitle(), stats)) {
-    LOG_ERR("ERS", "Failed to refresh finished-books index on reader exit");
+  if (stats.isCompleted) {
+    syncFinishedBookIndex();
   }
 
   // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
@@ -2025,24 +1962,6 @@ void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
     finish();
-    return;
-  }
-
-  if (completionPromptQueued) {
-    completionPromptQueued = false;
-    completionPromptShown = true;
-    pauseReadingPaceTimer("completion_prompt");
-    startActivityForResult(
-        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_MARK_FINISHED_PROMPT_TITLE),
-                                               tr(STR_MARK_FINISHED_PROMPT_BODY)),
-        [this](const ActivityResult& result) {
-          resumeReadingPaceTimer("completion_prompt_return");
-          if (!result.isCancelled) {
-            setBookCompleted(true);
-            showCompletedFeedback(true);
-          }
-          requestUpdate();
-        });
     return;
   }
 
@@ -2349,7 +2268,8 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
+  auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] =
+      ReaderUtils::detectPageTurn(mappedInput, sideButtonLongPressHandled);
   const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
   const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                               mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
@@ -2724,6 +2644,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::READING_STATS: {
+      if (stats.isCompleted) {
+        syncFinishedBookIndex();
+      }
       // Include elapsed time from the current session in the display stats.
       BookReadingStats displayStats = stats;
       if (SETTINGS.shouldTrackReadingStats()) {
@@ -3230,7 +3153,6 @@ void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   pendingReadFolderMove = false;
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   armReadingPaceWarmup("book_stats_delete");
-  initializeCompletionPromptTrigger();
 }
 
 void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS_MENU_ACTION action) {
@@ -3570,14 +3492,15 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
 
   stats.isCompleted = isCompleted;
   showCompletionAchievementOnExit = isCompleted;
-  if (isCompleted && !stats.finishedDateManual) {
+  stats.completionAchievementPending = isCompleted;
+  stats.completionPromptDismissedAtHundred = false;
+  if (isCompleted && !stats.finishedDateManual && !stats.finishedDate.isValid()) {
     ReadingStatsDateTime now;
     if (getCurrentLocalReadingStatsDateTime(now)) {
       stats.finishedDate = now.date;
     }
   }
   if (isCompleted) {
-    completionPromptShown = true;
     if (SETTINGS.removeReadBooksFromRecents) {
       RECENT_BOOKS.removeByPath(epub->getPath());
     }
@@ -3600,9 +3523,7 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   refreshCachedTimeLeftEstimate();
   stats.save(epub->getCachePath());
   globalStats.save();
-  if (!FinishedBooksIndex::record(epub->getPath(), epub->getTitle(), stats)) {
-    LOG_ERR("ERS", "Failed to update finished-books index");
-  }
+  syncFinishedBookIndex();
 }
 
 void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {
@@ -3773,6 +3694,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
     return;
   }
   if (isForwardTurn) {
+    stats.completionPromptDismissedAtHundred = false;
     uint32_t forwardReadSeconds = 0;
     const bool shouldRecordForwardRead = forwardPageReadElapsed(forwardReadSeconds, source);
     recordCurrentPageReadingTime(source);
@@ -3780,18 +3702,15 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
     } else {
-      if (shouldQueueCompletionPromptOnChapterExit()) {
-        completionPromptQueued = true;
-        requestUpdate();
-        return;
-      }
-
       // We don't want to delete the section mid-render, so grab the semaphore
       {
         RenderLock lock(*this);
         nextPageNumber = 0;
         currentSpineIndex++;
         section.reset();
+      }
+      if (!stats.isCompleted && currentSpineIndex >= epub->getSpineItemsCount()) {
+        setBookCompleted(true);
       }
     }
     if (shouldRecordForwardRead) {
@@ -4211,7 +4130,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (!queueProgressSave(currentSpineIndex, section->currentPage, section->pageCount)) {
       pendingSyncSaveError = true;
     }
-    queueCompletionPromptIfNeeded();
   }
 
   showPendingSyncSaveError();

@@ -155,11 +155,17 @@ For details and troubleshooting, see [Nearby Position Sync](./nearby-position-sy
 
 You can manually mark a book as finished from the in-book menu.
 
-At 99% book progress, CrossInk also shows a popup asking whether to mark the book as finished.
+Crossing the real EPUB or XTC ending marks the book as finished automatically. Leaving from the final page or while
+rounded progress reads 100% asks for confirmation instead. Declining that prompt suppresses it until reading advances.
 
 If **Move finished books to Read folder** is enabled, books marked as finished are moved to `/Read/` on the SD card.
 
 Marking books as finished also contributes to the total **Books Read** reading stat.
+
+The **Finished Books** statistics page shows the reading start and finish dates with their years, followed by the
+active reading time. It does not display a separate elapsed-day count.
+Opening Reading Stats for a completed EPUB or XTC reconciles those persistent dates with the bounded Finished Books
+index, including legacy entries that do not yet contain their known start date.
 
 The file browser can also mark books as finished without opening them first.
 

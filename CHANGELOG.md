@@ -1,3 +1,29 @@
+## [v1.4.0-yacp.167] - 2026-08-01
+
+### Added
+
+- The side-button long-press setting now offers Previous Page, so either side button can return one page while its
+  short press keeps the configured page-turn direction in EPUB, TXT, and XTC readers. The action fires once when the
+  hold threshold is reached and requires a release before it can fire again.
+
+### Changed
+
+- Finished Books now presents each known reading span as a compact start-to-finish timeline with the year on both
+  dates and the active reading time. The redundant elapsed-day count is omitted, and legacy indexes remain readable.
+- Automatic reading start dates now require two active minutes plus forward progress, or five active minutes on one
+  long page, so briefly previewing a book does not start its reading timeline.
+
+### Fixed
+
+- Crossing the real EPUB or XTC ending now completes the book automatically. Leaving from its final page or a rounded
+  100% asks for confirmation instead, including when reading-stat tracking is disabled; declining suppresses the
+  prompt until reading advances.
+- The first completion date is preserved when a finished book is reopened, reread, or marked finished again, and a
+  pending Reading Achievement screen survives reader replacement or restart.
+- Opening Reading Stats reconciles a completed book's persistent start and finish dates with Finished Books without
+  requiring a fake edit, while merging legacy entries accidentally keyed by the cache path.
+- Per-book statistics migrate compatibly from schema versions 4 and 5 to version 6.
+
 ## [v1.4.0-yacp.155] - 2026-07-31
 
 ### Added
