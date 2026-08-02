@@ -125,6 +125,31 @@ Notes:
 - EPUB cache data for the uploaded path is cleared after a successful upload.
 - HTTP upload uses a 4 KB write buffer before flushing to the SD card.
 
+### `POST /api/firmware/install`
+
+Validates and installs a `.bin` firmware file that is already on the SD card,
+then restarts the reader. This is intended for developer workflows after
+uploading a firmware through File Transfer.
+
+```bash
+curl -X POST \
+  -d "path=/YACP-1.4.0-yacp.179-tiny.bin&confirm=install" \
+  http://crosspoint.local/api/firmware/install
+```
+
+JSON bodies are also accepted:
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"path":"/YACP-1.4.0-yacp.179-tiny.bin","confirm":"install"}' \
+  http://crosspoint.local/api/firmware/install
+```
+
+The path must point to an existing `.bin` file and `confirm=install` is required
+to avoid accidental flashes. The server validates the ESP image structure,
+checksum, SHA trailer when present, and OTA partition size before writing the
+inactive OTA partition.
+
 ### `POST /mkdir`
 
 Creates a folder.

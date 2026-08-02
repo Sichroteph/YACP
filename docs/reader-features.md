@@ -168,10 +168,10 @@ If **Move finished books to Read folder** is enabled, books marked as finished a
 
 Marking books as finished also contributes to the total **Books Read** reading stat.
 
-The **Finished Books** statistics page shows the reading start and finish dates with their years, followed by the
-active reading time. It does not display a separate elapsed-day count.
-Opening Reading Stats for a completed EPUB or XTC reconciles those persistent dates with the bounded Finished Books
-index, including legacy entries that do not yet contain their known start date.
+The **Finished Books** statistics page groups completed books by finish month. Each month shows the completed-book
+count and total reading time for that month, followed by the finished titles and their authors when known.
+Opening Reading Stats for a completed EPUB or XTC reconciles its persistent dates and author with the bounded Finished
+Books index, including legacy entries that do not yet contain their known start date or author.
 
 The file browser can also mark books as finished without opening them first.
 

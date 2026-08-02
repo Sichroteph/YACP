@@ -48,7 +48,7 @@ class CrossPointWebServer {
     UploadState() { buffer.resize(UPLOAD_BUFFER_SIZE); }
   } upload;
 
-  CrossPointWebServer();
+  explicit CrossPointWebServer(std::string currentBookPath = {});
   ~CrossPointWebServer();
 
   // Start the web server (call after WiFi is connected)
@@ -77,6 +77,7 @@ class CrossPointWebServer {
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
+  std::string currentBookPath;
 
   // WebSocket upload state
   void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length);
@@ -96,10 +97,15 @@ class CrossPointWebServer {
   void handleNotFound() const;
   void handleStatus() const;
   void handleFileList() const;
+  void handleSleepImagesPage() const;
   void handleFileListData() const;
+  void handleBookListData() const;
+  void handleBookGalleryPrepare() const;
+  void handleSleepImagesPrepare() const;
   void handleDownload() const;
   void handleUpload(UploadState& state) const;
   void handleUploadPost(UploadState& state) const;
+  void handleFirmwareInstall() const;
   void handleCreateFolder() const;
   void handleRename() const;
   void handleMove() const;

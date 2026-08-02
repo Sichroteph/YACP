@@ -44,6 +44,31 @@
         <input type="file" id="fileInput" onchange="validateFile()" multiple />
         <p class="drop-zone-hint">⬇ Drop files here — or click to browse</p>
       </div>
+      <div class="upload-destination-panel" id="uploadDestinationPanel">
+        <div class="upload-destination-header">
+          <label class="convert-checkbox">
+            <input type="radio" name="uploadDestination" value="folder" checked onchange="setUploadDestination('folder')" />
+            <span>Upload to current folder</span>
+          </label>
+          <label class="convert-checkbox">
+            <input type="radio" name="uploadDestination" value="sleep-images" onchange="setUploadDestination('sleep-images')" />
+            <span>Add to sleep images</span>
+          </label>
+          <label class="convert-checkbox">
+            <input type="radio" name="uploadDestination" value="book-gallery" onchange="setUploadDestination('book-gallery')" />
+            <span>Attach to book gallery</span>
+          </label>
+        </div>
+        <div class="book-gallery-picker" id="bookGalleryPicker" style="display: none">
+          <label for="bookGallerySelect">Book</label>
+          <select id="bookGallerySelect" onchange="updateUploadActionState()">
+            <option value="">Loading books...</option>
+          </select>
+          <div class="book-gallery-hint" id="bookGalleryHint">
+            Prepared BMPs are used for this book's sleep screen. Originals are only attached to the reader gallery.
+          </div>
+        </div>
+      </div>
       <div class="picker-columns" id="pickerColumns">
         <div class="convert-options" id="convertOptions" style="display: none">
           <div class="convert-row">
@@ -214,6 +239,60 @@
         </div>
       </div>
       <!-- end picker-columns -->
+      <div class="image-prep-panel" id="imagePrepPanel" style="display: none">
+        <div class="image-prep-header">
+          <label class="convert-checkbox">
+            <input type="checkbox" id="prepareImagesBeforeUpload" onchange="toggleImagePrepOptions()" />
+            <span>Prepare images for e-reader</span>
+          </label>
+          <span class="image-prep-summary" id="imagePrepSummary"></span>
+        </div>
+        <div class="image-prep-body" id="imagePrepBody">
+          <div class="image-prep-toolbar">
+            <div class="rotation-buttons">
+              <button class="rotation-btn image-prep-device-btn active" data-value="auto" onclick="setDeviceTarget('auto')">
+                <span id="imagePrepDeviceAutoLabel">Auto</span>
+              </button>
+              <button class="rotation-btn image-prep-device-btn" data-value="X4" onclick="setDeviceTarget('X4')">X4</button>
+              <button class="rotation-btn image-prep-device-btn" data-value="X3" onclick="setDeviceTarget('X3')">X3</button>
+            </div>
+            <span id="imagePrepSizeSummary">Target 480x800 BMP</span>
+          </div>
+          <div class="image-prep-list" id="imagePrepList"></div>
+          <div class="image-prep-editor" id="imagePrepEditor" style="display: none">
+            <div class="image-prep-stage" id="imagePrepStage">
+              <img id="imagePrepSource" alt="" draggable="false" />
+              <div class="image-prep-crop" id="imagePrepCrop"></div>
+            </div>
+            <div class="image-prep-controls">
+              <label for="imagePrepZoom">Crop size</label>
+              <input type="range" id="imagePrepZoom" min="35" max="100" value="100" oninput="setImagePrepZoom(this.value)" />
+            </div>
+            <div class="image-prep-gray-controls">
+              <div class="image-prep-gray-header">
+                <span>Gray thresholds</span>
+                <button type="button" class="secondary-btn small" onclick="resetImagePrepGrayThresholds()">Reset</button>
+              </div>
+              <label>
+                <span>Black to dark</span>
+                <input type="range" id="imagePrepGrayThreshold0" min="0" max="255" value="43" oninput="setImagePrepGrayThreshold(0, this.value)" />
+                <output id="imagePrepGrayValue0">43</output>
+              </label>
+              <label>
+                <span>Dark to light</span>
+                <input type="range" id="imagePrepGrayThreshold1" min="0" max="255" value="128" oninput="setImagePrepGrayThreshold(1, this.value)" />
+                <output id="imagePrepGrayValue1">128</output>
+              </label>
+              <label>
+                <span>Light to white</span>
+                <input type="range" id="imagePrepGrayThreshold2" min="0" max="255" value="213" oninput="setImagePrepGrayThreshold(2, this.value)" />
+                <output id="imagePrepGrayValue2">213</output>
+              </label>
+            </div>
+            <canvas id="imagePrepPreview" width="160" height="240"></canvas>
+          </div>
+        </div>
+      </div>
       <!-- Sync compatibility warning - outside picker-columns -->
       <div class="convert-warning" id="convertWarning" style="display: none" role="alert" aria-live="polite">
         ⚠️ Converting will modify files and can break hash‑based sync. ⚠️<br />

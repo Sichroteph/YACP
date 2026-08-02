@@ -32,6 +32,7 @@
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookGallery.h"
 
 namespace {
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
@@ -151,9 +152,11 @@ void XtcReaderActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     const bool hasChapters = xtc->hasChapters() && !xtc->getChapters().empty();
+    const bool hasBookGallery = xtc && BookGallery::hasImagesForBook(xtc->getPath());
     pauseReadingStatsTimer("reader_menu");
     startActivityForResult(
-        std::make_unique<XtcReaderMenuActivity>(renderer, mappedInput, xtc->getTitle(), hasChapters, stats.isCompleted),
+        std::make_unique<XtcReaderMenuActivity>(renderer, mappedInput, xtc->getTitle(), hasChapters, stats.isCompleted,
+                                                hasBookGallery),
         [this](const ActivityResult& result) {
           const auto* menu = std::get_if<MenuResult>(&result.data);
           if (result.isCancelled || menu == nullptr) {
@@ -483,7 +486,8 @@ void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
 
 void XtcReaderActivity::syncFinishedBookIndex() {
   if (xtc &&
-      !FinishedBooksIndex::recordCanonical(xtc->getPath(), xtc->getCachePath(), xtc->getTitle(), stats)) {
+      !FinishedBooksIndex::recordCanonical(xtc->getPath(), xtc->getCachePath(), xtc->getTitle(), xtc->getAuthor(),
+                                           stats)) {
     LOG_ERR("XTR", "Failed to synchronize finished-book entry");
   }
 }
@@ -742,6 +746,10 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
       break;
     case XtcReaderMenuActivity::MenuAction::READING_STATS:
       openReadingStats();
+      break;
+    case XtcReaderMenuActivity::MenuAction::BOOK_GALLERY:
+      pauseReadingStatsTimer("book_gallery");
+      activityManager.goToBookGallery(xtc ? xtc->getPath() : "");
       break;
     case XtcReaderMenuActivity::MenuAction::TOGGLE_COMPLETED:
       setBookCompleted(!stats.isCompleted);

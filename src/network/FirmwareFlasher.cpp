@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <esp_task_wdt.h>
 #include <mbedtls/sha256.h>
 #include <spi_flash_mmap.h>
 
@@ -80,6 +81,7 @@ Result feedHashAndChecksum(HalFile& file, size_t length, uint8_t* xorAccum, mbed
       for (size_t i = 0; i < want; i++) acc ^= buf[i];
       *xorAccum = acc;
     }
+    esp_task_wdt_reset();
     remaining -= want;
   }
   return Result::OK;
@@ -297,6 +299,7 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
     }
     streamPos += want;
     if (onProgress) onProgress(streamPos, firmwareSize, ctx);
+    esp_task_wdt_reset();
     delay(1);
   }
   file.close();

@@ -42,6 +42,7 @@ class CrossPointState {
   uint8_t recentSleepFill = 0;                          // valid entries (0..SLEEP_RECENT_COUNT)
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
+  bool lastSleepRenderedQuickResume = false;
   bool showBootScreen = true;
   PowerHistoryState powerHistory;
 

@@ -195,7 +195,7 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
 
   stats.save(cachePath);
   globalStats.save();
-  if (!FinishedBooksIndex::record(fullPath, title, stats)) {
+  if (!FinishedBooksIndex::record(fullPath, title, author, stats)) {
     LOG_ERR("BookActions", "Failed to update finished-books index");
   }
 

@@ -1,5 +1,8 @@
 #include "Bitmap.h"
 
+#include <Memory.h>
+#include <Logging.h>
+
 #include <cstdlib>
 #include <cstring>
 
@@ -11,6 +14,11 @@
 // gray levels (0, 85, 170, 255 ±21) are mapped directly without dithering.
 // For cover images, dithering is done in JpegToBmpConverter.cpp instead.
 constexpr bool USE_ATKINSON = true;  // Use Atkinson dithering instead of Floyd-Steinberg
+constexpr uint32_t ADAPTIVE_TONE_LOW_PERCENTILE_PERMILLE = 10;
+constexpr uint32_t ADAPTIVE_TONE_HIGH_PERCENTILE_PERMILLE = 990;
+constexpr int ADAPTIVE_TONE_MIN_RANGE = 96;
+constexpr int ADAPTIVE_TONE_BLEND_NUM = 3;
+constexpr int ADAPTIVE_TONE_BLEND_DEN = 4;
 // ============================================================================
 
 Bitmap::~Bitmap() {
@@ -167,14 +175,158 @@ BmpReaderError Bitmap::parseHeaders() {
   //  - High-color + dithering disabled → simple quantization (no error diffusion)
   const bool highColor = !nativePalette;
   if (highColor && dithering) {
+    const Gray4QuantizationMode quantizationMode = toneMapping == BitmapToneMapping::Legacy
+                                                       ? Gray4QuantizationMode::Legacy
+                                                       : Gray4QuantizationMode::Native;
     if (USE_ATKINSON) {
-      atkinsonDitherer = new AtkinsonDitherer(width);
+      atkinsonDitherer = new AtkinsonDitherer(width, quantizationMode);
     } else {
-      fsDitherer = new FloydSteinbergDitherer(width);
+      fsDitherer = new FloydSteinbergDitherer(width, quantizationMode);
     }
   }
 
   return BmpReaderError::Ok;
+}
+
+uint8_t Bitmap::applyAdaptiveTone(const uint8_t lum) const {
+  if (!adaptiveToneMapping || adaptiveWhitePoint <= adaptiveBlackPoint) {
+    return lum;
+  }
+
+  int leveled;
+  if (lum <= adaptiveBlackPoint) {
+    leveled = 0;
+  } else if (lum >= adaptiveWhitePoint) {
+    leveled = 255;
+  } else {
+    leveled = ((static_cast<int>(lum) - adaptiveBlackPoint) * 255) /
+              (static_cast<int>(adaptiveWhitePoint) - adaptiveBlackPoint);
+  }
+
+  int adjusted = (static_cast<int>(lum) * (ADAPTIVE_TONE_BLEND_DEN - ADAPTIVE_TONE_BLEND_NUM) +
+                  leveled * ADAPTIVE_TONE_BLEND_NUM) /
+                 ADAPTIVE_TONE_BLEND_DEN;
+  if (lum > 242 && adjusted < lum) {
+    adjusted = lum;
+  }
+  if (adjusted < 0) return 0;
+  if (adjusted > 255) return 255;
+  return static_cast<uint8_t>(adjusted);
+}
+
+bool Bitmap::analyzeAdaptiveToneMapping() {
+  adaptiveToneMapping = false;
+  adaptiveBlackPoint = 0;
+  adaptiveWhitePoint = 255;
+
+  if (!file || width <= 0 || height <= 0 || rowBytes <= 0) {
+    return false;
+  }
+
+  auto histogram = makeUniqueNoThrow<uint32_t[]>(256);
+  if (!histogram) {
+    LOG_ERR("BMP", "Failed to allocate adaptive tone histogram (%u bytes)", 256u * sizeof(uint32_t));
+    return false;
+  }
+  auto rowBuffer = makeUniqueNoThrow<uint8_t[]>(rowBytes);
+  if (!rowBuffer) {
+    LOG_ERR("BMP", "Failed to allocate adaptive tone row buffer (%d bytes)", rowBytes);
+    return false;
+  }
+
+  if (!file.seek(bfOffBits)) {
+    return false;
+  }
+
+  uint32_t total = 0;
+  for (int y = 0; y < height; y++) {
+    if (file.read(rowBuffer.get(), rowBytes) != rowBytes) {
+      rewindToData();
+      return false;
+    }
+
+    switch (bpp) {
+      case 32: {
+        const uint8_t* p = rowBuffer.get();
+        for (int x = 0; x < width; x++) {
+          const uint8_t lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+          histogram[lum]++;
+          p += 4;
+        }
+        break;
+      }
+      case 24: {
+        const uint8_t* p = rowBuffer.get();
+        for (int x = 0; x < width; x++) {
+          const uint8_t lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+          histogram[lum]++;
+          p += 3;
+        }
+        break;
+      }
+      case 8:
+        for (int x = 0; x < width; x++) {
+          histogram[paletteLum[rowBuffer[x]]]++;
+        }
+        break;
+      case 4:
+        for (int x = 0; x < width; x++) {
+          const uint8_t nibble = (x & 1) ? (rowBuffer[x >> 1] & 0x0F) : (rowBuffer[x >> 1] >> 4);
+          histogram[paletteLum[nibble]]++;
+        }
+        break;
+      case 2:
+        for (int x = 0; x < width; x++) {
+          histogram[paletteLum[(rowBuffer[x >> 2] >> (6 - ((x & 3) * 2))) & 0x03]]++;
+        }
+        break;
+      case 1:
+        for (int x = 0; x < width; x++) {
+          const uint8_t palIndex = (rowBuffer[x >> 3] & (0x80 >> (x & 7))) ? 1 : 0;
+          histogram[paletteLum[palIndex]]++;
+        }
+        break;
+      default:
+        rewindToData();
+        return false;
+    }
+    total += static_cast<uint32_t>(width);
+  }
+
+  if (total == 0) {
+    rewindToData();
+    return false;
+  }
+
+  const uint32_t lowTarget = (total * ADAPTIVE_TONE_LOW_PERCENTILE_PERMILLE) / 1000;
+  const uint32_t highTarget = (total * ADAPTIVE_TONE_HIGH_PERCENTILE_PERMILLE) / 1000;
+  uint32_t cumulative = 0;
+  uint8_t low = 0;
+  uint8_t high = 255;
+  bool foundLow = false;
+  for (int i = 0; i < 256; i++) {
+    cumulative += histogram[i];
+    if (!foundLow && cumulative >= lowTarget) {
+      low = static_cast<uint8_t>(i);
+      foundLow = true;
+    }
+    if (cumulative >= highTarget) {
+      high = static_cast<uint8_t>(i);
+      break;
+    }
+  }
+
+  if (toneMapping == BitmapToneMapping::Adaptive &&
+      static_cast<int>(high) - static_cast<int>(low) >= ADAPTIVE_TONE_MIN_RANGE) {
+    adaptiveBlackPoint = low;
+    adaptiveWhitePoint = high;
+    adaptiveToneMapping = true;
+    LOG_DBG("BMP", "Adaptive tone enabled: black=%u white=%u", adaptiveBlackPoint, adaptiveWhitePoint);
+  } else {
+    LOG_DBG("BMP", "Adaptive tone skipped: black=%u white=%u", low, high);
+  }
+
+  return rewindToData() == BmpReaderError::Ok;
 }
 
 // packed 2bpp output, 0 = black, 1 = dark gray, 2 = light gray, 3 = white
@@ -191,18 +343,23 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
 
   // Helper lambda to pack 2bpp color into the output stream
   auto packPixel = [&](const uint8_t lum) {
+    const uint8_t toneMappedLum = applyAdaptiveTone(lum);
     uint8_t color;
     if (atkinsonDitherer) {
-      color = atkinsonDitherer->processPixel(adjustPixel(lum), currentX);
+      color = atkinsonDitherer->processPixel(adjustPixel(toneMappedLum), currentX);
     } else if (fsDitherer) {
-      color = fsDitherer->processPixel(adjustPixel(lum), currentX);
+      color = fsDitherer->processPixel(adjustPixel(toneMappedLum), currentX);
     } else {
       if (nativePalette) {
         // Palette matches native gray levels: direct mapping (still apply brightness/contrast/gamma)
-        color = static_cast<uint8_t>(adjustPixel(lum) >> 6);
+        const int adjusted = adjustPixel(toneMappedLum);
+        color = toneMapping == BitmapToneMapping::Legacy ? quantizeGray4Legacy(adjusted).index
+                                                         : static_cast<uint8_t>(adjusted >> 6);
       } else {
         // Non-native palette with dithering disabled: simple quantization
-        color = quantize(adjustPixel(lum), currentX, prevRowY);
+        const int adjusted = adjustPixel(toneMappedLum);
+        color = toneMapping == BitmapToneMapping::Legacy ? quantizeGray4Legacy(adjusted).index
+                                                         : quantize(adjusted, currentX, prevRowY);
       }
     }
     currentOutByte |= (color << bitShift);

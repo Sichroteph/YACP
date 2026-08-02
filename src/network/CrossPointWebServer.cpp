@@ -16,10 +16,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <iterator>
+#include <string_view>
+#include <utility>
 
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
+#include "FirmwareFlasher.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
 #include "SdCardFontSystem.h"
@@ -31,17 +35,22 @@
 #include "html/HomePageHtml.generated.h"
 #include "html/LogoPng.generated.h"
 #include "html/SettingsPageHtml.generated.h"
+#include "html/SleepImagesPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookGallery.h"
 #include "util/StringUtils.h"
 
 namespace {
 // Folders/files to hide from the web interface file browser.
 // Dot-prefixed items are hidden unless showHiddenFiles is enabled.
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
+constexpr const char* SLEEP_IMAGES_DIR = "/.sleep";
 constexpr uint16_t UDP_PORTS[] = {54982, 48123, 39001, 44044, 59678};
 constexpr uint16_t LOCAL_UDP_PORT = 8134;
+constexpr const char* FIRMWARE_INSTALL_CONFIRM = "install";
+constexpr uint32_t FIRMWARE_INSTALL_RESTART_DELAY_MS = 500;
 
 // Static pointer for WebSocket callback (WebSocketsServer requires C-style callback)
 CrossPointWebServer* wsInstance = nullptr;
@@ -101,6 +110,13 @@ String normalizeWebPath(const String& inputPath) {
 }
 
 bool isProtectedPath(const String& path) {
+  if (BookGallery::isGalleryPath(std::string_view{path.c_str(), path.length()})) {
+    return false;
+  }
+  if (path == SLEEP_IMAGES_DIR || path.startsWith(String(SLEEP_IMAGES_DIR) + "/")) {
+    return false;
+  }
+
   // Check every segment of the path, not just the last one.
   // This prevents access to e.g. /.hidden/somefile or /System Volume Information/foo
   int start = 0;
@@ -125,13 +141,57 @@ bool isProtectedPath(const String& path) {
 
   return false;
 }
+
+bool isMacOSSidecarFile(const String& filename) {
+  return filename.startsWith("._") || filename == ".DS_Store";
+}
+
+String fileNameOf(const String& path) {
+  const int lastSlash = path.lastIndexOf('/');
+  return lastSlash < 0 ? path : path.substring(lastSlash + 1);
+}
+
+bool readFirmwareInstallRequest(WebServer* server, String& path, String& confirm, String& error) {
+  if (server->hasArg("path")) {
+    path = server->arg("path");
+  }
+  if (server->hasArg("confirm")) {
+    confirm = server->arg("confirm");
+  }
+
+  if ((path.isEmpty() || confirm.isEmpty()) && server->hasArg("plain")) {
+    JsonDocument doc;
+    const DeserializationError err = deserializeJson(doc, server->arg("plain"));
+    if (err) {
+      error = String("Invalid JSON: ") + err.c_str();
+      return false;
+    }
+
+    if (path.isEmpty() && doc["path"].is<const char*>()) {
+      path = doc["path"].as<const char*>();
+    }
+    if (confirm.isEmpty() && doc["confirm"].is<const char*>()) {
+      confirm = doc["confirm"].as<const char*>();
+    }
+  }
+
+  if (path.isEmpty()) {
+    error = "Missing path";
+    return false;
+  }
+  if (confirm != FIRMWARE_INSTALL_CONFIRM) {
+    error = "Missing confirm=install";
+    return false;
+  }
+  return true;
+}
 }  // namespace
 
 // File listing page template - now using generated headers:
 // - HomePageHtml (from html/HomePage.html)
 // - FilesPageHeaderHtml (from html/FilesPageHeader.html)
 // - FilesPageFooterHtml (from html/FilesPageFooter.html)
-CrossPointWebServer::CrossPointWebServer() {}
+CrossPointWebServer::CrossPointWebServer(std::string currentBookPath) : currentBookPath(std::move(currentBookPath)) {}
 
 CrossPointWebServer::~CrossPointWebServer() { stop(); }
 
@@ -181,16 +241,21 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Setting up routes...");
   server->on("/", HTTP_GET, [this] { handleRoot(); });
   server->on("/files", HTTP_GET, [this] { handleFileList(); });
+  server->on("/sleep-images", HTTP_GET, [this] { handleSleepImagesPage(); });
   server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
   server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
   server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+  server->on("/api/books", HTTP_GET, [this] { handleBookListData(); });
+  server->on("/api/book-gallery/prepare", HTTP_POST, [this] { handleBookGalleryPrepare(); });
+  server->on("/api/sleep-images/prepare", HTTP_POST, [this] { handleSleepImagesPrepare(); });
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
   // Upload endpoint with special handling for multipart form data
   server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
+  server->on("/api/firmware/install", HTTP_POST, [this] { handleFirmwareInstall(); });
 
   // Create folder endpoint
   server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
@@ -433,6 +498,11 @@ void CrossPointWebServer::handleStatus() const {
   doc["freeHeap"] = ESP.getFreeHeap();
   doc["uptime"] = millis() / 1000;
   doc["device"] = gpio.deviceIsX3() ? "X3" : "X4";
+  if (!currentBookPath.empty()) {
+    doc["currentBookPath"] = currentBookPath;
+    doc["currentBookName"] = fileNameOf(currentBookPath.c_str());
+    doc["currentBookGalleryPath"] = BookGallery::galleryPathForBook(currentBookPath);
+  }
 
   char snBuf[33] = {0};
   bool valid = false;
@@ -521,6 +591,10 @@ void CrossPointWebServer::handleFileList() const {
   sendHtmlContent(server.get(), FilesPageHtml, sizeof(FilesPageHtml));
 }
 
+void CrossPointWebServer::handleSleepImagesPage() const {
+  sendHtmlContent(server.get(), SleepImagesPageHtml, sizeof(SleepImagesPageHtml));
+}
+
 void CrossPointWebServer::handleFileListData() const {
   // Get current path from query string (default to root)
   String currentPath = "/";
@@ -566,6 +640,152 @@ void CrossPointWebServer::handleFileListData() const {
   // End of streamed response, empty chunk to signal client
   server->sendContent("");
   LOG_DBG("WEB", "Served file listing page for path: %s", currentPath.c_str());
+}
+
+void CrossPointWebServer::handleBookListData() const {
+  constexpr uint8_t MAX_DEPTH = 8;
+  constexpr size_t MAX_BOOKS = 500;
+  size_t count = 0;
+
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->send(200, "application/json", "");
+  server->sendContent("[");
+
+  char output[512];
+  constexpr size_t outputSize = sizeof(output);
+  bool seenFirst = false;
+  JsonDocument doc;
+
+  const auto emitBook = [this, &doc, &output, &seenFirst](const String& path) {
+    doc.clear();
+    doc["path"] = path;
+    doc["name"] = fileNameOf(path);
+
+    const size_t written = serializeJson(doc, output, outputSize);
+    if (written >= outputSize) {
+      LOG_DBG("WEB", "Skipping oversized book JSON for: %s", path.c_str());
+      return;
+    }
+
+    if (seenFirst) {
+      server->sendContent(",");
+    } else {
+      seenFirst = true;
+    }
+    server->sendContent(output);
+  };
+
+  std::function<void(String, uint8_t)> scanDir = [&](String dirPath, uint8_t depth) {
+    if (depth > MAX_DEPTH || count >= MAX_BOOKS || isProtectedPath(dirPath)) return;
+
+    HalFile dir = Storage.open(dirPath.c_str());
+    if (!dir || !dir.isDirectory()) {
+      if (dir) dir.close();
+      return;
+    }
+
+    HalFile file = dir.openNextFile();
+    char name[256];
+    while (file && count < MAX_BOOKS) {
+      name[0] = '\0';
+      file.getName(name, sizeof(name));
+      const String filename = name;
+      const bool isDir = file.isDirectory();
+      file.close();
+
+      if (!filename.isEmpty() && !isMacOSSidecarFile(filename)) {
+        String childPath = dirPath;
+        if (!childPath.endsWith("/")) childPath += "/";
+        childPath += filename;
+
+        if (!BookGallery::isGalleryPath(std::string_view{childPath.c_str(), childPath.length()}) &&
+            !isProtectedPath(childPath)) {
+          if (isDir) {
+            scanDir(childPath, depth + 1);
+          } else if (BookGallery::isSupportedBookPath(std::string_view{childPath.c_str(), childPath.length()})) {
+            emitBook(childPath);
+            ++count;
+          }
+        }
+      }
+
+      yield();
+      esp_task_wdt_reset();
+      file = dir.openNextFile();
+    }
+    dir.close();
+  };
+
+  scanDir("/", 0);
+  server->sendContent("]");
+  server->sendContent("");
+}
+
+void CrossPointWebServer::handleBookGalleryPrepare() const {
+  if (!server->hasArg("bookPath")) {
+    server->send(400, "text/plain", "Missing bookPath");
+    return;
+  }
+
+  const String bookPath = normalizeWebPath(server->arg("bookPath"));
+  if (isProtectedPath(bookPath) || !BookGallery::isSupportedBookPath(std::string_view{bookPath.c_str(), bookPath.length()})) {
+    server->send(400, "text/plain", "Invalid book path");
+    return;
+  }
+
+  if (!Storage.exists(bookPath.c_str())) {
+    server->send(404, "text/plain", "Book not found");
+    return;
+  }
+
+  HalFile bookFile = Storage.open(bookPath.c_str());
+  if (!bookFile) {
+    server->send(500, "text/plain", "Failed to open book");
+    return;
+  }
+  const bool isDirectory = bookFile.isDirectory();
+  bookFile.close();
+  if (isDirectory) {
+    server->send(400, "text/plain", "Book path is a folder");
+    return;
+  }
+
+  std::string galleryPath;
+  if (!BookGallery::ensureGalleryFolder(std::string_view{bookPath.c_str(), bookPath.length()}, galleryPath)) {
+    server->send(500, "text/plain", "Failed to prepare gallery folder");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["path"] = galleryPath;
+  String response;
+  serializeJson(doc, response);
+  server->send(200, "application/json", response);
+}
+
+void CrossPointWebServer::handleSleepImagesPrepare() const {
+  if (Storage.exists(SLEEP_IMAGES_DIR)) {
+    HalFile dir = Storage.open(SLEEP_IMAGES_DIR);
+    if (!dir) {
+      server->send(500, "text/plain", "Failed to open sleep images folder");
+      return;
+    }
+    const bool ok = dir.isDirectory();
+    dir.close();
+    if (!ok) {
+      server->send(400, "text/plain", "Sleep images path is not a folder");
+      return;
+    }
+  } else if (!Storage.mkdir(SLEEP_IMAGES_DIR)) {
+    server->send(500, "text/plain", "Failed to create sleep images folder");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["path"] = SLEEP_IMAGES_DIR;
+  String response;
+  serializeJson(doc, response);
+  server->send(200, "application/json", response);
 }
 
 void CrossPointWebServer::handleDownload() const {
@@ -819,6 +1039,70 @@ void CrossPointWebServer::handleUploadPost(UploadState& state) const {
     const String error = state.error.isEmpty() ? "Unknown error during upload" : state.error;
     server->send(400, "text/plain", error);
   }
+}
+
+void CrossPointWebServer::handleFirmwareInstall() const {
+  String requestedPath;
+  String confirm;
+  String error;
+  if (!readFirmwareInstallRequest(server.get(), requestedPath, confirm, error)) {
+    server->send(400, "text/plain", error);
+    return;
+  }
+
+  const String firmwarePath = normalizeWebPath(requestedPath);
+  if (firmwarePath.isEmpty() || firmwarePath == "/") {
+    server->send(400, "text/plain", "Invalid firmware path");
+    return;
+  }
+  if (!FsHelpers::checkFileExtension(firmwarePath, ".bin")) {
+    server->send(400, "text/plain", "Firmware path must end in .bin");
+    return;
+  }
+  if (isProtectedPath(firmwarePath)) {
+    server->send(403, "text/plain", "Access denied to protected path");
+    return;
+  }
+  if (!Storage.exists(firmwarePath.c_str())) {
+    server->send(404, "text/plain", "Firmware file not found");
+    return;
+  }
+
+  HalFile file = Storage.open(firmwarePath.c_str());
+  if (!file) {
+    server->send(500, "text/plain", "Failed to open firmware file");
+    return;
+  }
+  if (file.isDirectory()) {
+    file.close();
+    server->send(400, "text/plain", "Firmware path is a directory");
+    return;
+  }
+  const size_t firmwareSize = file.size();
+  file.close();
+
+  LOG_INF("WEB", "Remote firmware install requested: %s (%u bytes)", firmwarePath.c_str(),
+          static_cast<unsigned>(firmwareSize));
+  esp_task_wdt_reset();
+
+  auto progressCb = +[](size_t written, size_t total, void* ctx) {
+    (void)written;
+    (void)total;
+    (void)ctx;
+    esp_task_wdt_reset();
+  };
+
+  const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, nullptr);
+  if (result != firmware_flash::Result::OK) {
+    LOG_ERR("WEB", "Remote firmware install failed: %s", firmware_flash::resultName(result));
+    server->send(500, "text/plain", String("Firmware install failed: ") + firmware_flash::resultName(result));
+    return;
+  }
+
+  LOG_INF("WEB", "Remote firmware install complete, restarting");
+  server->send(200, "text/plain", "Firmware installed, restarting");
+  delay(FIRMWARE_INSTALL_RESTART_DELAY_MS);
+  ESP.restart();
 }
 
 void CrossPointWebServer::handleCreateFolder() const {
@@ -1262,8 +1546,8 @@ void CrossPointWebServer::handlePostSettings() {
   }
 
   const int requestedFontFamily = doc["fontFamily"].is<int>() ? doc["fontFamily"].as<int>() : -1;
-  const bool needsFontRegistry = SETTINGS.sdFontFamilyName[0] != '\0' ||
-                                 requestedFontFamily >= CrossPointSettings::BUILTIN_FONT_COUNT;
+  const bool needsFontRegistry =
+      SETTINGS.sdFontFamilyName[0] != '\0' || requestedFontFamily >= CrossPointSettings::BUILTIN_FONT_COUNT;
   const SdCardFontRegistry* activeFontRegistry = needsFontRegistry ? &sdFontSystem.registry() : nullptr;
   const auto settings = getSettingsList(activeFontRegistry);
   if (activeFontRegistry != nullptr) {

@@ -1,3 +1,213 @@
+## [v1.5.0-yacp] - 2026-08-03
+
+### Added
+
+- Added a dedicated Sleep Images web page for managing global sleep images and the gallery attached to one selected
+  book without exposing the hidden SD-card folders.
+- Added per-book image galleries. Compatible gallery BMPs can be opened from the reader menu and used as sleep images
+  when sleep starts from that book.
+- Added browser-side image preparation to File Transfer, with visual crop selection, X3/X4 target sizing, four-level
+  grayscale preview, threshold tuning, and reader-ready BMP generation before upload.
+- Added `Previous Page` as an optional side-button long-press action in EPUB, TXT, and XTC readers.
+
+### Changed
+
+- Sleep-image rendering now analyzes each image's tonal range before dithering, preserving substantially more useful
+  highlight and midtone detail on the four-level e-ink output.
+- Rendered grayscale sleep-image planes are cached on the SD card and reused while the source image remains unchanged.
+- Per-book sleep images take priority in Cover, Custom, and Cover/Custom modes, rotate randomly, and avoid immediately
+  repeating the previous image when several prepared BMPs are available.
+- Waking after an image-based sleep screen restores the pre-sleep framebuffer instead of showing the normal boot
+  splash. This implementation was inspired by CrossPoint PR #2731 by Marek Vesely (`notmarek`).
+- Finished Books now groups completed titles by finish month and shows each month's book count, reading time, titles,
+  and authors.
+
+### Removed
+
+- Removed the temporary on-device grayscale comparator and browser sorting tools used while validating the new image
+  pipeline.
+
+### Fixed
+
+- Reaching the real EPUB or XTC ending now completes the book automatically, while leaving from the final page or a
+  rounded 100 percent asks for confirmation.
+- First completion dates remain stable across rereads, pending Reading Achievement screens survive activity replacement
+  or restart, and legacy Finished Books entries reconcile their dates and authors from persistent statistics.
+- Sleep-image management loads gallery data and previews only when requested, reducing SD-card contention during file
+  uploads.
+- File Transfer keeps the selected book-gallery destination explicit throughout image preparation, reducing accidental
+  uploads to the current folder.
+- Quick Resume back into the reader restores the loading-dot indicator before live battery status replaces it.
+
+## [v1.4.0-yacp.226] - 2026-08-02
+
+### Changed
+
+- Simplified the Sleep Images page around default images and one selected book, with contextual add actions instead
+  of technical folder shortcuts.
+- Adding an image from the Sleep Images page now opens the existing image preparation workflow with the correct
+  destination and selected book already set, then returns to Sleep Images after a successful upload.
+
+## [v1.4.0-yacp.225] - 2026-08-02
+
+### Added
+
+- Added a dedicated Sleep Images web page for global sleep images and per-book galleries. File Manager no longer loads
+  sleep-image lists when managing regular files.
+- File Transfer can still upload directly into the hidden `/.sleep` folder when that folder is opened explicitly.
+
+### Removed
+
+- Removed the temporary sleep-image test UI and browser sorting page used during grayscale tuning.
+
+### Fixed
+
+- Sleep-image management now loads gallery contents and image previews only on demand, reducing SD-card contention
+  during uploads.
+- Quick Resume back into the reader now shows the small loading-dot indicator in the bottom-left corner again before
+  the live battery status replaces it.
+- Per-book gallery sleep-image rotation now avoids immediately repeating the previously used BMP when several
+  prepared images are available for the book.
+
+## [v1.4.0-yacp.214] - 2026-08-02
+
+### Fixed
+
+- File Transfer now keeps the chosen book-gallery destination clearer and less fragile, so prepared BMP uploads are
+  less likely to be sent to the current folder by mistake.
+
+## [v1.4.0-yacp.211] - 2026-08-02
+
+### Fixed
+
+- Per-book gallery sleep-image rotation now uses the ESP32 hardware RNG, avoiding the same first image after each
+  deep-sleep boot.
+
+## [v1.4.0-yacp.210] - 2026-08-02
+
+### Fixed
+
+- Per-book gallery sleep images now choose randomly among the book's prepared BMPs instead of always using the first
+  uploaded image.
+
+## [v1.4.0-yacp.209] - 2026-08-02
+
+### Changed
+
+- Book gallery BMPs now take priority as the sleep image when sleep starts from that book in Cover, Custom, or
+  Cover/Custom sleep modes.
+
+## [v1.4.0-yacp.208] - 2026-08-02
+
+### Added
+
+- File Transfer's e-reader image preparation now exposes three grayscale threshold sliders, so uploads can be tuned
+  before generating the 2-bit BMP used on the reader.
+
+## [v1.4.0-yacp.206] - 2026-08-02
+
+### Added
+
+- File Transfer can now attach images to a per-book gallery. The reader menu shows `Book Gallery` only for books with
+  compatible gallery images, and opens the existing image viewer for that book's gallery.
+- File Transfer can now prepare uploaded images for the e-reader in the browser, with crop selection, X3/X4 target
+  sizing, four-level grayscale dithering, and 2-bit BMP output before upload.
+
+### Changed
+
+- Dropping or selecting images in File Transfer now uploads the originals by default; e-reader crop/resize preparation
+  is an explicit opt-in choice.
+- Quick resume now shows a wake-up label over the restored sleep frame only when waking to Home, keeping direct
+  reader resumes visually quiet.
+
+## [v1.4.0-yacp.200] - 2026-08-02
+
+### Changed
+
+- Custom BMP sleep images now use adaptive tonal analysis before dithering, preserving more useful detail while
+  keeping the corrected four-level grayscale mapping.
+- Rendered custom sleep-image grayscale planes are cached on the SD card and reused when the source image has not
+  changed.
+- Added a temporary main-menu diagnostic screen for comparing legacy and adaptive sleep-image grayscale rendering
+  directly on device, with a taller label badge and Confirm mapped to the next image.
+- Fixed the temporary sleep-image diagnostic so it uses the same white BW base and crop ratios as the real sleep-image
+  renderer, and keeps the label out of the grayscale planes.
+- The temporary sleep-image diagnostic now uses English overlay labels, `Before` and `After`, regardless of UI
+  language.
+- The temporary sleep-image diagnostic now uses Left/Right for the linear Before/After sequence, while Confirm jumps
+  to the next image's `Before` frame.
+- Added a lightweight web Sleep Images page for previewing sleep-screen images and sorting them into `keep` or
+  `reject` folders from the browser.
+
+## [v1.4.0-yacp.185] - 2026-08-01
+
+### Changed
+
+- Removed the temporary real-device sleep-image comparison mode from the firmware build.
+
+## [v1.4.0-yacp.184] - 2026-08-01
+
+### Changed
+
+- The temporary sleep-image grayscale comparison build now opens the real-device comparator automatically at boot,
+  without requiring a button combo.
+
+## [v1.4.0-yacp.183] - 2026-08-01
+
+### Added
+
+- Added a hidden real-device diagnostic mode to compare the legacy and corrected sleep-image grayscale mappings on
+  every BMP in `/.sleep`.
+
+## [v1.4.0-yacp.181] - 2026-08-01
+
+### Fixed
+
+- Waking from image-based sleep screens to Home now reuses the wake cleanup refresh and avoids a second strong Home
+  refresh.
+
+## [v1.4.0-yacp.180] - 2026-08-01
+
+### Fixed
+
+- Waking from image-based sleep screens now uses the wake half-refresh as the cleanup pass and avoids a second half
+  refresh when the reader page opens.
+
+## [v1.4.0-yacp.179] - 2026-08-01
+
+### Changed
+
+- Rebuilt the Tiny firmware with the remote File Transfer firmware-install endpoint and the current sleep-cover
+  grayscale correction.
+
+## [v1.4.0-yacp.178] - 2026-08-01
+
+### Fixed
+
+- Sleep cover grayscale generation now keeps more midtone detail instead of pushing many light-mid tones to white.
+
+## [v1.4.0-yacp.176] - 2026-08-01
+
+### Added
+
+- File Transfer now exposes a remote firmware install endpoint so a developer can upload a `.bin` over HTTP, trigger
+  validation and OTA flashing from the computer, and let the reader restart without navigating the firmware menu.
+
+## [v1.4.0-yacp.174] - 2026-08-01
+
+### Changed
+
+- Sleep wake now skips the boot splash after every sleep screen mode by restoring the pre-sleep frame first; X3 keeps
+  the no-flash wake indicator only after true Quick Resume sleep screens and uses a half refresh after image-based
+  sleep screens.
+
+## [v1.4.0-yacp.168] - 2026-08-01
+
+### Changed
+
+- Finished Books now groups completed titles by finish month, showing each month's book count, total reading time,
+  titles, and authors instead of exact per-book date timelines.
+
 ## [v1.4.0-yacp.167] - 2026-08-01
 
 ### Added

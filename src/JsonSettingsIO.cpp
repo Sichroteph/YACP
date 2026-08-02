@@ -113,6 +113,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   doc["recentSleepFill"] = s.recentSleepFill;
   doc["readerActivityLoadCount"] = s.readerActivityLoadCount;
   doc["lastSleepFromReader"] = s.lastSleepFromReader;
+  doc["lastSleepRenderedQuickResume"] = s.lastSleepRenderedQuickResume;
   doc["pendingBookmarkSpine"] = s.pendingBookmarkSpine;
   doc["pendingBookmarkProgress"] = s.pendingBookmarkProgress;
   doc["pendingBookmarkParagraphIndex"] = s.pendingBookmarkParagraphIndex;
@@ -170,6 +171,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   }
   s.readerActivityLoadCount = doc["readerActivityLoadCount"] | static_cast<uint8_t>(0);
   s.lastSleepFromReader = doc["lastSleepFromReader"] | false;
+  s.lastSleepRenderedQuickResume = doc["lastSleepRenderedQuickResume"] | false;
   s.pendingBookmarkSpine = doc["pendingBookmarkSpine"] | static_cast<uint16_t>(UINT16_MAX);
   s.pendingBookmarkProgress = doc["pendingBookmarkProgress"] | static_cast<float>(-1.0f);
   s.pendingBookmarkParagraphIndex = doc["pendingBookmarkParagraphIndex"] | static_cast<uint16_t>(UINT16_MAX);

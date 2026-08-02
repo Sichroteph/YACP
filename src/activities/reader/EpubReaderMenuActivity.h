@@ -38,6 +38,7 @@ class EpubReaderMenuActivity final : public Activity {
     BOOKMARK_TOGGLE,
     VIEW_BOOKMARKS,
     DELETE_BOOKMARKS,
+    BOOK_GALLERY,
     SAVE_CLIPPING,
     VIEW_CLIPPINGS
   };
@@ -55,7 +56,7 @@ class EpubReaderMenuActivity final : public Activity {
       ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr,
       void* beginGlobalSettingsEditContext = nullptr, bool stablePageNumbersAvailable = false,
       ReaderOptionsActivity::GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr,
-      void* endGlobalSettingsEditContext = nullptr);
+      void* endGlobalSettingsEditContext = nullptr, bool hasBookGallery = false);
 
   void onEnter() override;
   void onExit() override;
@@ -78,7 +79,8 @@ class EpubReaderMenuActivity final : public Activity {
   using TabMenuItems = std::array<std::vector<MenuItem>, MENU_TAB_COUNT>;
 
   static TabMenuItems buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool hasClippings,
-                                     bool isCurrentPageBookmarked, bool isBookCompleted, bool showReadingPaceReset);
+                                     bool isCurrentPageBookmarked, bool isBookCompleted, bool showReadingPaceReset,
+                                     bool hasBookGallery);
   [[nodiscard]] const std::vector<MenuItem>& activeMenuItems() const;
   [[nodiscard]] size_t activeTabIndex() const { return static_cast<size_t>(activeTab); }
   void cycleActiveTab();

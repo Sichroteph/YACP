@@ -26,19 +26,39 @@ YACP is expected to use less energy and perform less incidental work than its ba
 measured battery-life claim yet. Long-running current analysis continues so future choices can be based on repeatable
 hardware measurements rather than optimistic estimates.
 
-## What is new in 1.4.0-yacp.167
+## What is new in 1.5.0-yacp
 
-- **Reliable book completion:** reaching the real EPUB or XTC ending completes the book automatically, while leaving
-  from its final page or a rounded 100% asks for confirmation. The first completion date remains stable across rereads.
-- **Dated Finished Books timelines:** every known reading span now shows its start date, finish date, both years, and
-  active reading time. Opening Reading Stats repairs older retained entries from the book's persistent dates.
-- **Safer reading start dates:** a short preview no longer starts a book's timeline; YACP waits for meaningful active
-  reading and forward progress.
-- **Previous Page on a side-button hold:** the optional long-press action turns back exactly one page in EPUB, TXT,
-  and XTC while preserving the side button's normal short-press direction.
+This release is centered on one visible e-ink improvement: a new adaptive grayscale path for sleep images. The previous
+mapping could wash out highlights or collapse useful midtones. YACP now analyzes the image's tonal range before
+dithering it to the four levels available on the panel.
 
-This is a focused reliability release built on the no-flash screen maintenance, Reading Achievement, Finished Books,
-and Home improvements introduced in `.155`. See the [changelog](CHANGELOG.md) for the complete inventory.
+<p align="center">
+  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-image-before-after.jpg"
+       alt="Four real-device before and after comparisons of YACP adaptive grayscale sleep-image rendering"
+       width="760">
+  <br>
+  <sub>The same source images rendered with the previous and adaptive mappings on a real X3.</sub>
+</p>
+
+- **Adaptive grayscale rendering:** custom and per-book sleep images preserve more highlight and midtone detail, while
+  rendered grayscale planes are cached on the SD card and reused when the source is unchanged.
+- **Per-book sleep-image galleries:** prepared images can be attached to a book, selected when sleep starts from that
+  book, rotated randomly, and kept from repeating immediately.
+- **Image preparation in the browser:** File Transfer can crop, resize for X3 or X4, preview four-level grayscale,
+  adjust the thresholds, and upload the resulting BMP without a separate conversion tool.
+- **A focused Sleep Images page:** global images and one selected book gallery can be viewed and updated without
+  navigating the hidden storage layout.
+- **Cleaner sleep and wake:** image-based sleep screens wake without the normal boot splash; direct Quick Resume into
+  the reader remains visually quiet.
+- **Reading reliability and ergonomics:** finished books are grouped by month, completion data survives rereads more
+  reliably, and a side-button hold can optionally turn back one page.
+
+[Watch the complete sleep-image workflow](https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4)
+from the phone interface to the resulting Alice in Wonderland and Jurassic Park sleep screens on the reader.
+
+This builds on earlier YACP work such as X3 no-flash screen maintenance and seamless Quick Resume. When a technical
+finding appears broadly useful, I try to submit it to CrossPoint as a focused PR so its maintainers can review and,
+if they wish, adopt it upstream. See the [changelog](CHANGELOG.md) for the complete inventory.
 
 ## Direction
 
@@ -161,10 +181,10 @@ book. The first completion date stays unchanged when the book is reopened or rer
 
 Finishing a new book opens a Reading Achievement screen with its reading time, sessions, average session, favorite
 reading period, reading span, completed-book count, and total reading time on the device. The following Finished Books
-view keeps the 32 most recently completed books in a bounded SD index and presents each known reading span as a compact
-start-to-finish timeline with the year on both dates and the reading time. Existing installations recover completed
-entries from their recent-books list without scanning the entire SD card. Opening Reading Stats also reconciles a
-completed book's persistent dates with its retained entry, so legacy timelines repair themselves without a fake edit.
+view keeps the 32 most recently completed books in a bounded SD index and groups them by finish month, showing each
+month's book count, reading time, titles, and authors. Existing installations recover completed entries from their
+recent-books list without scanning the entire SD card. Opening Reading Stats also reconciles a completed book's
+persistent dates and author with its retained entry, so legacy entries repair themselves without a fake edit.
 
 <table>
   <tr>
@@ -252,9 +272,9 @@ checksums, and applies the [build checklist](BUILD_CHECKLIST.md).
 
 ## Project status
 
-This is not a community project. Issues, Discussions, pull requests, feature requests, support requests, and project
-contact are not accepted. External pull requests are closed automatically. The source is public for inspection and
-forking; maintain a fork if a different direction is needed.
+This remains a personal firmware project rather than a community roadmap. GitHub Issues are open for reproducible bug
+reports, hardware feedback, and focused technical discussion. General support requests, feature voting, and external
+pull requests are not accepted; maintain a fork if a different direction is needed.
 
 Optional financial support does not buy features or influence project decisions:
 [PayPal](https://www.paypal.com/paypalme/ChrJeannette).

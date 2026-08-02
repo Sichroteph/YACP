@@ -18,19 +18,24 @@ constexpr int kTitleLineGap = 1;
 }  // namespace
 
 XtcReaderMenuActivity::XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,
-                                             const bool hasChapters, const bool isBookCompleted)
+                                             const bool hasChapters, const bool isBookCompleted,
+                                             const bool hasBookGallery)
     : Activity("XtcReaderMenu", renderer, mappedInput),
       title(std::move(title)),
-      items(buildMenuItems(hasChapters, isBookCompleted)) {}
+      items(buildMenuItems(hasChapters, isBookCompleted, hasBookGallery)) {}
 
 std::vector<XtcReaderMenuActivity::MenuItem> XtcReaderMenuActivity::buildMenuItems(const bool hasChapters,
-                                                                                   const bool isBookCompleted) {
+                                                                                   const bool isBookCompleted,
+                                                                                   const bool hasBookGallery) {
   std::vector<MenuItem> menuItems;
-  menuItems.reserve(5);
+  menuItems.reserve(5 + (hasBookGallery ? 1u : 0u));
   if (hasChapters) {
     menuItems.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   }
   menuItems.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
+  if (hasBookGallery) {
+    menuItems.push_back({MenuAction::BOOK_GALLERY, StrId::STR_BOOK_GALLERY});
+  }
   menuItems.push_back(
       {MenuAction::TOGGLE_COMPLETED, isBookCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
   menuItems.push_back({MenuAction::DELETE_STATS, StrId::STR_DELETE_BOOK_STATS});

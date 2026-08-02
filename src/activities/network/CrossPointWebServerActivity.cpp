@@ -273,7 +273,7 @@ void CrossPointWebServerActivity::startWebServer() {
   LOG_DBG("WEBACT", "Starting web server...");
 
   // Create the web server instance
-  webServer.reset(new CrossPointWebServer());
+  webServer.reset(new CrossPointWebServer(returnBookPath));
   webServer->begin();
 
   if (webServer->isRunning()) {

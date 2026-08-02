@@ -16,9 +16,11 @@ namespace {
 constexpr char INDEX_PATH[] = "/.crosspoint/finished_books.bin";
 constexpr char INDEX_TMP_PATH[] = "/.crosspoint/finished_books.bin.tmp";
 constexpr char INDEX_BACKUP_PATH[] = "/.crosspoint/finished_books.bin.bak";
-constexpr uint8_t INDEX_VERSION = 2;
+constexpr uint8_t INDEX_VERSION = 3;
+constexpr uint8_t START_DATE_INDEX_VERSION = 2;
 constexpr uint8_t LEGACY_INDEX_VERSION = 1;
 constexpr uint16_t MAX_TITLE_BYTES = 160;
+constexpr uint16_t MAX_AUTHOR_BYTES = 120;
 constexpr char MAGIC[] = {'C', 'P', 'F', 'B'};
 
 uint64_t pathKey(const std::string& path) {
@@ -65,6 +67,8 @@ bool writeIndex(const std::vector<FinishedBookEntry>& entries) {
     const auto& entry = entries[i];
     const uint16_t titleLength =
         static_cast<uint16_t>(std::min(entry.title.size(), static_cast<size_t>(MAX_TITLE_BYTES)));
+    const uint16_t authorLength =
+        static_cast<uint16_t>(std::min(entry.author.size(), static_cast<size_t>(MAX_AUTHOR_BYTES)));
     ok = serialization::tryWritePod(file, entry.pathKey) &&
          serialization::tryWritePod(file, entry.totalReadingSeconds) &&
          serialization::tryWritePod(file, entry.startDate.year) &&
@@ -74,7 +78,9 @@ bool writeIndex(const std::vector<FinishedBookEntry>& entries) {
          serialization::tryWritePod(file, entry.finishedDate.month) &&
          serialization::tryWritePod(file, entry.finishedDate.day) &&
          serialization::tryWritePod(file, titleLength) &&
-         file.write(reinterpret_cast<const uint8_t*>(entry.title.data()), titleLength) == titleLength;
+         file.write(reinterpret_cast<const uint8_t*>(entry.title.data()), titleLength) == titleLength &&
+         serialization::tryWritePod(file, authorLength) &&
+         file.write(reinterpret_cast<const uint8_t*>(entry.author.data()), authorLength) == authorLength;
   }
 
   file.flush();
@@ -121,7 +127,7 @@ bool loadPath(const char* path, std::vector<FinishedBookEntry>& entries) {
   bool ok = file.read(reinterpret_cast<uint8_t*>(magic), sizeof(magic)) == sizeof(magic) &&
             serialization::tryReadPod(file, version) && serialization::tryReadPod(file, count) &&
             serialization::tryReadPod(file, reserved) && std::memcmp(magic, MAGIC, sizeof(MAGIC)) == 0 &&
-            (version == INDEX_VERSION || version == LEGACY_INDEX_VERSION) &&
+            (version == INDEX_VERSION || version == START_DATE_INDEX_VERSION || version == LEGACY_INDEX_VERSION) &&
             count <= FinishedBooksIndex::MAX_ENTRIES;
 
   if (ok) {
@@ -133,7 +139,7 @@ bool loadPath(const char* path, std::vector<FinishedBookEntry>& entries) {
     FinishedBookEntry entry;
     uint16_t titleLength = 0;
     ok = serialization::tryReadPod(file, entry.pathKey) && serialization::tryReadPod(file, entry.totalReadingSeconds);
-    if (ok && version == INDEX_VERSION) {
+    if (ok && version >= START_DATE_INDEX_VERSION) {
       ok = serialization::tryReadPod(file, entry.startDate.year) &&
            serialization::tryReadPod(file, entry.startDate.month) &&
            serialization::tryReadPod(file, entry.startDate.day);
@@ -147,6 +153,14 @@ bool loadPath(const char* path, std::vector<FinishedBookEntry>& entries) {
     }
     entry.title.resize(titleLength);
     ok = titleLength == 0 || file.read(&entry.title[0], titleLength) == titleLength;
+    if (ok && version >= INDEX_VERSION) {
+      uint16_t authorLength = 0;
+      ok = serialization::tryReadPod(file, authorLength) && authorLength <= MAX_AUTHOR_BYTES;
+      if (ok) {
+        entry.author.resize(authorLength);
+        ok = authorLength == 0 || file.read(&entry.author[0], authorLength) == authorLength;
+      }
+    }
     if (ok && !entry.title.empty()) {
       entries.push_back(std::move(entry));
     }
@@ -182,7 +196,8 @@ std::vector<FinishedBookEntry> FinishedBooksIndex::load() {
       const BookReadingStats stats = BookReadingStats::load(cachePath);
       if (stats.isCompleted) {
         entries.push_back(
-            {pathKey(book.path), book.title, stats.totalReadingSeconds, stats.startDate, stats.finishedDate});
+            {pathKey(book.path), book.title, book.author, stats.totalReadingSeconds, stats.startDate,
+             stats.finishedDate});
       }
       if (entries.size() >= MAX_ENTRIES) {
         break;
@@ -197,12 +212,14 @@ std::vector<FinishedBookEntry> FinishedBooksIndex::load() {
   return entries;
 }
 
-bool FinishedBooksIndex::record(const std::string& path, const std::string& title, const BookReadingStats& stats) {
-  return recordCanonical(path, std::string{}, title, stats);
+bool FinishedBooksIndex::record(const std::string& path, const std::string& title, const std::string& author,
+                                const BookReadingStats& stats) {
+  return recordCanonical(path, std::string{}, title, author, stats);
 }
 
 bool FinishedBooksIndex::recordCanonical(const std::string& bookPath, const std::string& legacyCachePath,
-                                         const std::string& title, const BookReadingStats& stats) {
+                                         const std::string& title, const std::string& author,
+                                         const BookReadingStats& stats) {
   auto entries = load();
   const uint64_t key = pathKey(bookPath);
   bool changed = false;
@@ -229,9 +246,10 @@ bool FinishedBooksIndex::recordCanonical(const std::string& bookPath, const std:
     return writeIndex(entries);
   }
 
-  const FinishedBookEntry updated{key, title, stats.totalReadingSeconds, stats.startDate, stats.finishedDate};
+  const FinishedBookEntry updated{key, title, author, stats.totalReadingSeconds, stats.startDate, stats.finishedDate};
   if (it != entries.end()) {
     if (it->pathKey == updated.pathKey && it->title == updated.title &&
+        it->author == updated.author &&
         it->totalReadingSeconds == updated.totalReadingSeconds &&
         compareReadingStatsDate(it->startDate, updated.startDate) == 0 &&
         compareReadingStatsDate(it->finishedDate, updated.finishedDate) == 0) {

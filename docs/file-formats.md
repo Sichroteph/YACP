@@ -5,6 +5,37 @@ All POD fields are written in the ESP32 little-endian representation used by
 `Serialization.h`; strings are length-prefixed UTF-8 unless a format notes a
 fixed-size char buffer.
 
+## `/.crosspoint/sleep_images/<pathHash>_<sourceHash>_<sourceSize>_<WxH>_v1.bin`
+
+### Version 1
+
+Custom BMP sleep images are rendered once into the three native display planes
+used by the grayscale sleep refresh, then cached in `/.crosspoint/sleep_images/`.
+The cache key includes:
+
+- `pathHash`: FNV-1a 32-bit hash of the SD-card source path
+- `sourceHash`: FNV-1a 32-bit hash of the source file bytes
+- `sourceSize`: source file size in bytes
+- `WxH`: renderer screen dimensions
+- `v1`: cache format version
+
+Binary layout:
+
+- header:
+  - `magic` (`uint32_t`, ASCII `YSIC` in little-endian)
+  - `version` (`uint16_t`, `1`)
+  - `screenWidth` (`uint16_t`)
+  - `screenHeight` (`uint16_t`)
+  - `bufferSize` (`uint32_t`)
+  - `sourceHash` (`uint32_t`)
+  - `sourceSize` (`uint32_t`)
+- `bufferSize` bytes: black-and-white base plane
+- `bufferSize` bytes: grayscale LSB plane
+- `bufferSize` bytes: grayscale MSB plane
+
+The firmware compares the full header before using the cache. If a read fails,
+the image is rendered from the original BMP and the cache can be rebuilt.
+
 ## `book.bin`
 
 ### Version 8
@@ -230,32 +261,33 @@ Binary layout:
 
 ## `/.crosspoint/finished_books.bin`
 
-### Version 2
+### Version 3
 
 `finished_books.bin` is a bounded chronological index used by the persistent
 Finished Books statistics page. It holds at most 32 entries, all navigable in
-five-entry pages, and is refreshed
+four-entry pages, and is refreshed
 when completion changes and when a completed EPUB or XTC reader exits. The
 normal reader page-turn path never reads or writes it.
 
 The eight-byte header contains:
 
 - `[0-3]` magic ASCII `CPFB`
-- `[4]` version (`2`)
+- `[4]` version (`3`)
 - `[5]` entry count (`uint8_t`, maximum `32`)
 - `[6-7]` reserved (`uint16_t`)
 
 Each variable-length entry contains a `uint64_t` path key, total reading seconds
 (`uint32_t`), start date and finish date (each `year uint16_t`, `month uint8_t`,
-`day uint8_t`), a title length (`uint16_t`, maximum 160), then the UTF-8 title
-bytes. Entries are stored newest finish date first. Saves use `.tmp` and `.bak`
-rotation. When an EPUB is moved to `/Read/`, its path key is migrated explicitly
-so two different books with the same title remain separate entries.
+`day uint8_t`), a title length (`uint16_t`, maximum 160), UTF-8 title bytes, an
+author length (`uint16_t`, maximum 120), then UTF-8 author bytes. Entries are
+stored newest finish date first. Saves use `.tmp` and `.bak` rotation. When an
+EPUB is moved to `/Read/`, its path key is migrated explicitly so two different
+books with the same title remain separate entries.
 
-Version 1 entries, which contain no start date, remain readable. Their timeline
-falls back to the finish date with its year and the reading time until Reading
+Version 1 entries, which contain no start date, and version 2 entries, which
+contain no author, remain readable. Missing fields stay blank until Reading
 Stats reconciles the entry with the completed book's persistent statistics. The
-next index write uses version 2 and the real book-path key; accidental cache-path
+next index write uses version 3 and the real book-path key; accidental cache-path
 entries are merged during the same reconciliation.
 
 When the file is first introduced, YACP checks only the bounded recent-books

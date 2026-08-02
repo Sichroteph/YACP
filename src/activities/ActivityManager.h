@@ -102,6 +102,7 @@ class ActivityManager {
   void goToNearbyStatsSync();
   void goToSettings();
   void goToFileBrowser(std::string path = {});
+  void goToBookGallery(std::string bookPath);
   void goToRecentBooks();
   void goToBrowser();
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false);
@@ -109,7 +110,7 @@ class ActivityManager {
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
-  void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE);
+  void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE, bool allowFastInitialRefresh = false);
 
   // This will move current activity to stack instead of deleting it
   void pushActivity(std::unique_ptr<Activity>&& activity);

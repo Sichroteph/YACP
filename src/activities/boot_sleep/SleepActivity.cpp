@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <new>
 
 #include "../home/RecentBookProgress.h"
@@ -32,14 +34,167 @@
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
+#include "util/BookGallery.h"
+
+#pragma pack(push, 1)
+struct SleepImageRenderCacheHeader {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t screenWidth;
+  uint16_t screenHeight;
+  uint32_t bufferSize;
+  uint32_t sourceHash;
+  uint32_t sourceSize;
+};
+#pragma pack(pop)
+
+struct SleepImageRenderCache {
+  std::string path;
+  SleepImageRenderCacheHeader header = {};
+};
 
 namespace {
 
 constexpr bool TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH = true;
 constexpr int sleepBuildInfoSideMargin = 20;
+constexpr char SLEEP_IMAGE_RENDER_CACHE_DIR[] = "/.crosspoint/sleep_images";
+constexpr uint32_t SLEEP_IMAGE_RENDER_CACHE_MAGIC = 0x43495359;  // YSIC
+constexpr uint16_t SLEEP_IMAGE_RENDER_CACHE_VERSION = 1;
+constexpr uint32_t FNV1A32_OFFSET = 2166136261u;
+constexpr uint32_t FNV1A32_PRIME = 16777619u;
 
 bool sleepCoverFilterInvertsGeneratedScreen() {
   return SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE;
+}
+
+uint32_t fnv1a32Update(uint32_t hash, const uint8_t* data, const size_t len) {
+  for (size_t i = 0; i < len; i++) {
+    hash ^= data[i];
+    hash *= FNV1A32_PRIME;
+  }
+  return hash;
+}
+
+uint32_t fnv1a32String(const std::string& text) {
+  return fnv1a32Update(FNV1A32_OFFSET, reinterpret_cast<const uint8_t*>(text.data()), text.size());
+}
+
+bool readExact(FsFile& file, void* data, const size_t len) {
+  return file.read(data, len) == static_cast<int>(len);
+}
+
+bool writeExact(FsFile& file, const void* data, const size_t len) { return file.write(data, len) == len; }
+
+bool buildSleepImageRenderCache(const std::string& sourcePath, const GfxRenderer& renderer,
+                                SleepImageRenderCache& cache) {
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", sourcePath, file)) {
+    return false;
+  }
+
+  uint32_t sourceHash = FNV1A32_OFFSET;
+  uint32_t sourceSize = 0;
+  uint8_t buffer[256];
+  while (true) {
+    const int bytesRead = file.read(buffer, sizeof(buffer));
+    if (bytesRead < 0) {
+      file.close();
+      return false;
+    }
+    if (bytesRead == 0) {
+      break;
+    }
+    sourceHash = fnv1a32Update(sourceHash, buffer, static_cast<size_t>(bytesRead));
+    sourceSize += static_cast<uint32_t>(bytesRead);
+  }
+  file.close();
+
+  cache.header = {SLEEP_IMAGE_RENDER_CACHE_MAGIC,
+                  SLEEP_IMAGE_RENDER_CACHE_VERSION,
+                  static_cast<uint16_t>(renderer.getScreenWidth()),
+                  static_cast<uint16_t>(renderer.getScreenHeight()),
+                  static_cast<uint32_t>(renderer.getBufferSize()),
+                  sourceHash,
+                  sourceSize};
+
+  char path[128];
+  snprintf(path, sizeof(path), "%s/%08lx_%08lx_%lu_%ux%u_v%u.bin", SLEEP_IMAGE_RENDER_CACHE_DIR,
+           static_cast<unsigned long>(fnv1a32String(sourcePath)), static_cast<unsigned long>(sourceHash),
+           static_cast<unsigned long>(sourceSize), cache.header.screenWidth, cache.header.screenHeight,
+           SLEEP_IMAGE_RENDER_CACHE_VERSION);
+  cache.path = path;
+  return true;
+}
+
+bool tryRenderCachedSleepImage(const SleepImageRenderCache& cache, GfxRenderer& renderer) {
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", cache.path, file)) {
+    return false;
+  }
+
+  SleepImageRenderCacheHeader header = {};
+  if (!readExact(file, &header, sizeof(header)) || std::memcmp(&header, &cache.header, sizeof(header)) != 0) {
+    file.close();
+    return false;
+  }
+
+  uint8_t* frameBuffer = renderer.getFrameBuffer();
+  const size_t bufferSize = renderer.getBufferSize();
+  if (!frameBuffer || bufferSize != cache.header.bufferSize) {
+    file.close();
+    return false;
+  }
+
+  if (!readExact(file, frameBuffer, bufferSize)) {
+    file.close();
+    return false;
+  }
+  renderer.displayGrayscaleBase(HalDisplay::FULL_REFRESH);
+
+  if (!readExact(file, frameBuffer, bufferSize)) {
+    file.close();
+    return false;
+  }
+  renderer.copyGrayscaleLsbBuffers();
+
+  if (!readExact(file, frameBuffer, bufferSize)) {
+    file.close();
+    return false;
+  }
+  renderer.copyGrayscaleMsbBuffers();
+
+  file.close();
+  renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  renderer.setRenderMode(GfxRenderer::BW);
+  LOG_INF("SLP", "Rendered cached custom sleep image: %s", cache.path.c_str());
+  return true;
+}
+
+bool openSleepImageRenderCacheForWrite(const SleepImageRenderCache& cache, FsFile& file) {
+  Storage.mkdir("/.crosspoint");
+  Storage.mkdir(SLEEP_IMAGE_RENDER_CACHE_DIR);
+  if (!Storage.openFileForWrite("SLP", cache.path, file)) {
+    LOG_ERR("SLP", "Failed to open sleep image render cache: %s", cache.path.c_str());
+    return false;
+  }
+  if (!writeExact(file, &cache.header, sizeof(cache.header))) {
+    LOG_ERR("SLP", "Failed to write sleep image render cache header: %s", cache.path.c_str());
+    file.close();
+    return false;
+  }
+  return true;
+}
+
+void appendFrameBufferToSleepImageRenderCache(FsFile& file, const GfxRenderer& renderer, const char* planeName) {
+  if (!file) {
+    return;
+  }
+  const uint8_t* frameBuffer = renderer.getFrameBuffer();
+  const size_t bufferSize = renderer.getBufferSize();
+  if (!frameBuffer || !writeExact(file, frameBuffer, bufferSize)) {
+    LOG_ERR("SLP", "Failed to write %s sleep image render cache plane", planeName);
+    file.close();
+  }
 }
 
 void hideOverlayBatteryStrip(const GfxRenderer& renderer) {
@@ -455,11 +610,14 @@ void SleepActivity::onEnter() {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
+      if (renderBookGallerySleepScreen()) return;
       return renderCustomSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER):
+      if (renderBookGallerySleepScreen()) return;
       return renderCoverSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
       if (APP_STATE.lastSleepFromReader) {
+        if (renderBookGallerySleepScreen()) return;
         return renderCoverSleepScreen();
       } else {
         return renderCustomSleepScreen();
@@ -483,13 +641,24 @@ void SleepActivity::renderCustomSleepScreen() const {
   SleepImageSelection selection;
   if (selectPinnedSleepImage(SleepImageMode::Custom, selection) ||
       selectRandomSleepImage(SleepImageMode::Custom, selection)) {
+    SleepImageRenderCache renderCache;
+    const bool shouldUseAdaptiveTone =
+        SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
+    const bool hasRenderCache = shouldUseAdaptiveTone && buildSleepImageRenderCache(selection.path, renderer, renderCache);
+    if (hasRenderCache && tryRenderCachedSleepImage(renderCache, renderer)) {
+      return;
+    }
+
     FsFile file;
     if (Storage.openFileForRead("SLP", selection.path, file)) {
       LOG_INF("SLP", "Loading custom sleep image: %s", selection.path.c_str());
       delay(100);
-      Bitmap bitmap(file, true);
+      Bitmap bitmap(file, true, shouldUseAdaptiveTone ? BitmapToneMapping::Adaptive : BitmapToneMapping::Native);
       if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-        renderBitmapSleepScreen(bitmap);
+        if (shouldUseAdaptiveTone) {
+          bitmap.analyzeAdaptiveToneMapping();
+        }
+        renderBitmapSleepScreen(bitmap, hasRenderCache ? &renderCache : nullptr);
         return;
       }
       LOG_ERR("SLP", "Failed to parse custom sleep BMP: %s", selection.path.c_str());
@@ -501,16 +670,73 @@ void SleepActivity::renderCustomSleepScreen() const {
   // Look for sleep.bmp on the root of the sd card to determine if we should
   // render a custom sleep screen instead of the default.
   FsFile file;
-  if (Storage.openFileForRead("SLP", "/sleep.bmp", file)) {
-    Bitmap bitmap(file, true);
+  constexpr char ROOT_SLEEP_BMP[] = "/sleep.bmp";
+  SleepImageRenderCache renderCache;
+  const bool shouldUseAdaptiveTone =
+      SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
+  const bool hasRenderCache = shouldUseAdaptiveTone && buildSleepImageRenderCache(ROOT_SLEEP_BMP, renderer, renderCache);
+  if (hasRenderCache && tryRenderCachedSleepImage(renderCache, renderer)) {
+    return;
+  }
+
+  if (Storage.openFileForRead("SLP", ROOT_SLEEP_BMP, file)) {
+    Bitmap bitmap(file, true, shouldUseAdaptiveTone ? BitmapToneMapping::Adaptive : BitmapToneMapping::Native);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Loading: /sleep.bmp");
-      renderBitmapSleepScreen(bitmap);
+      if (shouldUseAdaptiveTone) {
+        bitmap.analyzeAdaptiveToneMapping();
+      }
+      renderBitmapSleepScreen(bitmap, hasRenderCache ? &renderCache : nullptr);
       return;
     }
   }
 
   renderDefaultSleepScreen();
+}
+
+bool SleepActivity::renderBookGallerySleepScreen() const {
+  if (!APP_STATE.lastSleepFromReader) {
+    return false;
+  }
+
+  const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
+  if (path.empty()) {
+    return false;
+  }
+
+  std::string imagePath;
+  if (!BookGallery::randomSleepImageForBook(path, imagePath)) {
+    return false;
+  }
+
+  SleepImageRenderCache renderCache;
+  const bool shouldUseAdaptiveTone =
+      SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
+  const bool hasRenderCache = shouldUseAdaptiveTone && buildSleepImageRenderCache(imagePath, renderer, renderCache);
+  if (hasRenderCache && tryRenderCachedSleepImage(renderCache, renderer)) {
+    return true;
+  }
+
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", imagePath, file)) {
+    LOG_ERR("SLP", "Failed to open book gallery sleep image: %s", imagePath.c_str());
+    return false;
+  }
+
+  LOG_INF("SLP", "Rendering book gallery sleep image: %s", imagePath.c_str());
+  Bitmap bitmap(file, true, shouldUseAdaptiveTone ? BitmapToneMapping::Adaptive : BitmapToneMapping::Native);
+  if (bitmap.parseHeaders() != BmpReaderError::Ok) {
+    LOG_ERR("SLP", "Failed to parse book gallery sleep BMP: %s", imagePath.c_str());
+    file.close();
+    return false;
+  }
+
+  if (shouldUseAdaptiveTone) {
+    bitmap.analyzeAdaptiveToneMapping();
+  }
+  renderBitmapSleepScreen(bitmap, hasRenderCache ? &renderCache : nullptr);
+  file.close();
+  return true;
 }
 
 void SleepActivity::renderDefaultSleepScreen() const {
@@ -538,7 +764,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.displayBuffer(HalDisplay::FULL_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
-void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
+void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const SleepImageRenderCache* renderCache) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -583,11 +809,17 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
 
   const bool hasGreyscale = bitmap.hasGreyscale() &&
                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
+  FsFile cacheFile;
+  const bool shouldWriteRenderCache = hasGreyscale && renderCache != nullptr;
 
   renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
 
   if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
     renderer.invertScreen();
+  }
+
+  if (shouldWriteRenderCache && openSleepImageRenderCacheForWrite(*renderCache, cacheFile)) {
+    appendFrameBufferToSleepImageRenderCache(cacheFile, renderer, "BW");
   }
 
   if (hasGreyscale) {
@@ -603,16 +835,22 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    appendFrameBufferToSleepImageRenderCache(cacheFile, renderer, "LSB");
     renderer.copyGrayscaleLsbBuffers();
 
     bitmap.rewindToData();
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    appendFrameBufferToSleepImageRenderCache(cacheFile, renderer, "MSB");
     renderer.copyGrayscaleMsbBuffers();
 
     renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
     renderer.setRenderMode(GfxRenderer::BW);
+    if (cacheFile) {
+      cacheFile.close();
+      LOG_INF("SLP", "Cached custom sleep image render: %s", renderCache->path.c_str());
+    }
   }
 }
 

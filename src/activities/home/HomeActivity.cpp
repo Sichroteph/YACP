@@ -70,7 +70,7 @@ struct HomeMenuEntry {
 };
 
 struct HomeMenuEntries {
-  static constexpr int kCapacity = 9;
+  static constexpr int kCapacity = 10;
   std::array<HomeMenuEntry, kCapacity> entries{};
   int count = 0;
 
@@ -905,7 +905,9 @@ void HomeActivity::onEnter() {
   // Home is the visual synchronization point after every child activity.
   // Arm only its first frame; later in-place updates (book navigation, battery)
   // stay fast unless an overlay explicitly requests cleanup.
-  forceFullRefreshOnNextDisplay = true;
+  skipInitialCleanRefresh = allowFastInitialRefresh;
+  forceFullRefreshOnNextDisplay = !allowFastInitialRefresh;
+  allowFastInitialRefresh = false;
 
   const bool isYacpTheme = isDashboardTheme();
   const bool isCarouselTheme =
@@ -1125,7 +1127,7 @@ void HomeActivity::syncHighlightedFinishedBookIndex() {
 
   const std::string cachePath = getRecentBookCachePath(book);
   if (cachePath.empty() ||
-      !FinishedBooksIndex::recordCanonical(book.path, cachePath, book.title, currentBookStats)) {
+      !FinishedBooksIndex::recordCanonical(book.path, cachePath, book.title, book.author, currentBookStats)) {
     LOG_ERR("HOME", "Failed to synchronize highlighted finished-book entry");
   }
 }
@@ -1946,10 +1948,12 @@ void HomeActivity::render(RenderLock&&) {
     // YACP uses gray surfaces that retain text ghosting after a fast update.
     // Clean the panel once when this Home instance first appears; navigation
     // and returns from its secondary screens stay on the normal fast path.
-    displayHomeBuffer(isYacpTheme && !firstRenderDone);
+    const bool cleanInitialHomeFrame = isYacpTheme && !firstRenderDone && !skipInitialCleanRefresh;
+    displayHomeBuffer(cleanInitialHomeFrame);
 
     if (!firstRenderDone) {
       firstRenderDone = true;
+      skipInitialCleanRefresh = false;
       if (!recentsLoaded) {
         requestUpdate();
       }

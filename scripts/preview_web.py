@@ -24,6 +24,7 @@ JSZIP = os.path.join(ROOT, "src", "network", "html", "js", "jszip.min.js")
 PAGES = {
     "home":     ("/",         "CrossInk",                   "home",     ""),
     "files":    ("/files",    "Files - CrossInk",           "files",    '  <script src="/js/jszip.min.js"></script>'),
+    "sleep-images": ("/sleep-images", "Sleep Images - YACP", "sleep_images", ""),
     "settings": ("/settings", "Settings - CrossInk Reader", "settings", ""),
     "fonts":    ("/fonts",    "Fonts - CrossInk",           "fonts",    ""),
 }
@@ -41,7 +42,7 @@ def render_page(slug):
         "styles": read(WEB, "pages", f"{slug}.css"),
         "body": read(WEB, "pages", f"{slug}.html"),
         "script": f"<script>\n{js}\n</script>" if js else "",
-        "cls_home": "", "cls_files": "", "cls_settings": "", "cls_fonts": "",
+        "cls_home": "", "cls_files": "", "cls_sleep_images": "", "cls_settings": "", "cls_fonts": "",
     }
     values[f"cls_{active}"] = ' class="active"'
     base = read(WEB, "templates", "base.html")
@@ -49,13 +50,28 @@ def render_page(slug):
 
 # Representative mock data so the pages render populated.
 MOCK_API = {
-    "/api/status": {"version": "dev-preview", "ip": "192.168.4.1", "freeHeap": 142000},
+    "/api/status": {
+        "version": "dev-preview",
+        "ip": "192.168.4.1",
+        "freeHeap": 142000,
+        "device": "X3",
+        "currentBookPath": "/Books/The Great Gatsby.epub",
+        "currentBookName": "The Great Gatsby.epub",
+        "currentBookGalleryPath": "/.book-galleries/preview-The-Great-Gatsby",
+    },
     "/api/files": [
         {"name": "Books", "isDirectory": True, "isEpub": False, "size": 0},
         {"name": "Read", "isDirectory": True, "isEpub": False, "size": 0},
         {"name": "The Great Gatsby.epub", "isDirectory": False, "isEpub": True, "size": 384512},
         {"name": "Moby Dick.epub", "isDirectory": False, "isEpub": True, "size": 612000},
         {"name": "notes.txt", "isDirectory": False, "isEpub": False, "size": 2048},
+        {"name": "forest.bmp", "isDirectory": False, "isEpub": False, "size": 384118},
+        {"name": "city-overlay.png", "isDirectory": False, "isEpub": False, "size": 125340},
+    ],
+    "/api/books": [
+        {"name": "The Great Gatsby.epub", "path": "/Books/The Great Gatsby.epub"},
+        {"name": "Moby Dick.epub", "path": "/Books/Moby Dick.epub"},
+        {"name": "Travel Notes.xtc", "path": "/Read/Travel Notes.xtc"},
     ],
     "/api/fonts": {"families": [
         {"name": "Bookerly", "sizes": [10, 12, 14], "files": [{"size": 120000}, {"size": 140000}]},
@@ -120,6 +136,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         # Accept saves/uploads/deletes during preview so the JS does not error.
+        path = urlparse(self.path).path
+        if path == "/api/book-gallery/prepare":
+            self._send(200, json.dumps({"path": "/.book-galleries/preview-The-Great-Gatsby"}), "application/json")
+            return
         self._send(200, json.dumps({"ok": True}), "application/json")
 
     def log_message(self, fmt, *args):

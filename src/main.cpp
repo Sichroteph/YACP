@@ -80,6 +80,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/ActivityManager.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
+#include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
 #include "activities/settings/ButtonLayoutSetupActivity.h"
@@ -115,6 +116,35 @@ bool externalPowerConnectedForHistory() {
 #else
   return gpio.isUsbConnectedCached();
 #endif
+}
+
+void drawWakePopup() {
+  if (APP_STATE.lastSleepFromReader) {
+    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    GUI.drawPopup(renderer, tr(STR_WAKING_UP));
+    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  } else {
+    GUI.drawPopup(renderer, tr(STR_WAKING_UP));
+  }
+}
+
+void drawReaderWakeLoadingIcon() {
+  const auto savedOrientation = renderer.getOrientation();
+  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  const auto pageHeight = renderer.getScreenHeight();
+  if (ReaderUtils::readerDarkModeEnabled()) {
+    renderer.drawImageInverted(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
+  } else {
+    renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
+  }
+  renderer.setOrientation(savedOrientation);
+}
+
+bool quickResumeRoutesToReader(const bool recoveryFirmwareMode) {
+  return !recoveryFirmwareMode && !HalSystem::isRebootFromPanic() &&
+         strcmp(SETTINGS.buttonLayoutPromptVersion, CROSSINK_VERSION) == 0 && !APP_STATE.openEpubPath.empty() &&
+         APP_STATE.lastSleepFromReader && !mappedInputManager.isPressed(MappedInputManager::Button::Back) &&
+         APP_STATE.readerActivityLoadCount == 0;
 }
 
 #ifdef SIMULATOR
@@ -627,23 +657,23 @@ void enterDeepSleep(bool fromTimeout) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
-  const bool isQuickResumeSleep =
+  const bool rendersQuickResumeSleepScreen =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
       (fromTimeout &&
        SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
-  APP_STATE.showBootScreen = !isQuickResumeSleep;
+  APP_STATE.showBootScreen = false;
+  APP_STATE.lastSleepRenderedQuickResume = rendersQuickResumeSleepScreen;
 
   PowerHistory::commitBeforeSleep(externalPowerConnectedForHistory());
   APP_STATE.saveToFile();
+  saveSleepFrameBuffer();
 
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
   activityManager.goToSleep(fromTimeout);
 
-  if (isQuickResumeSleep) {
-    saveSleepFrameBuffer();
-  } else {
+  if (!rendersQuickResumeSleepScreen) {
     delay(POST_SLEEP_SCREEN_SETTLE_MS);
   }
 
@@ -873,47 +903,53 @@ void setup() {
   const BootResume resume = isSilentReboot              ? BootResume::Silent
                             : !APP_STATE.showBootScreen ? BootResume::QuickResume
                                                         : BootResume::Splash;
+  const bool quickResumeReaderRouteExpected =
+      resume == BootResume::QuickResume && quickResumeRoutesToReader(recoveryFirmwareMode);
   bool allowFastInitialReaderRefresh = false;
+  bool allowFastInitialHomeRefresh = false;
 
   setupDisplayAndFonts(resume != BootResume::Splash);
-
   switch (resume) {
     case BootResume::Silent:
       // Splash skipped: the routing block below picks the target activity; the
       // panel keeps showing the pre-reboot popup until that first paint lands.
       break;
-    case BootResume::QuickResume:
+    case BootResume::QuickResume: {
       // One-shot flag: re-arm the splash for the next non-quick-resume boot. Save
       // before any painting so a hang in the blocking paint path can't strand
       // us in a quick-resume-with-no-frame loop on the next boot.
+      const bool wakeFromRenderedQuickResumeSleep = APP_STATE.lastSleepRenderedQuickResume;
       APP_STATE.showBootScreen = true;
+      APP_STATE.lastSleepRenderedQuickResume = false;
       APP_STATE.saveToFile();
       if (loadSleepFrameBuffer()) {
-        const bool useSeamlessX3WakeIndicator = gpio.deviceIsX3();
-        if (useSeamlessX3WakeIndicator) {
+        const bool useNoFlashX3WakeIndicator = gpio.deviceIsX3() && wakeFromRenderedQuickResumeSleep;
+        if (useNoFlashX3WakeIndicator) {
           // begin() clears the X3 controller RAM even though e-ink still shows the sleep frame.
-          // Re-seed both planes without refreshing so the differential pass below can erase the
-          // moon and draw the loading icon without a full-screen black resync.
+          // Re-seed both planes without refreshing so the pass below can draw the loading icon
+          // without a full-screen black resync.
           renderer.cleanupGrayscaleWithFrameBuffer();
         }
-        // Frame restored: swap the sleep moon for the loading icon.
-        const auto pageHeight = renderer.getScreenHeight();
-        if (SETTINGS.readerDarkMode != 0) {
-          renderer.drawImageInverted(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH,
-                                     LOADINGICON_HEIGHT);
+        // Home feels tappable before it is ready; direct reader resumes keep the old corner indicator.
+        if (quickResumeReaderRouteExpected) {
+          drawReaderWakeLoadingIcon();
         } else {
-          renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
+          drawWakePopup();
         }
-        if (useSeamlessX3WakeIndicator) {
+        if (useNoFlashX3WakeIndicator) {
           renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
           allowFastInitialReaderRefresh = true;
+          allowFastInitialHomeRefresh = true;
         } else {
           renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+          allowFastInitialReaderRefresh = true;
+          allowFastInitialHomeRefresh = true;
         }
       } else {
         activityManager.goToBoot();  // frame file missing, fall back to the splash
       }
       break;
+    }
     case BootResume::Splash:
       activityManager.goToBoot();
       break;
@@ -938,7 +974,7 @@ void setup() {
       activityManager.replaceActivity(std::move(setupActivity));
     } else {
       LOG_ERR("BOOT", "Could not allocate initial button-layout activity");
-      activityManager.goHome();
+      activityManager.goHome(HomeMenuItem::NONE, allowFastInitialHomeRefresh);
     }
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
@@ -952,7 +988,7 @@ void setup() {
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
-    activityManager.goHome();
+    activityManager.goHome(HomeMenuItem::NONE, allowFastInitialHomeRefresh);
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
     const auto path = APP_STATE.openEpubPath;

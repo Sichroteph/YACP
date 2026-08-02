@@ -28,6 +28,8 @@ class HomeActivity final : public Activity {
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;
+  bool allowFastInitialRefresh = false;
+  bool skipInitialCleanRefresh = false;
   bool forceFullRefreshOnNextDisplay = false;
   bool hasReadingStats = false;
   bool hasBookmarks = false;
@@ -120,8 +122,9 @@ class HomeActivity final : public Activity {
  public:
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                         HomeMenuItem initialMenuItemValue = HomeMenuItem::NONE,
-                        bool forceFullRefreshOnFirstDisplay = false)
+                        bool forceFullRefreshOnFirstDisplay = false, bool allowFastInitialRefreshValue = false)
       : Activity("Home", renderer, mappedInput),
+        allowFastInitialRefresh(allowFastInitialRefreshValue),
         forceFullRefreshOnNextDisplay(forceFullRefreshOnFirstDisplay),
         initialMenuItem(initialMenuItemValue) {}
   void onEnter() override;

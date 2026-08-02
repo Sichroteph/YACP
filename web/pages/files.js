@@ -1,5 +1,18 @@
-// get current path from query parameter
-const currentPath = decodeURIComponent(new URLSearchParams(window.location.search).get("path") || "/");
+// get current path and optional upload context from query parameters
+const pageParams = new URLSearchParams(window.location.search);
+const currentPath = decodeURIComponent(pageParams.get("path") || "/");
+const requestedUploadDestination = pageParams.get("upload") || "";
+const requestedBookPath = pageParams.get("book") || "";
+const prepareRequestedImages = pageParams.get("prepare") === "1";
+const returnToSleepImages = pageParams.get("return") === "sleep-images";
+let currentBookPath = "";
+let currentBookName = "";
+let uploadDestination = "folder";
+let bookListLoaded = false;
+let bookListLoading = false;
+const UPLOAD_DESTINATION_STORAGE_KEY = "yacpUploadDestination";
+const BOOK_GALLERY_ROOT = "/.book-galleries";
+const SLEEP_IMAGES_DIR = "/.sleep";
 
 if (currentPath !== "/") {
   const leaf = currentPath.split("/").filter(Boolean).pop();
@@ -32,6 +45,10 @@ function escapeHtml(unsafe) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function bookNameFromPath(path) {
+  return (path || "").split("/").filter(Boolean).pop() || path || "";
 }
 
 function showNotification(message, type = "info") {
@@ -92,7 +109,7 @@ function formatFileSize(bytes) {
 
 async function hydrate() {
   // Fetch CrossInk version
-  fetchVersion();
+  await fetchVersion();
 
   // Close modals when clicking overlay - call proper cleanup functions
   document.querySelectorAll(".modal-overlay").forEach(function (overlay) {
@@ -225,10 +242,16 @@ async function hydrate() {
       button.addEventListener("click", handleFileActionClick);
     });
   }
+
+  await openRequestedUpload();
 }
 
 function isImageFile(name) {
   return /\.(png|jpe?g|bmp|gif|webp)$/i.test(name);
+}
+
+function isBrowserLoadableImageFile(name) {
+  return /\.(png|jpe?g|bmp|gif|webp|svg)$/i.test(name);
 }
 
 function downloadUrl(filePath) {
@@ -264,7 +287,255 @@ function handleFileActionClick(event) {
 }
 
 // Modal functions
-function openUploadModal() {
+function isBookGalleryPath(path) {
+  return path === BOOK_GALLERY_ROOT || path.startsWith(BOOK_GALLERY_ROOT + "/");
+}
+
+function isSleepImagesPath(path) {
+  return path === SLEEP_IMAGES_DIR || path.startsWith(SLEEP_IMAGES_DIR + "/");
+}
+
+function formatUploadPathLabel(path) {
+  return path === "/" ? "/ home" : path;
+}
+
+function preferredUploadDestination() {
+  if (isBookGalleryPath(currentPath)) return "folder";
+  if (isSleepImagesPath(currentPath)) return "sleep-images";
+  try {
+    const stored = localStorage.getItem(UPLOAD_DESTINATION_STORAGE_KEY);
+    return stored === "book-gallery" || stored === "sleep-images" ? stored : "folder";
+  } catch (error) {
+    return "folder";
+  }
+}
+
+function selectedBookGalleryLabel() {
+  const select = document.getElementById("bookGallerySelect");
+  if (!select || !select.value) return "selected book gallery";
+  const selected = select.options[select.selectedIndex];
+  return selected && selected.textContent ? selected.textContent.replace(/^Current book:\s*/, "") : bookNameFromPath(select.value);
+}
+
+function updateUploadPathDisplay() {
+  const display = document.getElementById("uploadPathDisplay");
+  if (!display) return;
+  if (uploadDestination === "book-gallery") {
+    display.textContent = selectedBookGalleryLabel();
+  } else if (uploadDestination === "sleep-images") {
+    display.textContent = "global sleep images";
+  } else {
+    display.textContent = formatUploadPathLabel(currentPath);
+  }
+}
+
+function updateBookGalleryHint() {
+  const hint = document.getElementById("bookGalleryHint");
+  if (!hint) return;
+  const imagePrepEnabled = document.getElementById("prepareImagesBeforeUpload")?.checked;
+  hint.textContent = imagePrepEnabled
+    ? "Prepared BMPs are used by this book's sleep screen and can also be opened from the reader menu."
+    : "Original images are attached to the reader gallery only. Enable e-reader preparation to add sleep-screen BMPs.";
+}
+
+function setUploadDestination(value, options = {}) {
+  uploadDestination = value === "book-gallery" || value === "sleep-images" ? value : "folder";
+  const persist = options.persist !== false;
+  if (persist && !isBookGalleryPath(currentPath) && !isSleepImagesPath(currentPath)) {
+    try {
+      localStorage.setItem(UPLOAD_DESTINATION_STORAGE_KEY, uploadDestination);
+    } catch (error) {
+      // localStorage can be unavailable in private browsing modes.
+    }
+  }
+  document.querySelectorAll('input[name="uploadDestination"]').forEach((input) => {
+    input.checked = input.value === uploadDestination;
+  });
+  const picker = document.getElementById("bookGalleryPicker");
+  if (picker) picker.style.display = uploadDestination === "book-gallery" ? "grid" : "none";
+  if (uploadDestination === "book-gallery") {
+    loadBookGalleryOptions();
+  }
+  updateUploadPathDisplay();
+  updateBookGalleryHint();
+  updateUploadActionState();
+}
+
+async function loadBookGalleryOptions() {
+  const select = document.getElementById("bookGallerySelect");
+  if (!select || bookListLoaded || bookListLoading) return;
+
+  bookListLoading = true;
+  select.innerHTML = '<option value="">Loading books...</option>';
+  try {
+    const response = await fetch("/api/books?_=" + Date.now());
+    if (!response.ok) throw new Error("Failed to load books");
+    const books = await response.json();
+    select.innerHTML = "";
+
+    if (currentBookPath) {
+      const option = document.createElement("option");
+      option.value = currentBookPath;
+      option.textContent = currentBookName ? `Current book: ${currentBookName}` : `Current book: ${bookNameFromPath(currentBookPath)}`;
+      select.appendChild(option);
+    }
+
+    books
+      .filter((book) => book && book.path && book.path !== currentBookPath)
+      .sort((a, b) => bookNameFromPath(a.path).localeCompare(bookNameFromPath(b.path)))
+      .forEach((book) => {
+        const option = document.createElement("option");
+        option.value = book.path;
+        option.textContent = bookNameFromPath(book.path);
+        select.appendChild(option);
+      });
+
+    if (select.options.length === 0) {
+      select.innerHTML = '<option value="">No books found</option>';
+    } else {
+      const preferredBookPath = requestedBookPath || currentBookPath;
+      if (preferredBookPath) select.value = preferredBookPath;
+    }
+    bookListLoaded = true;
+  } catch (error) {
+    select.innerHTML = '<option value="">Unable to load books</option>';
+    console.error("Book gallery list error:", error);
+  } finally {
+    bookListLoading = false;
+    updateUploadPathDisplay();
+    updateUploadActionState();
+  }
+}
+
+async function openRequestedUpload() {
+  if (requestedUploadDestination !== "sleep-images" && requestedUploadDestination !== "book-gallery") return;
+
+  openUploadModal(requestedUploadDestination);
+
+  if (requestedUploadDestination === "book-gallery") {
+    await loadBookGalleryOptions();
+    const select = document.getElementById("bookGallerySelect");
+    if (select && requestedBookPath) {
+      select.value = requestedBookPath;
+      updateUploadActionState();
+    }
+  }
+
+  if (prepareRequestedImages) {
+    const checkbox = document.getElementById("prepareImagesBeforeUpload");
+    if (checkbox) {
+      checkbox.checked = true;
+      toggleImagePrepOptions();
+    }
+  }
+}
+
+function finishUploadNavigation(delayMs) {
+  setTimeout(() => {
+    if (returnToSleepImages) {
+      window.location.href = "/sleep-images";
+    } else {
+      window.location.reload();
+    }
+  }, delayMs);
+}
+
+function updateUploadButtonLabel() {
+  const uploadBtn = document.getElementById("uploadBtn");
+  if (!uploadBtn) return;
+
+  const convertEnabled = document.getElementById("convertBeforeUpload")?.checked;
+  const imagePrepEnabled = document.getElementById("prepareImagesBeforeUpload")?.checked;
+  const libraryTarget = uploadDestination === "book-gallery" || uploadDestination === "sleep-images";
+  if (convertEnabled) {
+    uploadBtn.textContent = uploadDestination === "book-gallery" ? "Optimize & attach" : "Optimize & Upload";
+    uploadBtn.classList.add("optimize");
+  } else if (imagePrepEnabled) {
+    uploadBtn.textContent = uploadDestination === "book-gallery" ? "Prepare & attach" : "Prepare & add";
+    uploadBtn.classList.remove("optimize");
+  } else {
+    uploadBtn.textContent = uploadDestination === "book-gallery" ? "Attach originals" : libraryTarget ? "Add originals" : "Upload";
+    uploadBtn.classList.remove("optimize");
+  }
+}
+
+function updateUploadActionState() {
+  const fileInput = document.getElementById("fileInput");
+  const uploadBtn = document.getElementById("uploadBtn");
+  if (!fileInput || !uploadBtn) return;
+
+  const hasFiles = fileInput.files && fileInput.files.length > 0;
+  const hasBook = uploadDestination !== "book-gallery" || !!document.getElementById("bookGallerySelect")?.value;
+  uploadBtn.disabled = isUploadInProgress || !hasFiles || !hasBook;
+  updateUploadPathDisplay();
+  updateBookGalleryHint();
+  updateUploadButtonLabel();
+}
+
+async function resolveUploadTargetPath() {
+  if (uploadDestination === "sleep-images") {
+    const response = await fetch("/api/sleep-images/prepare", { method: "POST" });
+    if (!response.ok) {
+      throw new Error((await response.text()) || "Failed to prepare sleep images folder");
+    }
+    const data = await response.json();
+    if (!data.path) {
+      throw new Error("Sleep images path missing from response");
+    }
+    return data.path;
+  }
+
+  if (uploadDestination !== "book-gallery") {
+    return currentPath;
+  }
+
+  const bookPath = document.getElementById("bookGallerySelect")?.value;
+  if (!bookPath) {
+    throw new Error("Please select a book for the gallery");
+  }
+
+  const formData = new FormData();
+  formData.append("bookPath", bookPath);
+  const response = await fetch("/api/book-gallery/prepare", { method: "POST", body: formData });
+  if (!response.ok) {
+    throw new Error((await response.text()) || "Failed to prepare book gallery");
+  }
+  const data = await response.json();
+  if (!data.path) {
+    throw new Error("Book gallery path missing from response");
+  }
+  return data.path;
+}
+
+async function openSleepImagesFolder() {
+  try {
+    const response = await fetch("/api/sleep-images/prepare", { method: "POST" });
+    if (!response.ok) throw new Error((await response.text()) || "Failed to prepare sleep images folder");
+    const data = await response.json();
+    window.location.href = "/files?path=" + encodeURIComponent(data.path || SLEEP_IMAGES_DIR);
+  } catch (error) {
+    alert(error.message || "Unable to open sleep images");
+  }
+}
+
+async function openCurrentBookGallery() {
+  if (!currentBookPath) return;
+  try {
+    const formData = new FormData();
+    formData.append("bookPath", currentBookPath);
+    const response = await fetch("/api/book-gallery/prepare", { method: "POST", body: formData });
+    if (!response.ok) throw new Error((await response.text()) || "Failed to prepare book gallery");
+    const data = await response.json();
+    window.location.href = "/files?path=" + encodeURIComponent(data.path);
+  } catch (error) {
+    alert(error.message || "Unable to open current book gallery");
+  }
+}
+
+function updateFileShortcuts() {
+}
+
+function openUploadModal(initialDestination = "") {
   // Reset converter variables to defaults
   ENABLE_GRAYSCALE = true;
   JPEG_QUALITY = 85;
@@ -288,7 +559,7 @@ function openUploadModal() {
   const logContainer = document.getElementById("log-container");
   if (logContainer) logContainer.innerHTML = "";
 
-  document.getElementById("uploadPathDisplay").textContent = currentPath === "/" ? "/ 🏠" : currentPath;
+  setUploadDestination(initialDestination || preferredUploadDestination(), { persist: false });
   document.getElementById("uploadModal").classList.add("open");
 }
 
@@ -347,6 +618,7 @@ function closeUploadModal() {
   document.getElementById("progress-fill").style.width = "0%";
   document.getElementById("progress-fill").style.backgroundColor = "#27ae60";
   document.getElementById("convertBeforeUpload").checked = false;
+  setUploadDestination("folder", { persist: false });
   document.getElementById("convertInfo").style.display = "none";
   document.getElementById("convertWarning").style.display = "none";
   // Clear image picker cache and reset layout
@@ -355,6 +627,7 @@ function closeUploadModal() {
   document.getElementById("imagePickerSection").style.display = "none";
   const imageGrid = document.getElementById("imageGrid");
   if (imageGrid) imageGrid.innerHTML = "";
+  resetImagePrep();
   document.querySelector("#uploadModal .modal").classList.remove("picker-mode");
   document.getElementById("pickerColumns").classList.remove("picker-active");
   // Hide log section
@@ -1098,6 +1371,7 @@ function getStateLabel(state) {
 
 // Initialize quality settings handlers
 document.addEventListener("DOMContentLoaded", function () {
+  setupImagePrepCropEvents();
   document.getElementById("file-table").addEventListener("click", function (event) {
     const link = event.target.closest(".image-preview-link");
     if (!link) return;
@@ -1293,6 +1567,511 @@ function clearImagePicker() {
   if (uploadBtn) uploadBtn.style.display = "block";
 }
 
+function imagePrepKey(file) {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function imagePrepOutputName(name) {
+  const base = name.replace(/\.[^.\\/]+$/, "");
+  return (base || "image") + ".bmp";
+}
+
+function clampImagePrepGrayThresholds(values) {
+  const gap = IMAGE_PREP_GRAY_THRESHOLD_GAP;
+  const max = 255;
+  const thresholds = IMAGE_PREP_DEFAULT_GRAY_THRESHOLDS.map((fallback, index) => {
+    const parsed = parseInt(values[index], 10);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(max, parsed)) : fallback;
+  });
+  thresholds[1] = Math.max(gap, Math.min(max - gap, thresholds[1]));
+  thresholds[0] = Math.max(0, Math.min(thresholds[1] - gap, thresholds[0]));
+  thresholds[2] = Math.max(thresholds[1] + gap, Math.min(max, thresholds[2]));
+  return thresholds;
+}
+
+function writeImagePrepGrayThresholdControls() {
+  for (let i = 0; i < imagePrepGrayThresholds.length; i++) {
+    const input = document.getElementById(`imagePrepGrayThreshold${i}`);
+    const output = document.getElementById(`imagePrepGrayValue${i}`);
+    if (input) input.value = imagePrepGrayThresholds[i];
+    if (output) output.textContent = imagePrepGrayThresholds[i];
+  }
+}
+
+function getImagePrepGrayThresholds() {
+  imagePrepGrayThresholds = clampImagePrepGrayThresholds(imagePrepGrayThresholds);
+  writeImagePrepGrayThresholdControls();
+  return imagePrepGrayThresholds;
+}
+
+function setImagePrepGrayThreshold(index, value) {
+  if (index < 0 || index >= imagePrepGrayThresholds.length) return;
+  const next = [...imagePrepGrayThresholds];
+  next[index] = value;
+  imagePrepGrayThresholds = clampImagePrepGrayThresholds(next);
+  writeImagePrepGrayThresholdControls();
+  renderImagePrepPreview();
+}
+
+function resetImagePrepGrayThresholds() {
+  imagePrepGrayThresholds = [...IMAGE_PREP_DEFAULT_GRAY_THRESHOLDS];
+  writeImagePrepGrayThresholdControls();
+  renderImagePrepPreview();
+}
+
+function grayToImagePrepLevel(gray, thresholds) {
+  if (gray < thresholds[0]) return 0;
+  if (gray < thresholds[1]) return 1;
+  if (gray < thresholds[2]) return 2;
+  return 3;
+}
+
+function resetImagePrep() {
+  imagePrepGeneration++;
+  for (const state of Object.values(imagePrepStates)) {
+    if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+  }
+  Object.keys(imagePrepStates).forEach((key) => delete imagePrepStates[key]);
+  imagePrepActiveKey = null;
+  imagePrepDrag = null;
+  const panel = document.getElementById("imagePrepPanel");
+  const list = document.getElementById("imagePrepList");
+  const editor = document.getElementById("imagePrepEditor");
+  const source = document.getElementById("imagePrepSource");
+  if (panel) panel.style.display = "none";
+  if (list) list.innerHTML = "";
+  if (editor) editor.style.display = "none";
+  if (source) source.src = "";
+}
+
+function toggleImagePrepOptions() {
+  const body = document.getElementById("imagePrepBody");
+  const checked = document.getElementById("prepareImagesBeforeUpload")?.checked;
+  if (body) body.classList.toggle("disabled", !checked);
+  updateUploadActionState();
+}
+
+function updateImagePrepForSelection(fileList) {
+  const imageFiles = Array.from(fileList).filter((file) => isBrowserLoadableImageFile(file.name));
+  const panel = document.getElementById("imagePrepPanel");
+  if (!panel) return;
+  if (imageFiles.length === 0) {
+    resetImagePrep();
+    return;
+  }
+
+  panel.style.display = "block";
+  document.getElementById("prepareImagesBeforeUpload").checked = false;
+  toggleImagePrepOptions();
+  const summary = document.getElementById("imagePrepSummary");
+  if (summary) {
+    summary.textContent = imageFiles.length === 1 ? "1 image" : `${imageFiles.length} images`;
+  }
+
+  const wantedKeys = new Set(imageFiles.map(imagePrepKey));
+  for (const [key, state] of Object.entries(imagePrepStates)) {
+    if (!wantedKeys.has(key)) {
+      if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+      delete imagePrepStates[key];
+    }
+  }
+
+  const generation = ++imagePrepGeneration;
+  for (const file of imageFiles) {
+    const key = imagePrepKey(file);
+    if (imagePrepStates[key]) {
+      imagePrepStates[key].file = file;
+      continue;
+    }
+    const state = {
+      key,
+      file,
+      name: file.name,
+      objectUrl: URL.createObjectURL(file),
+      width: 0,
+      height: 0,
+      crop: null,
+      zoom: 100,
+      loaded: false,
+      error: "",
+    };
+    imagePrepStates[key] = state;
+    loadImagePrepState(state, generation);
+  }
+
+  if (!imagePrepActiveKey || !imagePrepStates[imagePrepActiveKey]) {
+    imagePrepActiveKey = imageFiles.length ? imagePrepKey(imageFiles[0]) : null;
+  }
+  renderImagePrepList();
+  selectImagePrep(imagePrepActiveKey);
+  applyDeviceTarget();
+}
+
+function loadImagePrepState(state, generation) {
+  const img = new Image();
+  img.onload = () => {
+    if (generation !== imagePrepGeneration && !imagePrepStates[state.key]) return;
+    state.width = img.naturalWidth || img.width;
+    state.height = img.naturalHeight || img.height;
+    state.loaded = state.width > 0 && state.height > 0;
+    if (state.loaded) resetImagePrepCrop(state, false);
+    renderImagePrepList();
+    if (imagePrepActiveKey === state.key) selectImagePrep(state.key);
+  };
+  img.onerror = () => {
+    state.error = "Unsupported image";
+    renderImagePrepList();
+  };
+  img.src = state.objectUrl;
+}
+
+function resetImagePrepCrop(state, keepCenter) {
+  if (!state || !state.loaded) return;
+  const targetRatio = MAX_WIDTH / MAX_HEIGHT;
+  const srcRatio = state.width / state.height;
+  let cropW = state.width;
+  let cropH = state.height;
+  if (srcRatio > targetRatio) {
+    cropW = state.height * targetRatio;
+  } else {
+    cropH = state.width / targetRatio;
+  }
+  const zoom = Math.max(35, Math.min(100, state.zoom || 100)) / 100;
+  const oldCenterX = state.crop ? state.crop.x + state.crop.w / 2 : state.width / 2;
+  const oldCenterY = state.crop ? state.crop.y + state.crop.h / 2 : state.height / 2;
+  cropW *= zoom;
+  cropH *= zoom;
+  const centerX = keepCenter ? oldCenterX : state.width / 2;
+  const centerY = keepCenter ? oldCenterY : state.height / 2;
+  state.crop = clampImagePrepCrop({
+    x: centerX - cropW / 2,
+    y: centerY - cropH / 2,
+    w: cropW,
+    h: cropH,
+  }, state);
+}
+
+function clampImagePrepCrop(crop, state) {
+  const clamped = {
+    w: Math.min(Math.max(1, crop.w), state.width),
+    h: Math.min(Math.max(1, crop.h), state.height),
+    x: crop.x,
+    y: crop.y,
+  };
+  clamped.x = Math.max(0, Math.min(clamped.x, state.width - clamped.w));
+  clamped.y = Math.max(0, Math.min(clamped.y, state.height - clamped.h));
+  return clamped;
+}
+
+function renderImagePrepList() {
+  const list = document.getElementById("imagePrepList");
+  if (!list) return;
+  const states = Object.values(imagePrepStates);
+  list.innerHTML = states
+    .map((state) => {
+      const label = state.loaded ? `${state.width}x${state.height}` : state.error || "Loading";
+      return `<button class="image-prep-thumb${state.key === imagePrepActiveKey ? " active" : ""}" type="button" data-key="${escapeHtml(state.key)}" onclick="selectImagePrep(this.dataset.key)">
+        <img src="${state.objectUrl}" alt="" />
+        <div class="image-prep-thumb-name">${escapeHtml(state.name)}</div>
+        <div class="image-prep-thumb-name">${escapeHtml(label)}</div>
+      </button>`;
+    })
+    .join("");
+}
+
+function selectImagePrep(key) {
+  if (!key || !imagePrepStates[key]) return;
+  imagePrepActiveKey = key;
+  const state = imagePrepStates[key];
+  renderImagePrepList();
+  const editor = document.getElementById("imagePrepEditor");
+  const source = document.getElementById("imagePrepSource");
+  const zoom = document.getElementById("imagePrepZoom");
+  if (!editor || !source || !zoom) return;
+  editor.style.display = state.loaded ? "grid" : "none";
+  if (!state.loaded) return;
+  source.src = state.objectUrl;
+  zoom.value = state.zoom || 100;
+  writeImagePrepGrayThresholdControls();
+  requestAnimationFrame(() => {
+    renderImagePrepCrop();
+    renderImagePrepPreview();
+  });
+}
+
+function imagePrepImageRect(state) {
+  const stage = document.getElementById("imagePrepStage");
+  if (!stage || !state || !state.loaded) return null;
+  const stageW = stage.clientWidth;
+  const stageH = stage.clientHeight;
+  const scale = Math.min(stageW / state.width, stageH / state.height);
+  const width = state.width * scale;
+  const height = state.height * scale;
+  return {
+    left: (stageW - width) / 2,
+    top: (stageH - height) / 2,
+    width,
+    height,
+    scale,
+  };
+}
+
+function renderImagePrepCrop() {
+  const cropEl = document.getElementById("imagePrepCrop");
+  const state = imagePrepStates[imagePrepActiveKey];
+  if (!cropEl || !state || !state.loaded || !state.crop) return;
+  const rect = imagePrepImageRect(state);
+  if (!rect) return;
+  cropEl.style.left = rect.left + state.crop.x * rect.scale + "px";
+  cropEl.style.top = rect.top + state.crop.y * rect.scale + "px";
+  cropEl.style.width = state.crop.w * rect.scale + "px";
+  cropEl.style.height = state.crop.h * rect.scale + "px";
+}
+
+function setImagePrepZoom(value) {
+  const state = imagePrepStates[imagePrepActiveKey];
+  if (!state || !state.loaded) return;
+  state.zoom = parseInt(value, 10) || 100;
+  resetImagePrepCrop(state, true);
+  renderImagePrepCrop();
+  renderImagePrepPreview();
+}
+
+function renderImagePrepPreview() {
+  const state = imagePrepStates[imagePrepActiveKey];
+  const canvas = document.getElementById("imagePrepPreview");
+  if (!state || !state.loaded || !state.crop || !canvas) return;
+  const ctx = canvas.getContext("2d");
+  const img = document.getElementById("imagePrepSource");
+  if (!img || !img.complete) return;
+  const targetRatio = MAX_WIDTH / MAX_HEIGHT;
+  const previewW = canvas.width;
+  const previewH = Math.round(previewW / targetRatio);
+  canvas.height = previewH;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, previewW, previewH);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, state.crop.x, state.crop.y, state.crop.w, state.crop.h, 0, 0, previewW, previewH);
+  const imageData = ctx.getImageData(0, 0, previewW, previewH);
+  const data = imageData.data;
+  const indexes = imageDataToGray4Indexes(imageData, previewW, previewH, getImagePrepGrayThresholds());
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    const level = indexes[p];
+    const v = level * 85;
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+    data[i + 3] = 255;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function setupImagePrepCropEvents() {
+  const cropEl = document.getElementById("imagePrepCrop");
+  const stage = document.getElementById("imagePrepStage");
+  if (!cropEl || !stage) return;
+  cropEl.addEventListener("pointerdown", (event) => {
+    const state = imagePrepStates[imagePrepActiveKey];
+    const rect = imagePrepImageRect(state);
+    if (!state || !rect) return;
+    event.preventDefault();
+    cropEl.setPointerCapture(event.pointerId);
+    imagePrepDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      crop: { ...state.crop },
+      scale: rect.scale,
+    };
+  });
+  cropEl.addEventListener("pointermove", (event) => {
+    if (!imagePrepDrag || event.pointerId !== imagePrepDrag.pointerId) return;
+    const state = imagePrepStates[imagePrepActiveKey];
+    if (!state) return;
+    const dx = (event.clientX - imagePrepDrag.startX) / imagePrepDrag.scale;
+    const dy = (event.clientY - imagePrepDrag.startY) / imagePrepDrag.scale;
+    state.crop = clampImagePrepCrop({
+      ...imagePrepDrag.crop,
+      x: imagePrepDrag.crop.x + dx,
+      y: imagePrepDrag.crop.y + dy,
+    }, state);
+    renderImagePrepCrop();
+    renderImagePrepPreview();
+  });
+  cropEl.addEventListener("pointerup", (event) => {
+    if (imagePrepDrag && event.pointerId === imagePrepDrag.pointerId) imagePrepDrag = null;
+  });
+  cropEl.addEventListener("pointercancel", () => {
+    imagePrepDrag = null;
+  });
+  window.addEventListener("resize", renderImagePrepCrop);
+}
+
+function imageDataToGray4Indexes(imageData, width, height, thresholds) {
+  const src = imageData.data;
+  const lum = new Float32Array(width * height);
+  const hist = new Uint32Array(256);
+  for (let i = 0, p = 0; i < src.length; i += 4, p++) {
+    const alpha = src[i + 3] / 255;
+    const r = src[i] * alpha + 255 * (1 - alpha);
+    const g = src[i + 1] * alpha + 255 * (1 - alpha);
+    const b = src[i + 2] * alpha + 255 * (1 - alpha);
+    const y = Math.max(0, Math.min(255, Math.round(r * 0.299 + g * 0.587 + b * 0.114)));
+    lum[p] = y;
+    hist[y]++;
+  }
+
+  const total = width * height;
+  const percentile = (target) => {
+    let sum = 0;
+    for (let i = 0; i < 256; i++) {
+      sum += hist[i];
+      if (sum >= target) return i;
+    }
+    return 255;
+  };
+  const black = percentile(Math.max(1, Math.floor(total * 0.01)));
+  const white = percentile(Math.max(1, Math.floor(total * 0.99)));
+  if (white - black > 32) {
+    for (let i = 0; i < lum.length; i++) {
+      lum[i] = Math.max(0, Math.min(255, ((lum[i] - black) * 255) / (white - black)));
+    }
+  }
+
+  const out = new Uint8Array(width * height);
+  const addErr = (x, y, err) => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    const idx = y * width + x;
+    lum[idx] = Math.max(0, Math.min(255, lum[idx] + err));
+  };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      const oldValue = lum[idx];
+      const level = grayToImagePrepLevel(oldValue, thresholds);
+      const newValue = level * 85;
+      const err = (oldValue - newValue) / 8;
+      out[idx] = level;
+      addErr(x + 1, y, err);
+      addErr(x + 2, y, err);
+      addErr(x - 1, y + 1, err);
+      addErr(x, y + 1, err);
+      addErr(x + 1, y + 1, err);
+      addErr(x, y + 2, err);
+    }
+  }
+  return out;
+}
+
+function writeBmp2Bit(indexes, width, height) {
+  const rowBytes = Math.ceil((width * 2) / 32) * 4;
+  const paletteBytes = 16;
+  const pixelOffset = 14 + 40 + paletteBytes;
+  const pixelBytes = rowBytes * height;
+  const buffer = new ArrayBuffer(pixelOffset + pixelBytes);
+  const view = new DataView(buffer);
+  let o = 0;
+  const u16 = (v) => {
+    view.setUint16(o, v, true);
+    o += 2;
+  };
+  const u32 = (v) => {
+    view.setUint32(o, v, true);
+    o += 4;
+  };
+  const i32 = (v) => {
+    view.setInt32(o, v, true);
+    o += 4;
+  };
+
+  u16(0x4d42);
+  u32(buffer.byteLength);
+  u16(0);
+  u16(0);
+  u32(pixelOffset);
+  u32(40);
+  i32(width);
+  i32(-height);
+  u16(1);
+  u16(2);
+  u32(0);
+  u32(pixelBytes);
+  i32(2835);
+  i32(2835);
+  u32(4);
+  u32(4);
+  [0, 85, 170, 255].forEach((v) => {
+    view.setUint8(o++, v);
+    view.setUint8(o++, v);
+    view.setUint8(o++, v);
+    view.setUint8(o++, 0);
+  });
+
+  const bytes = new Uint8Array(buffer);
+  for (let y = 0; y < height; y++) {
+    const rowStart = pixelOffset + y * rowBytes;
+    for (let x = 0; x < width; x++) {
+      const level = indexes[y * width + x] & 0x03;
+      bytes[rowStart + (x >> 2)] |= level << (6 - ((x & 3) * 2));
+    }
+  }
+  return new Blob([buffer], { type: "image/bmp" });
+}
+
+function imageElementFromState(state) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not decode image"));
+    img.src = state.objectUrl;
+  });
+}
+
+async function prepareEreaderImageFile(file) {
+  const key = imagePrepKey(file);
+  let state = imagePrepStates[key];
+  if (!state) {
+    state = {
+      key,
+      file,
+      name: file.name,
+      objectUrl: URL.createObjectURL(file),
+      width: 0,
+      height: 0,
+      crop: null,
+      zoom: 100,
+      loaded: false,
+    };
+    imagePrepStates[key] = state;
+    const img = await imageElementFromState(state);
+    state.width = img.naturalWidth || img.width;
+    state.height = img.naturalHeight || img.height;
+    state.loaded = true;
+    resetImagePrepCrop(state, false);
+  }
+  if (!state.loaded || !state.crop) throw new Error("Image is not ready");
+
+  const img = await imageElementFromState(state);
+  const canvas = document.createElement("canvas");
+  canvas.width = MAX_WIDTH;
+  canvas.height = MAX_HEIGHT;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, MAX_WIDTH, MAX_HEIGHT);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, state.crop.x, state.crop.y, state.crop.w, state.crop.h, 0, 0, MAX_WIDTH, MAX_HEIGHT);
+  const imageData = ctx.getImageData(0, 0, MAX_WIDTH, MAX_HEIGHT);
+  const indexes = imageDataToGray4Indexes(imageData, MAX_WIDTH, MAX_HEIGHT, getImagePrepGrayThresholds());
+  const bmpBlob = writeBmp2Bit(indexes, MAX_WIDTH, MAX_HEIGHT);
+  return new File([bmpBlob], imagePrepOutputName(file.name), {
+    type: "image/bmp",
+    lastModified: Date.now(),
+  });
+}
+
 // Set up file input click listener once
 (function setupFileInputListener() {
   const fileInput = document.getElementById("fileInput");
@@ -1371,6 +2150,7 @@ function validateFile() {
 
   // Show convert options only when at least one selected file is an EPUB.
   const hasEpub = Array.from(files).some((f) => f.name.toLowerCase().endsWith(".epub"));
+  updateImagePrepForSelection(files);
   if (files.length > 0 && hasEpub) {
     convertOptions.style.display = "block";
   } else {
@@ -1412,11 +2192,12 @@ function validateFile() {
     }
 
     updateBatchModeUI(files.length > 1);
-    uploadBtn.disabled = isUploadInProgress;
+    updateUploadActionState();
   } else {
     updateBatchModeUI(false);
-    uploadBtn.disabled = true;
+    updateUploadActionState();
   }
+  updateUploadActionState();
 }
 
 let failedUploadsGlobal = [];
@@ -1465,6 +2246,13 @@ let OVERLAP_PERCENT = 5; // Minimum overlap percentage for splits (5%, 10%, 15%)
 let imageStates = {}; // Map: imagePath -> state (0=Normal, 1=H-Split, 2=V-Split, 3=Rotate)
 let epubImagesCache = []; // Cache of extracted images for preview
 let pendingConversionFile = null; // File awaiting conversion after image selection
+let imagePrepGeneration = 0;
+let imagePrepActiveKey = null;
+let imagePrepDrag = null;
+const imagePrepStates = {};
+const IMAGE_PREP_DEFAULT_GRAY_THRESHOLDS = [43, 128, 213];
+const IMAGE_PREP_GRAY_THRESHOLD_GAP = 4;
+let imagePrepGrayThresholds = [...IMAGE_PREP_DEFAULT_GRAY_THRESHOLDS];
 
 // ============================================================================
 // Enhanced Logging System
@@ -1499,6 +2287,9 @@ async function fetchVersion() {
         DETECTED_DEVICE = data.device;
         applyDeviceTarget();
       }
+      currentBookPath = data.currentBookPath || "";
+      currentBookName = data.currentBookName || bookNameFromPath(currentBookPath);
+      updateFileShortcuts();
     }
   } catch (e) {
     console.error("Failed to fetch version:", e);
@@ -1520,9 +2311,20 @@ function applyDeviceTarget() {
   document.querySelectorAll(".device-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.value === DEVICE_TARGET);
   });
+  document.querySelectorAll(".image-prep-device-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.value === DEVICE_TARGET);
+  });
   const autoLabel = document.getElementById("deviceAutoLabel");
   if (autoLabel) {
     autoLabel.textContent = DETECTED_DEVICE ? `Auto (${DETECTED_DEVICE})` : "Auto";
+  }
+  const imagePrepAutoLabel = document.getElementById("imagePrepDeviceAutoLabel");
+  if (imagePrepAutoLabel) {
+    imagePrepAutoLabel.textContent = DETECTED_DEVICE ? `Auto (${DETECTED_DEVICE})` : "Auto";
+  }
+  const imagePrepSummary = document.getElementById("imagePrepSizeSummary");
+  if (imagePrepSummary) {
+    imagePrepSummary.textContent = `Target ${profile.width}x${profile.height} BMP`;
   }
 
   // Recompute picker classification with new dimensions, then refresh grid.
@@ -1537,6 +2339,12 @@ function applyDeviceTarget() {
       renderImageGrid();
     }
   }
+
+  for (const state of Object.values(imagePrepStates)) {
+    if (state.loaded) resetImagePrepCrop(state, true);
+  }
+  renderImagePrepCrop();
+  renderImagePrepPreview();
 }
 
 function setDeviceTarget(value) {
@@ -3754,7 +4562,7 @@ function getWsUrl() {
 }
 
 // Upload file via WebSocket (faster, binary protocol)
-function uploadFileWebSocket(file, onProgress, onComplete, onError) {
+function uploadFileWebSocket(file, targetPath, onProgress, onComplete, onError) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(getWsUrl());
     currentUploadWs = ws;
@@ -3767,7 +4575,7 @@ function uploadFileWebSocket(file, onProgress, onComplete, onError) {
     ws.onopen = function () {
       console.log("[WS] Connected, starting upload:", file.name);
       // Send start message: START:<filename>:<size>:<path>
-      ws.send(`START:${file.name}:${file.size}:${currentPath}`);
+      ws.send(`START:${file.name}:${file.size}:${targetPath}`);
     };
 
     ws.onmessage = async function (event) {
@@ -3863,14 +4671,14 @@ function uploadFileWebSocket(file, onProgress, onComplete, onError) {
 }
 
 // Upload file via HTTP (fallback method)
-function uploadFileHTTP(file, onProgress, onComplete, onError) {
+function uploadFileHTTP(file, targetPath, onProgress, onComplete, onError) {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append("file", file);
 
     const xhr = new XMLHttpRequest();
     currentUploadXhr = xhr;
-    xhr.open("POST", "/upload?path=" + encodeURIComponent(currentPath), true);
+    xhr.open("POST", "/upload?path=" + encodeURIComponent(targetPath), true);
 
     xhr.upload.onprogress = function (e) {
       if (e.lengthComputable && onProgress) {
@@ -3906,15 +4714,24 @@ function uploadFileHTTP(file, onProgress, onComplete, onError) {
   });
 }
 
-function uploadFile() {
+async function uploadFile() {
   if (isUploadInProgress) return;
 
   const fileInput = document.getElementById("fileInput");
   const files = Array.from(fileInput.files);
   const convertEnabled = document.getElementById("convertBeforeUpload").checked;
+  const imagePrepEnabled = document.getElementById("prepareImagesBeforeUpload")?.checked;
 
   if (files.length === 0) {
     alert("Please select at least one file!");
+    return;
+  }
+
+  let targetPath = currentPath;
+  try {
+    targetPath = await resolveUploadTargetPath();
+  } catch (error) {
+    alert(error.message || "Unable to prepare upload destination");
     return;
   }
 
@@ -3957,13 +4774,9 @@ function uploadFile() {
         // Finalize batch log if in batch mode
         if (useBatchLog) {
           finalizeBatchLog();
-          setTimeout(() => {
-            window.location.reload();
-          }, 2000);
+          finishUploadNavigation(2000);
         } else {
-          setTimeout(() => {
-            window.location.reload();
-          }, 1000);
+          finishUploadNavigation(1000);
         }
       } else {
         progressFill.style.backgroundColor = "#e74c3c";
@@ -4004,6 +4817,7 @@ function uploadFile() {
 
     // Check if file is an EPUB and conversion is enabled
     const isEpub = file.name.toLowerCase().endsWith(".epub");
+    const needsImagePrep = imagePrepEnabled && isBrowserLoadableImageFile(file.name);
     const needsConversion = isEpub && convertEnabled;
     let conversionSucceeded = false;
     let conversionFailed = false; // Track if conversion actually failed
@@ -4011,7 +4825,7 @@ function uploadFile() {
     let convNewSize = 0; // Generated blob size; 0 unless conversion succeeded
 
     const methodText = useWebSocket ? " [WS]" : " [HTTP]";
-    const stageText = needsConversion ? "Converting & uploading" : "Uploading";
+    const stageText = needsConversion || needsImagePrep ? "Preparing & uploading" : "Uploading";
     progressText.style.color = "";
     progressText.textContent = `${stageText} ${file.name} (${currentIndex + 1}/${files.length})${methodText}`;
 
@@ -4080,6 +4894,29 @@ function uploadFile() {
     };
 
     try {
+      if (needsImagePrep) {
+        progressFill.style.backgroundColor = "#9b59b6";
+        progressText.textContent = `Preparing ${file.name} (${currentIndex + 1}/${files.length})...`;
+        try {
+          const originalSize = file.size;
+          file = await prepareEreaderImageFile(file);
+          progressFill.style.backgroundColor = "#27ae60";
+          conversionSucceeded = true;
+          convOriginalSize = originalSize;
+          convNewSize = file.size;
+        } catch (prepError) {
+          if (operationCancelled) {
+            if (uploadGeneration === myGeneration) restoreAfterCancel();
+            return;
+          }
+          console.error("Image preparation error:", prepError);
+          conversionFailed = true;
+          progressText.textContent = `Image preparation failed, uploading original ${file.name}...`;
+          progressFill.style.backgroundColor = "#e67e22";
+          progressFill.style.width = "0%";
+        }
+      }
+
       // Convert EPUB if needed
       if (needsConversion) {
         progressFill.style.backgroundColor = "#9b59b6"; // Purple for conversion
@@ -4134,9 +4971,9 @@ function uploadFile() {
       }
 
       if (useWebSocket) {
-        await uploadFileWebSocket(file, onProgress, null, null);
+        await uploadFileWebSocket(file, targetPath, onProgress, null, null);
       } else {
-        await uploadFileHTTP(file, onProgress, null, null);
+        await uploadFileHTTP(file, targetPath, onProgress, null, null);
       }
       // Ensure progress bar shows 100% before moving to next file
       progressFill.style.width = "100%";
@@ -4159,7 +4996,7 @@ function uploadFile() {
         useWebSocket = false;
         // Retry this file with HTTP
         try {
-          await uploadFileHTTP(file, onProgress, null, null);
+          await uploadFileHTTP(file, targetPath, onProgress, null, null);
           onComplete();
         } catch (httpError) {
           onError(httpError.message);

@@ -6,6 +6,8 @@
 
 class Bitmap;
 
+struct SleepImageRenderCache;
+
 class SleepActivity final : public Activity {
  public:
   explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool canSnapshotOverlayBackground,
@@ -20,11 +22,12 @@ class SleepActivity final : public Activity {
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;
+  bool renderBookGallerySleepScreen() const;
   void renderReadingStatsSleepScreen() const;
   void renderMinimalSleepScreen() const;
   void renderMinimalStatsSleepScreen() const;
   void renderDashboardSleepScreen() const;
-  void renderBitmapSleepScreen(const Bitmap& bitmap) const;
+  void renderBitmapSleepScreen(const Bitmap& bitmap, const SleepImageRenderCache* renderCache = nullptr) const;
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen() const;

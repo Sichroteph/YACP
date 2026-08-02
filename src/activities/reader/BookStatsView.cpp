@@ -86,7 +86,13 @@ constexpr std::array<StrId, READING_DAY_OF_WEEK_COUNT> DAY_LABELS = {
 
 const char* dayCountText(const uint16_t days) { return days == 1 ? tr(STR_STATS_DAY) : tr(STR_STATS_DAYS); }
 
-void formatFinishedBookDate(const ReadingStatsDate& date, char* buf, const size_t len) {
+bool sameFinishedBookMonth(const FinishedBookEntry& entry, const ReadingStatsDate& date) {
+  return entry.finishedDate.isValid() && date.isValid() && entry.finishedDate.year == date.year &&
+         entry.finishedDate.month == date.month;
+}
+
+void formatFinishedBookMonthHeader(const ReadingStatsDate& date, const uint8_t bookCount,
+                                   const uint32_t readingSeconds, char* buf, const size_t len) {
   if (!buf || len == 0) {
     return;
   }
@@ -95,9 +101,27 @@ void formatFinishedBookDate(const ReadingStatsDate& date, char* buf, const size_
     return;
   }
 
-  char shortDate[16];
-  formatReadingStatsShortDate(date, shortDate, sizeof(shortDate));
-  snprintf(buf, len, "%s, %u", shortDate, static_cast<unsigned>(date.year));
+  char month[8];
+  char duration[24];
+  formatReadingStatsMonthToken(date, month, sizeof(month));
+  BookReadingStats::formatDuration(readingSeconds, duration, sizeof(duration));
+  snprintf(buf, len, "%s %u · %u %s · %s", month, static_cast<unsigned>(date.year),
+           static_cast<unsigned>(bookCount),
+           bookCount == 1 ? tr(STR_STATS_BOOK_COUNT_ONE) : tr(STR_STATS_BOOK_COUNT_MANY), duration);
+}
+
+void finishedBookMonthSummary(const std::vector<FinishedBookEntry>& finishedBooks, const ReadingStatsDate& date,
+                              uint8_t& bookCount, uint32_t& readingSeconds) {
+  bookCount = 0;
+  readingSeconds = 0;
+  for (const auto& entry : finishedBooks) {
+    if (sameFinishedBookMonth(entry, date)) {
+      if (bookCount < 255) {
+        ++bookCount;
+      }
+      readingSeconds += entry.totalReadingSeconds;
+    }
+  }
 }
 
 void readingIntensityStyle(const uint8_t minutes, const int activeDotSize, const int inactiveDotSize, int& dotSize,
@@ -1094,15 +1118,11 @@ void renderFinishedBooksPage(GfxRenderer& renderer, const MappedInputManager* ma
 
   const int listY = totalCardY + totalCardH + metrics.verticalSpacing;
   const int availableListH = std::max(0, buttonTop - listY - metrics.verticalSpacing);
-  const int rowGap = std::max(4, metrics.verticalSpacing / 2);
-  const int desiredRowH = std::max(54, renderer.getLineHeight(UI_10_FONT_ID) +
-                                           renderer.getLineHeight(SMALL_FONT_ID) + 18);
-  const int maxRows =
-      std::min<int>(FINISHED_BOOKS_ENTRIES_PER_PAGE, (availableListH + rowGap) / (desiredRowH + rowGap));
   const size_t firstEntry = pageIndex * FINISHED_BOOKS_ENTRIES_PER_PAGE;
   const size_t remainingEntries = firstEntry < finishedBooks.size() ? finishedBooks.size() - firstEntry : 0;
+  const int visibleRows = std::min<int>(FINISHED_BOOKS_ENTRIES_PER_PAGE, remainingEntries);
 
-  if (remainingEntries == 0 || maxRows <= 0) {
+  if (remainingEntries == 0 || visibleRows <= 0) {
     const int emptyY = listY + std::max(0, (availableListH - renderer.getLineHeight(UI_12_FONT_ID) -
                                           renderer.getLineHeight(UI_10_FONT_ID) - 8) /
                                                  2);
@@ -1110,51 +1130,49 @@ void renderFinishedBooksPage(GfxRenderer& renderer, const MappedInputManager* ma
     renderer.drawCenteredText(UI_10_FONT_ID, emptyY + renderer.getLineHeight(UI_12_FONT_ID) + 8,
                               tr(STR_ACHIEVEMENT_BOOKS_COMPLETED));
   } else {
-    const int visibleRows = std::min<int>(maxRows, remainingEntries);
-    const int rowH = std::min(desiredRowH, (availableListH - rowGap * (visibleRows - 1)) / visibleRows);
+    const int headerH = std::max(22, renderer.getLineHeight(SMALL_FONT_ID) + 8);
+    const int titleLineH = renderer.getLineHeight(UI_10_FONT_ID);
+    const int authorLineH = renderer.getLineHeight(SMALL_FONT_ID);
+    const int bookRowH = std::max(40, titleLineH + authorLineH + 8);
+    int sectionCount = 0;
     for (int index = 0; index < visibleRows; ++index) {
       const auto& entry = finishedBooks[firstEntry + index];
-      const int rowY = listY + index * (rowH + rowGap);
-      renderer.drawRoundedRect(cardX, rowY, cardW, rowH, 1, 8, true);
+      const bool startsSection =
+          index == 0 || !sameFinishedBookMonth(entry, finishedBooks[firstEntry + index - 1].finishedDate);
+      if (startsSection) {
+        ++sectionCount;
+      }
+    }
+    const int minContentH = sectionCount * headerH + visibleRows * bookRowH;
+    const int extraListH = std::max(0, availableListH - minContentH);
+    const int gap = visibleRows > 1 ? std::min(metrics.verticalSpacing / 2, extraListH / (visibleRows - 1)) : 0;
+    int y = listY;
+    for (int index = 0; index < visibleRows; ++index) {
+      const auto& entry = finishedBooks[firstEntry + index];
+      const bool startsSection =
+          index == 0 || !sameFinishedBookMonth(entry, finishedBooks[firstEntry + index - 1].finishedDate);
+      if (startsSection) {
+        uint8_t monthBooks = 0;
+        uint32_t monthSeconds = 0;
+        finishedBookMonthSummary(finishedBooks, entry.finishedDate, monthBooks, monthSeconds);
+        char header[64];
+        formatFinishedBookMonthHeader(entry.finishedDate, monthBooks, monthSeconds, header, sizeof(header));
+        renderer.drawText(SMALL_FONT_ID, cardX, y + 4, header, true, EpdFontFamily::BOLD);
+        y += headerH;
+      }
 
       const auto title =
           renderer.truncatedText(UI_10_FONT_ID, entry.title.c_str(), cardW - metrics.contentSidePadding * 2,
                                  EpdFontFamily::BOLD);
-      renderer.drawText(UI_10_FONT_ID, cardX + metrics.contentSidePadding, rowY + 7, title.c_str(), true,
+      renderer.drawText(UI_10_FONT_ID, cardX + metrics.contentSidePadding, y + 2, title.c_str(), true,
                         EpdFontFamily::BOLD);
 
-      char startDate[24];
-      char finishDate[24];
-      char readingTime[24];
-      formatFinishedBookDate(entry.startDate, startDate, sizeof(startDate));
-      formatFinishedBookDate(entry.finishedDate, finishDate, sizeof(finishDate));
-      BookReadingStats::formatDuration(entry.totalReadingSeconds, readingTime, sizeof(readingTime));
-      const int subtitleY = rowY + rowH - renderer.getLineHeight(SMALL_FONT_ID) - 7;
-      const int timelineY = subtitleY + renderer.getLineHeight(SMALL_FONT_ID) / 2;
-      const int subtitleRight = cardX + cardW - metrics.contentSidePadding;
-      int subtitleX = cardX + metrics.contentSidePadding;
-      if (entry.startDate.isValid() && entry.finishedDate.isValid()) {
-        renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, startDate);
-        subtitleX += renderer.getTextWidth(SMALL_FONT_ID, startDate) + 6;
-        const int fixedTextWidth = renderer.getTextWidth(SMALL_FONT_ID, finishDate) +
-                                   renderer.getTextWidth(SMALL_FONT_ID, readingTime) + 20;
-        const int timelineWidth = std::clamp(subtitleRight - subtitleX - fixedTextWidth, 18, 46);
-        renderer.drawLine(subtitleX, timelineY, subtitleX + timelineWidth, timelineY);
-        subtitleX += timelineWidth + 6;
-
-        renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, finishDate);
-        subtitleX += renderer.getTextWidth(SMALL_FONT_ID, finishDate) + 8;
-        renderer.drawLine(subtitleX, timelineY, subtitleX + 1, timelineY, 2, true);
-        subtitleX += 8;
-      } else {
-        renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, finishDate);
-        subtitleX += renderer.getTextWidth(SMALL_FONT_ID, finishDate) + 8;
-        renderer.drawLine(subtitleX, timelineY, subtitleX + 1, timelineY, 2, true);
-        subtitleX += 8;
+      if (!entry.author.empty()) {
+        const auto author =
+            renderer.truncatedText(SMALL_FONT_ID, entry.author.c_str(), cardW - metrics.contentSidePadding * 2);
+        renderer.drawText(SMALL_FONT_ID, cardX + metrics.contentSidePadding, y + titleLineH + 4, author.c_str());
       }
-      const auto visibleReadingTime = renderer.truncatedText(
-          SMALL_FONT_ID, readingTime, std::max(0, subtitleRight - subtitleX));
-      renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, visibleReadingTime.c_str());
+      y += bookRowH + gap;
     }
   }
 

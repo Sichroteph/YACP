@@ -21,6 +21,8 @@
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "util/BookGallery.h"
+#include "util/BmpViewerActivity.h"
 #include "util/FullScreenMessageActivity.h"
 
 void ActivityManager::begin() {
@@ -225,6 +227,17 @@ void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
 }
 
+void ActivityManager::goToBookGallery(std::string bookPath) {
+  std::string firstImagePath;
+  if (BookGallery::firstImageForBook(bookPath, firstImagePath)) {
+    replaceActivity(std::make_unique<BmpViewerActivity>(renderer, mappedInput, std::move(firstImagePath)));
+    return;
+  }
+
+  replaceActivity(
+      std::make_unique<FileBrowserActivity>(renderer, mappedInput, BookGallery::galleryPathForBook(bookPath)));
+}
+
 void ActivityManager::goToRecentBooks() {
   if (SETTINGS.recentBooksView == CrossPointSettings::RECENT_BOOKS_GRID) {
     replaceActivity(std::make_unique<RecentBooksGridActivity>(renderer, mappedInput));
@@ -261,7 +274,7 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
   replaceActivity(std::make_unique<FullScreenMessageActivity>(renderer, mappedInput, std::move(message), style));
 }
 
-void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
+void ActivityManager::goHome(HomeMenuItem initialMenuItem, const bool allowFastInitialRefresh) {
   const bool returningFromSettings = currentActivity && currentActivity->name == "Settings";
   if (initialMenuItem == HomeMenuItem::NONE && currentActivity) {
     const auto& activityName = currentActivity->name;
@@ -279,7 +292,9 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     }
   }
-  replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, returningFromSettings));
+  replaceActivity(
+      std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, returningFromSettings,
+                                     allowFastInitialRefresh));
 }
 void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<CrashActivity>(renderer, mappedInput)); }
 

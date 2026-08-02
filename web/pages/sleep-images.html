@@ -1,0 +1,52 @@
+<div class="page-header">
+  <div>
+    <h2>Sleep Images</h2>
+    <p class="page-subtitle">Choose the images shown while the reader is asleep.</p>
+  </div>
+</div>
+
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Default Images</h3>
+      <p>Used when no book-specific image is available.</p>
+    </div>
+    <button class="primary-btn" type="button" onclick="addGlobalImages()">+ Add images</button>
+  </div>
+  <div class="item-list" id="globalImageList">
+    <div class="empty-state">Loading...</div>
+  </div>
+</section>
+
+<section class="panel book-panel">
+  <div class="panel-header">
+    <div>
+      <h3>Images for a Book</h3>
+      <p>Select a book to view or change the images attached to it.</p>
+    </div>
+    <button class="primary-btn" id="addBookImagesBtn" type="button" onclick="addBookImages()" disabled>+ Add images</button>
+  </div>
+
+  <div class="book-picker">
+    <label for="bookSelect">Book</label>
+    <select id="bookSelect" onchange="loadSelectedBookGallery(this.value)">
+      <option value="">Loading books...</option>
+    </select>
+  </div>
+
+  <div class="item-list" id="selectedGalleryList">
+    <div class="empty-state">Select a book to see its images.</div>
+  </div>
+</section>
+
+<div class="modal-overlay" id="previewModal">
+  <div class="modal image-preview-mode">
+    <button class="modal-close" type="button" onclick="closePreview()">&times;</button>
+    <h3>Preview</h3>
+    <p class="file-info"><strong id="previewName"></strong></p>
+    <div class="image-preview-stage">
+      <img id="previewImage" alt="" />
+    </div>
+    <a id="previewDownload" class="move-btn-confirm" rel="noopener noreferrer" target="_blank" href="#">Download</a>
+  </div>
+</div>

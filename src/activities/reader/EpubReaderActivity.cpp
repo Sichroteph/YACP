@@ -50,6 +50,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookGallery.h"
 #include "util/BookMoveUtils.h"
 #include "util/ScreenshotUtil.h"
 
@@ -1494,7 +1495,8 @@ void EpubReaderActivity::applyBookStatsEditsFromDisk() {
 
 void EpubReaderActivity::syncFinishedBookIndex() {
   if (epub &&
-      !FinishedBooksIndex::recordCanonical(epub->getPath(), epub->getCachePath(), epub->getTitle(), stats)) {
+      !FinishedBooksIndex::recordCanonical(epub->getPath(), epub->getCachePath(), epub->getTitle(), epub->getAuthor(),
+                                           stats)) {
     LOG_ERR("ERS", "Failed to synchronize finished-book entry");
   }
 }
@@ -1908,6 +1910,7 @@ void EpubReaderActivity::openReaderMenu() {
     bookProgress = getCurrentBookProgressPercent();
   }
   const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
+  const bool hasBookGallery = epub && BookGallery::hasImagesForBook(epub->getPath());
 
   pauseReadingPaceTimer("reader_menu");
   startActivityForResult(
@@ -1918,7 +1921,8 @@ void EpubReaderActivity::openReaderMenu() {
           automaticPageTurnActive, getAutoPageTurnIntervalSeconds(),
           SETTINGS.statusBarTimeLeft != CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE,
           saveReaderOptionsForBook, this, saveGlobalSettingsForBookReader, this, beginGlobalSettingsEditForBookReader,
-          this, !previewActive && epub && epub->hasStablePageNumbers(), endGlobalSettingsEditForBookReader, this),
+          this, !previewActive && epub && epub->hasStablePageNumbers(), endGlobalSettingsEditForBookReader, this,
+          hasBookGallery),
       [this](const ActivityResult& result) {
         if (const auto* clipping = std::get_if<ClippingJumpResult>(&result.data)) {
           applyOrientation(clipping->orientation);
@@ -2680,6 +2684,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                                                 estimatedTimeLeftSeconds, globalStats),
             [this](const ActivityResult&) { handleBookStatsReturn(); });
       }
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::BOOK_GALLERY: {
+      pauseReadingPaceTimer("book_gallery");
+      activityManager.goToBookGallery(epub ? epub->getPath() : "");
       break;
     }
     case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {

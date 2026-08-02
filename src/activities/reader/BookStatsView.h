@@ -11,7 +11,7 @@
 class GfxRenderer;
 class MappedInputManager;
 
-constexpr size_t FINISHED_BOOKS_ENTRIES_PER_PAGE = 5;
+constexpr size_t FINISHED_BOOKS_ENTRIES_PER_PAGE = 4;
 
 void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
                             const BookReadingStats& stats, float progressPercent, bool hasEstimatedTimeLeft,

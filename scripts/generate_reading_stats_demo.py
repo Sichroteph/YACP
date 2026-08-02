@@ -15,14 +15,14 @@ GLOBAL_STATS_SIZE = 159
 EPOCH = date(2000, 1, 1)
 # Most recently finished first; each sample starts the day after the older one ended.
 FINISHED_BOOKS = (
-    ("Dune", 8 * 3600 + 42 * 60, date(2026, 7, 20), date(2026, 8, 1)),
-    ("The Hobbit", 8 * 3600 + 21 * 60, date(2026, 7, 9), date(2026, 7, 19)),
-    ("Project Hail Mary", 13 * 3600 + 7 * 60, date(2026, 6, 25), date(2026, 7, 8)),
-    ("1984", 6 * 3600 + 42 * 60, date(2026, 6, 12), date(2026, 6, 24)),
-    ("Pride and Prejudice", 9 * 3600 + 16 * 60, date(2026, 5, 30), date(2026, 6, 11)),
-    ("The Left Hand of Darkness", 7 * 3600 + 35 * 60, date(2026, 5, 17), date(2026, 5, 29)),
-    ("The Count of Monte Cristo", 18 * 3600 + 52 * 60, date(2026, 4, 25), date(2026, 5, 16)),
-    ("The Little Prince", 2 * 3600 + 4 * 60, date(2026, 4, 22), date(2026, 4, 24)),
+    ("Harcèlement", "Guy de Maupassant", 8 * 3600 + 42 * 60, date(2026, 7, 20), date(2026, 8, 1)),
+    ("Dune", "Frank Herbert", 8 * 3600 + 42 * 60, date(2026, 7, 10), date(2026, 7, 31)),
+    ("The Hobbit", "J. R. R. Tolkien", 8 * 3600 + 21 * 60, date(2026, 7, 4), date(2026, 7, 18)),
+    ("Project Hail Mary", "Andy Weir", 11 * 3600 + 7 * 60, date(2026, 6, 25), date(2026, 7, 8)),
+    ("1984", "George Orwell", 6 * 3600 + 42 * 60, date(2026, 6, 12), date(2026, 6, 24)),
+    ("Pride and Prejudice", "Jane Austen", 9 * 3600 + 16 * 60, date(2026, 5, 30), date(2026, 6, 11)),
+    ("The Left Hand of Darkness", "Ursula K. Le Guin", 7 * 3600 + 35 * 60, date(2026, 5, 17), date(2026, 5, 29)),
+    ("The Little Prince", "Antoine de Saint-Exupéry", 2 * 3600 + 4 * 60, date(2026, 4, 22), date(2026, 4, 24)),
 )
 
 
@@ -106,11 +106,12 @@ def build_global_stats(anchor: date, minutes: list[int]) -> bytes:
 
 def build_finished_books() -> bytes:
     payload = bytearray(b"CPFB")
-    payload.extend(struct.pack("<BBH", 2, len(FINISHED_BOOKS), 0))
-    for path_key, (title, total_seconds, start_date, finished_date) in enumerate(
+    payload.extend(struct.pack("<BBH", 3, len(FINISHED_BOOKS), 0))
+    for path_key, (title, author, total_seconds, start_date, finished_date) in enumerate(
         FINISHED_BOOKS, start=1
     ):
         title_bytes = title.encode("utf-8")
+        author_bytes = author.encode("utf-8")
         payload.extend(
             struct.pack(
                 "<QI HBB HBB H",
@@ -126,6 +127,8 @@ def build_finished_books() -> bytes:
             )
         )
         payload.extend(title_bytes)
+        payload.extend(struct.pack("<H", len(author_bytes)))
+        payload.extend(author_bytes)
     return bytes(payload)
 
 

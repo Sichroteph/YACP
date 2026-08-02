@@ -34,6 +34,7 @@ The main data directory is `.crosspoint` on the SD card. It stores render caches
 ├── clippings/              # EPUB clipping/highlight files, one per book
 ├── home_carousel_cache.bin # Lyra Carousel home-screen snapshot cache
 ├── sleep_frame.bin         # Temporary sleep overlay framebuffer, when used
+├── sleep_images/           # Rendered custom sleep-image grayscale planes
 ├── epub_12471232/          # Each EPUB is cached to epub_<hash>
 │   ├── progress.bin        # Reading position (chapter, page, etc.)
 │   ├── stats.bin           # Legacy per-book reading stats
