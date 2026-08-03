@@ -153,10 +153,10 @@ The browser workflow can crop an image, resize it for X3 or X4, preview the actu
 thresholds, and upload the reader-ready BMP. A dedicated Sleep Images page manages the global collection and one
 selected book gallery without exposing their hidden storage folders.
 
-https://github.com/user-attachments/assets/13586201-a645-465d-a390-c44c865531b6
+https://github.com/user-attachments/assets/9954121c-3b27-4330-a455-f3d60a4063e7
 
 <p align="center">
-  <sub>Complete workflow: select a book, prepare an image, and see the result on the reader.
+  <sub>Complete workflow: see the per-book result on the reader, then prepare and attach an image from the browser.
   <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">Download the original-quality video.</a></sub>
 </p>
 

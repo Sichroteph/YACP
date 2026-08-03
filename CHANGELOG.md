@@ -23,6 +23,13 @@
        width="760">
 </p>
 
+https://github.com/user-attachments/assets/9954121c-3b27-4330-a455-f3d60a4063e7
+
+<p align="center">
+  <sub>Per-book sleep images on the reader, followed by preparation and attachment from the browser.
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">Download the original-quality video.</a></sub>
+</p>
+
 - Rendered grayscale sleep-image planes are cached on the SD card and reused while the source image remains unchanged.
 - Per-book sleep images take priority in Cover, Custom, and Cover/Custom modes, rotate randomly, and avoid immediately
   repeating the previous image when several prepared BMPs are available.
