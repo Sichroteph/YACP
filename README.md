@@ -48,13 +48,41 @@ dithering it to the four levels available on the panel.
   adjust the thresholds, and upload the resulting BMP without a separate conversion tool.
 - **A focused Sleep Images page:** global images and one selected book gallery can be viewed and updated without
   navigating the hidden storage layout.
+- **Remote firmware installation API:** after uploading a `.bin` through File Transfer, developers can call
+  `POST /api/firmware/install` to validate it, flash the inactive OTA partition, and restart the reader without using
+  the on-device firmware menu.
 - **Cleaner sleep and wake:** image-based sleep screens wake without the normal boot splash; direct Quick Resume into
   the reader remains visually quiet.
 - **Reading reliability and ergonomics:** finished books are grouped by month, completion data survives rereads more
   reliably, and a side-button hold can optionally turn back one page.
 
-[Watch the complete sleep-image workflow](https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4)
-from the phone interface to the resulting Alice in Wonderland and Jurassic Park sleep screens on the reader.
+<p align="center">
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">
+    <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-video-preview-overview.jpg"
+         alt="Preview of the complete phone-to-reader sleep-image workflow" width="760">
+  </a>
+  <br>
+  <sub>Complete workflow: select a book, prepare an image, and see the result on the reader. Click to watch.</sub>
+</p>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-web-ui.mp4">
+        <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-video-preview-web-ui.jpg"
+             alt="Preview of the sleep-image upload and preparation interface" width="100%">
+      </a>
+      <br><sub>Sleep-image web interface. Click to watch.</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-per-book-sleep-images.mp4">
+        <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-video-preview-gallery.jpg"
+             alt="Preview of per-book Alice in Wonderland and Jurassic Park sleep images" width="100%">
+      </a>
+      <br><sub>Per-book sleep galleries on the reader. Click to watch.</sub>
+    </td>
+  </tr>
+</table>
 
 This builds on earlier YACP work such as X3 no-flash screen maintenance and seamless Quick Resume. When a technical
 finding appears broadly useful, I try to submit it to CrossPoint as a focused PR so its maintainers can review and,

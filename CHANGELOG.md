@@ -8,6 +8,8 @@
   when sleep starts from that book.
 - Added browser-side image preparation to File Transfer, with visual crop selection, X3/X4 target sizing, four-level
   grayscale preview, threshold tuning, and reader-ready BMP generation before upload.
+- Added `POST /api/firmware/install` for developer workflows. After a firmware is uploaded to the SD card, the endpoint
+  validates the image, flashes the inactive OTA partition, and restarts the reader.
 - Added `Previous Page` as an optional side-button long-press action in EPUB, TXT, and XTC readers.
 
 ### Changed
