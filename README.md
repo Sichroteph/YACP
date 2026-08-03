@@ -63,25 +63,6 @@ https://github.com/user-attachments/assets/13586201-a645-465d-a390-c44c865531b6
   <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">Download the original-quality video.</a></sub>
 </p>
 
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-web-ui.mp4">
-        <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-video-preview-web-ui.jpg"
-             alt="Preview of the sleep-image upload and preparation interface" width="100%">
-      </a>
-      <br><sub>Sleep-image web interface. Click to watch.</sub>
-    </td>
-    <td width="50%" align="center">
-      <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-per-book-sleep-images.mp4">
-        <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-video-preview-gallery.jpg"
-             alt="Preview of per-book Alice in Wonderland and Jurassic Park sleep images" width="100%">
-      </a>
-      <br><sub>Per-book sleep galleries on the reader. Click to watch.</sub>
-    </td>
-  </tr>
-</table>
-
 This builds on earlier YACP work such as X3 no-flash screen maintenance and seamless Quick Resume. When a technical
 finding appears broadly useful, I try to submit it to CrossPoint as a focused PR so its maintainers can review and,
 if they wish, adopt it upstream. See the [changelog](CHANGELOG.md) for the complete inventory.
