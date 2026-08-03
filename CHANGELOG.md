@@ -16,6 +16,13 @@
 
 - Sleep-image rendering now analyzes each image's tonal range before dithering, preserving substantially more useful
   highlight and midtone detail on the four-level e-ink output.
+
+<p align="center">
+  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-image-before-after.jpg"
+       alt="Four real-device before and after comparisons of legacy and adaptive YACP sleep-image rendering"
+       width="760">
+</p>
+
 - Rendered grayscale sleep-image planes are cached on the SD card and reused while the source image remains unchanged.
 - Per-book sleep images take priority in Cover, Custom, and Cover/Custom modes, rotate randomly, and avoid immediately
   repeating the previous image when several prepared BMPs are available.

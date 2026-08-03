@@ -26,47 +26,6 @@ YACP is expected to use less energy and perform less incidental work than its ba
 measured battery-life claim yet. Long-running current analysis continues so future choices can be based on repeatable
 hardware measurements rather than optimistic estimates.
 
-## What is new in 1.5.0-yacp
-
-This release is centered on one visible e-ink improvement: a new adaptive grayscale path for sleep images. The previous
-mapping could wash out highlights or collapse useful midtones. YACP now analyzes the image's tonal range before
-dithering it to the four levels available on the panel.
-
-<p align="center">
-  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-image-before-after.jpg"
-       alt="Four real-device before and after comparisons of YACP adaptive grayscale sleep-image rendering"
-       width="760">
-  <br>
-  <sub>The same source images rendered with the previous and adaptive mappings on a real X3.</sub>
-</p>
-
-- **Adaptive grayscale rendering:** custom and per-book sleep images preserve more highlight and midtone detail, while
-  rendered grayscale planes are cached on the SD card and reused when the source is unchanged.
-- **Per-book sleep-image galleries:** prepared images can be attached to a book, selected when sleep starts from that
-  book, rotated randomly, and kept from repeating immediately.
-- **Image preparation in the browser:** File Transfer can crop, resize for X3 or X4, preview four-level grayscale,
-  adjust the thresholds, and upload the resulting BMP without a separate conversion tool.
-- **A focused Sleep Images page:** global images and one selected book gallery can be viewed and updated without
-  navigating the hidden storage layout.
-- **Remote firmware installation API:** after uploading a `.bin` through File Transfer, developers can call
-  `POST /api/firmware/install` to validate it, flash the inactive OTA partition, and restart the reader without using
-  the on-device firmware menu.
-- **Cleaner sleep and wake:** image-based sleep screens wake without the normal boot splash; direct Quick Resume into
-  the reader remains visually quiet.
-- **Reading reliability and ergonomics:** finished books are grouped by month, completion data survives rereads more
-  reliably, and a side-button hold can optionally turn back one page.
-
-https://github.com/user-attachments/assets/13586201-a645-465d-a390-c44c865531b6
-
-<p align="center">
-  <sub>Complete workflow: select a book, prepare an image, and see the result on the reader.
-  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">Download the original-quality video.</a></sub>
-</p>
-
-This builds on earlier YACP work such as X3 no-flash screen maintenance and seamless Quick Resume. When a technical
-finding appears broadly useful, I try to submit it to CrossPoint as a focused PR so its maintainers can review and,
-if they wish, adopt it upstream. See the [changelog](CHANGELOG.md) for the complete inventory.
-
 ## Direction
 
 In order, YACP aims to:
@@ -140,6 +99,8 @@ keep-current choice, while a fresh installation recommends YACP.
   direction; one hold triggers one turn and must be released before another.
 - Automatic sleep defaults to Quick Resume. The X3 path avoids the full-screen black synchronization pass when
   entering sleep and restoring the cached page.
+- Waking from an image-based sleep screen restores the pre-sleep framebuffer instead of displaying the normal boot
+  splash, keeping both Home and direct reader resumes visually quiet.
 
 The X3 before and after recording shows the Quick Resume flashes removed by this path:
 
@@ -173,6 +134,35 @@ sequence. The same video adjustments are applied to both clips to make faint gho
   jumps to the last page. Memory guards can skip the work, and a prepared marker prevents repeated SD probes.
 - Grayscale rendering reuses one bounded strip buffer per loaded section and releases it before chapter indexing.
 - Existing low-memory EPUB fallbacks remain available for difficult books.
+
+### Adaptive images and sleep galleries
+
+Sleep images use adaptive tonal analysis before four-level dithering. A fixed mapping can wash out highlights or
+collapse useful midtones when the source occupies an unusual tonal range; analyzing each image first makes better use
+of the shades the panel can physically display.
+
+<p align="center">
+  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-image-before-after.jpg"
+       alt="Four real-device before and after comparisons of YACP adaptive grayscale sleep-image rendering"
+       width="760">
+  <br>
+  <sub>The same source images rendered with the previous and adaptive mappings on a real X3.</sub>
+</p>
+
+Prepared images can be attached to a particular book or kept in the global sleep-image collection. When several are
+available for the current book, YACP rotates them without immediately repeating the previous choice. Converted planes
+are cached on the SD card and reused while the source remains unchanged.
+
+The browser workflow can crop an image, resize it for X3 or X4, preview the actual four-level conversion, adjust its
+thresholds, and upload the reader-ready BMP. A dedicated Sleep Images page manages the global collection and one
+selected book gallery without exposing their hidden storage folders.
+
+https://github.com/user-attachments/assets/13586201-a645-465d-a390-c44c865531b6
+
+<p align="center">
+  <sub>Complete workflow: select a book, prepare an image, and see the result on the reader.
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">Download the original-quality video.</a></sub>
+</p>
 
 ### Reading statistics
 
@@ -264,6 +254,10 @@ Download binaries and checksums from [GitHub Releases](https://github.com/Sichro
 
 See the [installation guide](docs/installation.md) before flashing. A successful build proves compilation only, so
 the release notes state the hardware-validation status of each binary.
+
+For automated developer workflows, a firmware file can first be uploaded to the SD card through File Transfer, then
+validated and installed through `POST /api/firmware/install`. The endpoint requires explicit confirmation, checks the
+image before writing the inactive OTA partition, and restarts only after a successful flash.
 
 ## Build
 
