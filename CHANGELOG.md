@@ -14,8 +14,8 @@
 
 ### Changed
 
-- Sleep-image rendering now analyzes each image's tonal range before dithering, preserving substantially more useful
-  highlight and midtone detail on the four-level e-ink output.
+- Sleep-image rendering now analyzes each image's tonal range before dithering, preserving more highlight and midtone
+  detail in four-level e-ink output.
 
 <p align="center">
   <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-image-before-after.jpg"

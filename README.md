@@ -8,23 +8,20 @@
 
 YACP is a personal, opinionated firmware for Xteink X3 and X4 readers. It is built for my own use and is primarily
 concerned with battery life, rendering efficiency, and getting back into the current book quickly. Reading statistics
-and a small autonomy view are deliberate exceptions to this narrow scope.
+and a small autonomy view complement that focus.
 
 YACP is built for one primary path: open a book, keep the reader responsive, use as little battery and incidental work
-as practical, and read sequentially until the book is finished. It is not intended as a general-purpose handheld, game
-platform, or feature-collection firmware. Extra features are kept only when they do not compromise the normal reading
-path.
+as practical, and read sequentially until the book is finished.
 
 [Download the latest release](https://github.com/Sichroteph/YACP/releases/latest) |
 [Build status](https://github.com/Sichroteph/YACP/actions/workflows/ci.yml)
 
-The project has required substantial work across power handling, rendering, storage, memory use, and simulator
-validation. The hardware and the objective remain simple: this is firmware for reading books. Major changes should
-not be expected every week, and releases have no fixed cadence.
+Development spans power handling, rendering, storage, memory use, and simulator validation. Releases have no fixed
+cadence.
 
-YACP is expected to use less energy and perform less incidental work than its baseline, but it does not publish a
-measured battery-life claim yet. Long-running current analysis continues so future choices can be based on repeatable
-hardware measurements rather than optimistic estimates.
+YACP is designed to use less energy and perform less incidental work than its baseline, but it does not publish a
+measured battery-life claim yet. Long-running current analysis continues until repeatable hardware measurements are
+available.
 
 ## Direction
 
@@ -36,9 +33,8 @@ In order, YACP aims to:
 4. remain predictable on an ESP32-C3 with no PSRAM;
 5. retain a few personally useful features, especially reading statistics.
 
-The expected user normally reads one current book sequentially until completion, uses Quick Resume after automatic
-sleep, uses a built-in font, and changes settings infrequently. Features may remain available when they add no cost
-to that path.
+Current optimizations primarily target long sequential reading sessions, Quick Resume after automatic sleep, built-in
+fonts, and infrequent settings changes. Features that add no work to this path can remain available.
 
 ## Origin
 
@@ -46,8 +42,8 @@ YACP starts from [CrossInk 1.4.0](https://github.com/uxjulia/CrossInk), itself b
 [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader). It keeps the compatible architecture,
 storage layout, EPUB work, and broad reader baseline, then applies a smaller set of defaults and optimizations.
 
-CrossPoint, CrossInk, and other Xteink firmware projects are reviewed regularly. A change is adopted only when it
-reduces energy or work, improves reliability, or completes an operation faster. Newer or broader is not sufficient.
+Ideas from CrossPoint, CrossInk, and other Xteink firmware projects are reviewed regularly and adapted when they fit
+YACP's focus on efficiency, reliability, or responsiveness.
 
 ## The YACP theme
 
@@ -236,9 +232,9 @@ The screenshot uses deterministic generated data and contains no personal histor
 
 ## Baseline and scope
 
-YACP carries a large CrossInk baseline and does not present inherited work as original. This includes EPUB reliability
-work, reader controls, bookmarks, clippings, synchronization, render fallbacks, web file management, and the original
-statistics system. The [changelog](CHANGELOG.md) is the detailed inventory.
+YACP inherits a substantial CrossInk baseline, including EPUB reliability work, reader controls, bookmarks, clippings,
+synchronization, render fallbacks, web file management, and the original statistics system. The
+[changelog](CHANGELOG.md) is the detailed inventory.
 
 X3 is the primary optimization target. X4 builds remain available, and device-specific behavior is guarded. Built-in
 reader fonts are limited to Lexend Deca and Bitter; release builds are limited to `tiny` and `xlarge`.
@@ -273,11 +269,10 @@ checksums, and applies the [build checklist](BUILD_CHECKLIST.md).
 
 ## Project status
 
-This remains a personal firmware project rather than a community roadmap. GitHub Issues are open for reproducible bug
-reports, hardware feedback, and focused technical discussion. General support requests, feature voting, and external
-pull requests are not accepted; maintain a fork if a different direction is needed.
+GitHub Issues are intended for reproducible bug reports, hardware feedback, and focused technical discussion.
+Development follows the project's current priorities; alternative directions can be explored through forks.
 
-Optional financial support does not buy features or influence project decisions:
+Financial support is optional and does not affect those priorities:
 [PayPal](https://www.paypal.com/paypalme/ChrJeannette).
 
 ## License
