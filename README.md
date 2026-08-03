@@ -56,13 +56,11 @@ dithering it to the four levels available on the panel.
 - **Reading reliability and ergonomics:** finished books are grouped by month, completion data survives rereads more
   reliably, and a side-button hold can optionally turn back one page.
 
+https://github.com/user-attachments/assets/13586201-a645-465d-a390-c44c865531b6
+
 <p align="center">
-  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">
-    <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-video-preview-overview.jpg"
-         alt="Preview of the complete phone-to-reader sleep-image workflow" width="760">
-  </a>
-  <br>
-  <sub>Complete workflow: select a book, prepare an image, and see the result on the reader. Click to watch.</sub>
+  <sub>Complete workflow: select a book, prepare an image, and see the result on the reader.
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">Download the original-quality video.</a></sub>
 </p>
 
 <table>
