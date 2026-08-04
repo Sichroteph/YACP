@@ -20,6 +20,7 @@
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "power/PowerHistory.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
@@ -550,6 +551,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   renderPage();
+  PowerHistory::recordReaderPageDisplay();
 
   if (!queueProgressSave()) {
     LOG_ERR("TRS", "Failed to save debounced reader progress");
@@ -613,10 +615,14 @@ void TxtReaderActivity::renderPage() {
                             ReaderUtils::readerDarkModeEnabled());
 
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing && ReaderUtils::readerForegroundBlack();
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, !needsTextGrayscale);
+  // X3 text AA is rebuilt from a reinforced BW base on every page, so it can
+  // use the same no-flash maintenance path as monochrome text.
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   if (needsTextGrayscale) {
-    ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
+    const bool highContrastText =
+        gpio.deviceIsX3() && SETTINGS.refreshAction == CrossPointSettings::REFRESH_ACTION_BW_REINFORCEMENT;
+    ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); }, highContrastText);
   }
   // scope destructor clears font cache via FontCacheManager
 }

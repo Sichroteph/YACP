@@ -154,12 +154,23 @@ void drawGraph(const GfxRenderer& renderer, const PowerHistoryState& history, co
   }
 }
 
-void drawTrackingCost(const GfxRenderer& renderer, const int x, const int y, const int w, const int h) {
+void drawPageDisplays(const GfxRenderer& renderer, const PowerHistoryState& history, const int x, const int y,
+                      const int w, const int h) {
   renderer.drawRoundedRect(x, y, w, h, 1, 8, true);
-  renderer.drawText(UI_10_FONT_ID, x + 12, y + 9, tr(STR_POWER_TRACKING_COST), true, EpdFontFamily::BOLD);
+  const char* title = tr(STR_POWER_PAGES_DISPLAYED);
+  renderer.drawText(UI_10_FONT_ID, x + 12, y + 9, title, true, EpdFontFamily::BOLD);
 
-  const int noteY = y + h - renderer.getLineHeight(SMALL_FONT_ID) - 10;
-  drawCenteredText(renderer, SMALL_FONT_ID, x + 8, w - 16, noteY, tr(STR_POWER_NO_PERIODIC_WAKEUPS));
+  const char* periodLabel = history.cycleConfirmed ? tr(STR_POWER_SINCE_CHARGE) : tr(STR_POWER_SINCE_MONITORING);
+  const int titleWidth = renderer.getTextWidth(UI_10_FONT_ID, title, EpdFontFamily::BOLD);
+  const int periodWidth = renderer.getTextWidth(SMALL_FONT_ID, periodLabel);
+  if (titleWidth + periodWidth + 36 <= w) {
+    renderer.drawText(SMALL_FONT_ID, x + w - periodWidth - 12, y + 12, periodLabel);
+  }
+
+  char count[16];
+  snprintf(count, sizeof(count), "%lu", static_cast<unsigned long>(history.readerPageDisplays));
+  const int valueY = y + h - renderer.getLineHeight(UI_12_FONT_ID) - 8;
+  drawCenteredText(renderer, UI_12_FONT_ID, x + 8, w - 16, valueY, count, true);
 }
 }  // namespace
 
@@ -209,7 +220,7 @@ void PowerStatsActivity::render(RenderLock&&) {
 
   drawSummary(renderer, history, contentX, contentTop, contentW, summaryH, elapsedDays, hasElapsedDays);
   drawGraph(renderer, history, contentX, graphY, contentW, graphH);
-  drawTrackingCost(renderer, contentX, costY, contentW, costH);
+  drawPageDisplays(renderer, history, contentX, costY, contentW, costH);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_HOME), "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);

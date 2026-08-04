@@ -2,6 +2,8 @@ _language_name: "Dansk"
 _language_code: "DA"
 _order: "15"
 
+STR_POWER_PAGES_DISPLAYED: "Viste sider"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Vælg firmwareprofil"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Vælg med sideknapperne, og tryk Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: Hurtig genoptagelse · uden blink/side · dvale 5 min"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "Ingen nærliggende læser fundet"
 STR_NEARBY_LABEL: "Nærliggende:"
 STR_APPLY_NEARBY_POSITION: "Anvend nærliggende position"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Nærliggende positions-sync er ikke tilgængelig i simulatoren"
+STR_BATTERY_CURRENT: "Batteristrøm"

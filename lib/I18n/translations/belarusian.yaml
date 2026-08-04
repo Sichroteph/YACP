@@ -2,6 +2,8 @@ _language_name: "Беларуская"
 _language_code: "BE"
 _order: "11"
 
+STR_POWER_PAGES_DISPLAYED: "Паказана старонак"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Выберыце профіль прашыўкі"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Выберыце бакавымі кнопкамі, затым націсніце Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: хуткае аднаўленне · без міргання/старонка · сон 5 хв"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "Чыталка побач не знойдзен�
 STR_NEARBY_LABEL: "Побач:"
 STR_APPLY_NEARBY_POSITION: "Ужыць пазіцыю побач"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Сінхранізацыя пазіцыі побач недаступная ў сімулятары"
+STR_BATTERY_CURRENT: "Ток батарэі"

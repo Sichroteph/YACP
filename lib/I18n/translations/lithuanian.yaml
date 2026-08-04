@@ -2,6 +2,8 @@ _language_name: "Lietuvių"
 _language_code: "LT"
 _order: "20"
 
+STR_POWER_PAGES_DISPLAYED: "Parodyti puslapiai"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Pasirinkite programinės įrangos profilį"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Rinkitės šoniniais mygtukais, tada spauskite Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: greitas tęsinys · be mirktelėjimo/puslapis · miegas 5 min"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "Netoliese nerasta skaitytuvo"
 STR_NEARBY_LABEL: "Netoliese:"
 STR_APPLY_NEARBY_POSITION: "Taikyti netoliese esančią poziciją"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Netoliese esančios pozicijos sinchronizavimas simuliatoriuje nepasiekiamas"
+STR_BATTERY_CURRENT: "Baterijos srovė"

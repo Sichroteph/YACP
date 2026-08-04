@@ -45,6 +45,7 @@ class GfxRenderer {
 
   HalDisplay& display;
   RenderMode renderMode;
+  bool highContrastTextAntialiasing = false;
   Orientation orientation;
   bool fadingFix;
   uint8_t* frameBuffer = nullptr;
@@ -255,6 +256,8 @@ class GfxRenderer {
   // Grayscale functions
   void setRenderMode(const RenderMode mode) { this->renderMode = mode; }
   RenderMode getRenderMode() const { return renderMode; }
+  void setHighContrastTextAntialiasing(const bool enabled) { highContrastTextAntialiasing = enabled; }
+  bool getHighContrastTextAntialiasing() const { return highContrastTextAntialiasing; }
   // Grayscale preconditioning settle pass (no-op on X4). The rect overload
   // takes the gray region in LOGICAL screen coordinates and rotates it to the
   // panel; the no-arg overload settles the full frame. Call after the BW base

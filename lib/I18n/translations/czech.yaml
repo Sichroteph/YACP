@@ -2,6 +2,8 @@ _language_name: "Čeština"
 _language_code: "CS"
 _order: "4"
 
+STR_POWER_PAGES_DISPLAYED: "Zobrazené stránky"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Zvolte profil firmwaru"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Vyberte bočními tlačítky a potvrďte Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: rychlé obnovení · bez bliknutí/stránka · spánek 5 min"
@@ -520,3 +522,4 @@ STR_NEARBY_POSITION_NO_READER: "Nenalezena žádná blízká čtečka"
 STR_NEARBY_LABEL: "Blízko:"
 STR_APPLY_NEARBY_POSITION: "Použít blízkou pozici"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Blízká synchronizace pozice není v simulátoru dostupná"
+STR_BATTERY_CURRENT: "Proud baterie"

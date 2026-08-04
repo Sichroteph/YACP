@@ -2,6 +2,8 @@ _language_name: "Slovenčina"
 _language_code: "SK"
 _order: "25"
 
+STR_POWER_PAGES_DISPLAYED: "Zobrazené strany"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Vyberte profil firmvéru"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Vyberte bočnými tlačidlami a stlačte Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: rýchle obnovenie · bez bliknutia/strana · spánok 5 min"
@@ -626,3 +628,4 @@ STR_NEARBY_POSITION_NO_READER: "Nenašla sa žiadna čítačka v okolí"
 STR_NEARBY_LABEL: "V okolí:"
 STR_APPLY_NEARBY_POSITION: "Použiť pozíciu v okolí"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Synchronizácia pozície v okolí nie je v simulátore dostupná"
+STR_BATTERY_CURRENT: "Prúd batérie"

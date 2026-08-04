@@ -20,10 +20,13 @@ enum class DocumentMatchMethod : uint8_t {
 
 class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore> {
  private:
+  enum class LoadState : uint8_t { NotLoaded, Loading, Loaded, Failed };
+
   std::string username;
   std::string password;
   std::string serverUrl;                                            // Custom sync server URL (empty = default)
   DocumentMatchMethod matchMethod = DocumentMatchMethod::FILENAME;  // Default to filename for compatibility
+  LoadState loadState = LoadState::NotLoaded;
 
   // Private constructor for singleton
   KOReaderCredentialStore() = default;
@@ -35,11 +38,19 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   static const char* getFilePath() { return "/.crosspoint/koreader.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
+  bool loadFromFile();
+  bool ensureLoaded();
 
   // Credential management
   void setCredentials(const std::string& user, const std::string& pass);
-  const std::string& getUsername() const { return username; }
-  const std::string& getPassword() const { return password; }
+  const std::string& getUsername() const {
+    const_cast<KOReaderCredentialStore*>(this)->ensureLoaded();
+    return username;
+  }
+  const std::string& getPassword() const {
+    const_cast<KOReaderCredentialStore*>(this)->ensureLoaded();
+    return password;
+  }
 
   // Get MD5 hash of password for API authentication
   std::string getMd5Password() const;
@@ -52,14 +63,20 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
 
   // Server URL management
   void setServerUrl(const std::string& url);
-  const std::string& getServerUrl() const { return serverUrl; }
+  const std::string& getServerUrl() const {
+    const_cast<KOReaderCredentialStore*>(this)->ensureLoaded();
+    return serverUrl;
+  }
 
   // Get base URL for API calls (with http:// normalization if no protocol, falls back to default)
   std::string getBaseUrl() const;
 
   // Document matching method
   void setMatchMethod(DocumentMatchMethod method);
-  DocumentMatchMethod getMatchMethod() const { return matchMethod; }
+  DocumentMatchMethod getMatchMethod() const {
+    const_cast<KOReaderCredentialStore*>(this)->ensureLoaded();
+    return matchMethod;
+  }
 };
 
 // Helper macro to access credential store

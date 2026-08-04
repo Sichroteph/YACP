@@ -25,6 +25,7 @@ enum MenuItem {
   ITEM_TITLE,
   ITEM_TIME_LEFT,
   ITEM_BATTERY,
+  ITEM_BATTERY_CURRENT,
   ITEM_XTC_STATUS_BAR,
   ITEM_COUNT
 };
@@ -38,6 +39,7 @@ const StrId menuNames[ITEM_COUNT] = {
     StrId::STR_TITLE,
     StrId::STR_TIME_LEFT,
     StrId::STR_BATTERY,
+    StrId::STR_BATTERY_CURRENT,
     StrId::STR_XTC_STATUS_BAR,
 };
 
@@ -174,6 +176,8 @@ std::string valueTextForItem(const int item) {
       return SETTINGS.statusBarBookProgressPercentage ? tr(STR_SHOW) : tr(STR_HIDE);
     case ITEM_BATTERY:
       return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
+    case ITEM_BATTERY_CURRENT:
+      return SETTINGS.statusBarBatteryCurrent ? tr(STR_SHOW) : tr(STR_HIDE);
     default: {
       const int optionCount = optionCountForItem(item);
       const uint8_t optionIndex = currentOptionIndexForItem(item);
@@ -280,6 +284,9 @@ void StatusBarSettingsActivity::handleSelection() {
       break;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
+      break;
+    case ITEM_BATTERY_CURRENT:
+      SETTINGS.statusBarBatteryCurrent = (SETTINGS.statusBarBatteryCurrent + 1) % 2;
       break;
     default:
       return;

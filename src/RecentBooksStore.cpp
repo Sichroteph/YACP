@@ -55,13 +55,18 @@ void RecentBooksStore::addBook(const std::string& path, const std::string& title
 
 void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::string& title, const std::string& author,
                                        const std::string& coverBmpPath) {
-  // Drop stale entries first so a new add can't evict a valid book in their stead.
-  pruneMissing();
+  if (!ensureLoaded()) {
+    LOG_ERR("RBS", "Cannot update recent books because the store failed to load");
+    return;
+  }
 
-  // Remove existing entry if present
+  // Preserve normal-open cleanup semantics. Direct Quick Resume skips this
+  // method entirely, so its common wake path still performs no recents scan.
+  bool changed = pruneMissing();
   auto it =
       std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
   if (it != recentBooks.end()) {
+    changed = changed || it->title != title || it->author != author || it->coverBmpPath != coverBmpPath;
     it->title = title;
     it->author = author;
     it->coverBmpPath = coverBmpPath;
@@ -69,24 +74,30 @@ void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::strin
       RecentBook book = std::move(*it);
       recentBooks.erase(it);
       recentBooks.insert(recentBooks.begin(), std::move(book));
+      changed = true;
     }
   } else {
     recentBooks.insert(recentBooks.begin(), {path, title, author, coverBmpPath});
+    changed = true;
     if (recentBooks.size() > MAX_RECENT_BOOKS) {
       recentBooks.resize(MAX_RECENT_BOOKS);
     }
   }
-  saveToFile();
+  if (changed) saveToFile();
 }
 
 bool RecentBooksStore::updateBook(const std::string& path, const std::string& title, const std::string& author,
                                   const std::string& coverBmpPath) {
+  if (!ensureLoaded()) return false;
   auto it =
       std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
   if (it == recentBooks.end()) {
     return false;
   }
   RecentBook& book = *it;
+  if (book.title == title && book.author == author && book.coverBmpPath == coverBmpPath) {
+    return true;
+  }
   book.title = title;
   book.author = author;
   book.coverBmpPath = coverBmpPath;
@@ -95,6 +106,7 @@ bool RecentBooksStore::updateBook(const std::string& path, const std::string& ti
 }
 
 bool RecentBooksStore::removeByPath(const std::string& path) {
+  if (!ensureLoaded()) return false;
   auto it =
       std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
   if (it == recentBooks.end()) {
@@ -109,6 +121,7 @@ bool RecentBooksStore::removeByPath(const std::string& path) {
 
 void RecentBooksStore::updatePath(const std::string& oldPath, const std::string& newPath,
                                   const std::string& oldCachePath, const std::string& newCachePath) {
+  if (!ensureLoaded()) return;
   auto it = std::find_if(recentBooks.begin(), recentBooks.end(),
                          [&](const RecentBook& book) { return book.path == oldPath; });
   if (it == recentBooks.end()) {
@@ -124,6 +137,7 @@ void RecentBooksStore::updatePath(const std::string& oldPath, const std::string&
 bool RecentBooksStore::isMissing(const RecentBook& book) { return !Storage.exists(book.path.c_str()); }
 
 bool RecentBooksStore::pruneMissing() {
+  if (!ensureLoaded()) return false;
   const size_t before = recentBooks.size();
   recentBooks.erase(std::remove_if(recentBooks.begin(), recentBooks.end(), &isMissing), recentBooks.end());
   return recentBooks.size() != before;
@@ -158,11 +172,14 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
 }
 
 bool RecentBooksStore::loadFromFile() {
+  loadState = LoadState::Loading;
   const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<RecentBooksStore>::loadFromFile()) {
+    loadState = LoadState::Loaded;
     return true;
   }
   if (hasStoreFile) {
+    loadState = LoadState::Failed;
     return false;
   }
 
@@ -171,10 +188,26 @@ bool RecentBooksStore::loadFromFile() {
       saveToFile();
       Storage.rename(RECENT_BOOKS_FILE_BIN, RECENT_BOOKS_FILE_BAK);
       LOG_DBG("RBS", "Migrated recent.bin to recent.json");
+      loadState = LoadState::Loaded;
       return true;
     }
   }
 
+  recentBooks.clear();
+  loadState = LoadState::Loaded;
+  return true;
+}
+
+bool RecentBooksStore::ensureLoaded() {
+  switch (loadState) {
+    case LoadState::Loaded:
+    case LoadState::Loading:
+      return true;
+    case LoadState::Failed:
+      return false;
+    case LoadState::NotLoaded:
+      return loadFromFile();
+  }
   return false;
 }
 

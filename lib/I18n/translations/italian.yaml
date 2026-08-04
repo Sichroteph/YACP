@@ -2,6 +2,8 @@ _language_name: "Italiano"
 _language_code: "IT"
 _order: "12"
 
+STR_POWER_PAGES_DISPLAYED: "Pagine visualizzate"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Scegli il profilo firmware"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Usa i tasti laterali, poi premi Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: ripresa rapida · senza lampeggio/pagina · standby 5 min"
@@ -596,3 +598,4 @@ STR_NEARBY_POSITION_NO_READER: "Nessun lettore vicino trovato"
 STR_NEARBY_LABEL: "Vicino:"
 STR_APPLY_NEARBY_POSITION: "Applica posizione vicina"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "La sync posizione vicino non è disponibile nel simulatore"
+STR_BATTERY_CURRENT: "Corrente batteria"

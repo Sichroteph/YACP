@@ -2,6 +2,8 @@ _language_name: "Українська"
 _language_code: "UK"
 _order: "10"
 
+STR_POWER_PAGES_DISPLAYED: "Показано сторінок"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Виберіть профіль прошивки"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Виберіть бічними кнопками, потім натисніть Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: швидке продовження · без блимання/сторінка · сон 5 хв"
@@ -582,3 +584,4 @@ STR_NEARBY_POSITION_NO_READER: "Читалку поруч не знайдено"
 STR_NEARBY_LABEL: "Поруч:"
 STR_APPLY_NEARBY_POSITION: "Застосувати позицію поруч"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Синхронізація позиції поруч недоступна в симуляторі"
+STR_BATTERY_CURRENT: "Струм батареї"

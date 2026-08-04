@@ -2,6 +2,8 @@ _language_name: "English"
 _language_code: "EN"
 _order: "0"
 
+STR_POWER_PAGES_DISPLAYED: "Pages displayed"
+
 STR_CROSSINK: "YACP"
 STR_BOOTING: "BOOTING"
 STR_SLEEPING: "SLEEPING"
@@ -716,3 +718,4 @@ STR_POWER_TRACKING_COST: "Low-power tracking"
 STR_POWER_NO_PERIODIC_WAKEUPS: "No periodic wake-ups"
 STR_POWER_ACTIVE_TIME_FORMAT: "%luh %02lumin"
 STR_POWER_HOURS_SHORT_FORMAT: "%luh"
+STR_BATTERY_CURRENT: "Battery current"

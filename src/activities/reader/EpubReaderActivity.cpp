@@ -49,6 +49,7 @@
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "power/PowerHistory.h"
 #include "util/BookCacheUtils.h"
 #include "util/BookGallery.h"
 #include "util/BookMoveUtils.h"
@@ -576,8 +577,8 @@ constexpr int GRAYSCALE_STRIP_ROWS = 80;
 
 bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
                            const int marginTop, const bool foregroundBlack, const bool needsTextGrayscale,
-                           const bool needsImageGrayscale, uint8_t* scratch, const size_t scratchSize,
-                           TiledGrayscaleTimings& timings) {
+                           const bool needsImageGrayscale, const bool highContrastText, uint8_t* scratch,
+                           const size_t scratchSize, TiledGrayscaleTimings& timings) {
   if ((!needsTextGrayscale && !needsImageGrayscale) || !renderer.supportsStripGrayscale()) {
     return false;
   }
@@ -609,6 +610,9 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     }
   };
 
+  const bool previousHighContrast = renderer.getHighContrastTextAntialiasing();
+  renderer.setHighContrastTextAntialiasing(highContrastText);
+
   renderPlane(GfxRenderer::GRAYSCALE_LSB, true);
   timings.grayLsb = millis();
 
@@ -616,6 +620,7 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
   timings.grayMsb = millis();
 
   renderer.setRenderMode(GfxRenderer::BW);
+  renderer.setHighContrastTextAntialiasing(previousHighContrast);
   renderer.displayGrayBuffer();
   timings.grayDisplay = millis();
   renderer.cleanupGrayscaleWithFrameBuffer();
@@ -1716,6 +1721,72 @@ void EpubReaderActivity::endGlobalSettingsEditForBookReader(void* ctx) {
   static_cast<EpubReaderActivity*>(ctx)->endGlobalSettingsEdit();
 }
 
+bool EpubReaderActivity::prepareCachedQuickResumeWithoutRendering() {
+  if (!preserveQuickResumeFrame || !gpio.deviceIsX3() || !resumeProgressLoaded || pendingPercentJump ||
+      pendingPageJump.has_value() || !pendingAnchor.empty() || currentSpineIndex < 0 ||
+      currentSpineIndex >= epub->getSpineItemsCount()) {
+    return false;
+  }
+
+  const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+  const int readerFontId = SETTINGS.getReaderFontId();
+  const EpubRenderMode renderMode = normalizeRenderMode(SETTINGS.epubRenderMode);
+  section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer, sectionCacheSuffixForRenderMode(renderMode));
+  if (!section) {
+    LOG_ERR("ERS", "Failed to allocate cached Quick Resume section for spine %d", currentSpineIndex);
+    return false;
+  }
+  if (!section->loadSectionFile(readerFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+                                SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, layout.viewportWidth,
+                                layout.viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
+                                SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled,
+                                renderMode)) {
+    section.reset();
+    LOG_DBG("ERS", "Quick Resume cache unavailable; falling back to normal render");
+    return false;
+  }
+
+  activeSectionFontId = readerFontId;
+  cachedChapterTotalPageCount = 0;
+  section->currentPage = nextPageNumber;
+  if (section->currentPage < 0) section->currentPage = 0;
+  if (section->pageCount > 0 && section->currentPage >= static_cast<int>(section->pageCount)) {
+    section->currentPage = section->pageCount - 1;
+  }
+  if (section->pageCount == 0) {
+    section.reset();
+    return false;
+  }
+
+  const uint32_t positionKey =
+      (static_cast<uint32_t>(currentSpineIndex) << 16) | static_cast<uint16_t>(section->currentPage);
+  progressSaveDebouncer.observe(positionKey);
+  currentPageMetadataPending = true;
+  pageShownAtMs = millis();
+
+  if (!finishQuickResumeLoadingIndicator()) {
+    LOG_DBG("ERS", "Quick Resume indicator restore failed; falling back to normal render");
+    return false;
+  }
+
+  LOG_INF("ERS", "Quick Resume ready from cache without page render: spine=%d page=%d/%u", currentSpineIndex,
+          section->currentPage, section->pageCount);
+  return true;
+}
+
+void EpubReaderActivity::ensureCurrentPageMetadataLoaded() {
+  if (!currentPageMetadataPending || !section) return;
+
+  RenderLock lock(*this);
+  auto page = section->loadPageFromSectionFile();
+  if (page) {
+    currentPageFootnotes = std::move(page->footnotes);
+  } else {
+    LOG_ERR("ERS", "Failed to load current-page metadata after Quick Resume");
+  }
+  currentPageMetadataPending = false;
+}
+
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
   pageLoadRetryCount = 0;
@@ -1756,6 +1827,7 @@ void EpubReaderActivity::onEnter() {
   } else {
     EpubReaderUtils::Progress progress;
     if (EpubReaderUtils::loadProgress(*epub, progress)) {
+      resumeProgressLoaded = true;
       currentSpineIndex = progress.spineIndex;
       nextPageNumber = progress.pageNumber;
       cachedSpineIndex = currentSpineIndex;
@@ -1797,11 +1869,15 @@ void EpubReaderActivity::onEnter() {
 
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
-  APP_STATE.saveToFile();
-  RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
+  const bool directX3QuickResume = preserveQuickResumeFrame && gpio.deviceIsX3();
+  if (!directX3QuickResume) {
+    APP_STATE.saveToFile();
+    RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
+  }
 
-  // Trigger first update
-  requestUpdate();
+  if (!directX3QuickResume || !prepareCachedQuickResumeWithoutRendering()) {
+    requestUpdate();
+  }
 }
 
 void EpubReaderActivity::onExit() {
@@ -1889,6 +1965,7 @@ void EpubReaderActivity::onExit() {
 }
 
 void EpubReaderActivity::openReaderMenu() {
+  ensureCurrentPageMetadataLoaded();
   int currentPage = 0;
   int totalPages = 0;
   float bookProgress = 0.0f;
@@ -3280,6 +3357,9 @@ bool EpubReaderActivity::quickActionUsesPowerRelease(const CrossPointSettings::L
 }
 
 void EpubReaderActivity::suppressConfirmShortcutRelease(const CrossPointSettings::LONG_PRESS_MENU_ACTION action) {
+  if (action == CrossPointSettings::LONG_MENU_FOOTNOTES) {
+    ensureCurrentPageMetadataLoaded();
+  }
   if (quickActionUsesConfirmRelease(action)) {
     mappedInput.suppressNextConfirmRelease();
   }
@@ -3295,6 +3375,7 @@ void EpubReaderActivity::suppressConfirmShortcutRelease(const CrossPointSettings
 }
 
 void EpubReaderActivity::executeFootnoteQuickAction(const bool suppressInitialPowerRelease) {
+  ensureCurrentPageMetadataLoaded();
   if (footnoteDepth > 0 && SETTINGS.pwrBtnFootnoteBack) {
     restoreSavedPosition();
     return;
@@ -4126,11 +4207,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     } else {
       currentPageFootnotes = std::move(p->footnotes);
     }
+    currentPageMetadataPending = false;
 
     const auto start = millis();
     const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
     renderContents(std::move(p), renderFontId, layout.marginTop, layout.marginRight, layout.marginBottom,
                    layout.marginLeft);
+    if (!activeFootnotePreview) {
+      PowerHistory::recordReaderPageDisplay();
+    }
     pageShownAtMs = activeFootnotePreview ? 0UL : millis();
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
@@ -4475,6 +4560,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const bool needsImageGrayscale = pageHasImages;
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack;
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
+  const bool highContrastText =
+      gpio.deviceIsX3() && needsTextGrayscale &&
+      SETTINGS.refreshAction == CrossPointSettings::REFRESH_ACTION_BW_REINFORCEMENT;
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
 
   const auto finalizeBufferComposition = [&]() {
@@ -4568,11 +4656,21 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     ReaderUtils::forceFullRefresh(pagesUntilFullRefresh);
   } else if (needsAnyGrayscale) {
     if (ReaderUtils::isRefreshActionDue(pagesUntilFullRefresh)) {
-      // Cleanup turns still need the stronger HALF pass, but X3 grayscale
-      // overlays settle better if the OEM precondition step runs before the
-      // gray planes are written.
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-      renderer.preconditionGrayscale();
+      const bool textOnlyNoFlashReinforcement =
+          needsTextGrayscale && !needsImageGrayscale &&
+          ReaderUtils::shouldUseNoFlashReinforcement(pagesUntilFullRefresh);
+      if (textOnlyNoFlashReinforcement) {
+        // Text AA is recreated from a reinforced BW base below. Reuse the OEM
+        // differential base waveform so gray edge pixels are driven through a
+        // known black/white state without a full-screen flash.
+        renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+      } else {
+        // Images and explicitly requested full cleanups retain the stronger
+        // scrub because large stable gray regions do not naturally cycle
+        // through black or white as text edges do.
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+        renderer.preconditionGrayscale();
+      }
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else {
       // Use the grayscale-aware base waveform so the first visible pass is
@@ -4589,7 +4687,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   TiledGrayscaleTimings tiledTimings;
   if (needsAnyGrayscale && ensureGrayscaleStripScratch() &&
       runTiledGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
-                            needsTextGrayscale, needsImageGrayscale, grayscaleStripScratch.get(),
+                            needsTextGrayscale, needsImageGrayscale, highContrastText, grayscaleStripScratch.get(),
                             grayscaleStripScratchSize, tiledTimings)) {
     const auto tEnd = millis();
     LOG_DBG("ERS",
@@ -4613,6 +4711,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
   // grayscale rendering
   if (canApplyGrayscale) {
+    const bool previousHighContrast = renderer.getHighContrastTextAntialiasing();
+    renderer.setHighContrastTextAntialiasing(highContrastText);
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     composeGrayscaleBuffer();
@@ -4625,6 +4725,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     composeGrayscaleBuffer();
     renderer.copyGrayscaleMsbBuffers();
     const auto tGrayMsb = millis();
+    renderer.setHighContrastTextAntialiasing(previousHighContrast);
 
     // display grayscale part
     renderer.displayGrayBuffer();

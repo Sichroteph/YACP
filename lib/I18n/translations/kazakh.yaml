@@ -2,6 +2,8 @@ _language_name: "Қазақша"
 _language_code: "KK"
 _order: "18"
 
+STR_POWER_PAGES_DISPLAYED: "Көрсетілген беттер"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Микробағдарлама профилін таңдаңыз"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Бүйір түймелермен таңдап, Power түймесін басыңыз"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: жылдам жалғастыру · жыпылықтаусыз/бет · ұйқы 5 мин"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "Жақын оқу құрылғысы табыл�
 STR_NEARBY_LABEL: "Жақын:"
 STR_APPLY_NEARBY_POSITION: "Жақын позицияны қолдану"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Жақын позиция синхрондауы симуляторда қолжетімді емес"
+STR_BATTERY_CURRENT: "Батарея тогы"

@@ -2,6 +2,8 @@ _language_name: "Slovenščina"
 _language_code: "SI"
 _order: "21"
 
+STR_POWER_PAGES_DISPLAYED: "Prikazane strani"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Izberite profil vdelane programske opreme"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Izberite s stranskimi gumbi, nato pritisnite Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: hitro nadaljevanje · brez utripa/stran · spanje 5 min"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "V bližini ni najdenega bralnika"
 STR_NEARBY_LABEL: "V bližini:"
 STR_APPLY_NEARBY_POSITION: "Uporabi položaj v bližini"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Sinhronizacija položaja v bližini ni na voljo v simulatorju"
+STR_BATTERY_CURRENT: "Tok baterije"

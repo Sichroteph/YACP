@@ -853,6 +853,20 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     leftClusterWidth += batteryWidth;
   }
 
+#ifndef SIMULATOR
+  if (SETTINGS.statusBarBatteryCurrent) {
+    int16_t averageCurrentMa = 0;
+    if (powerManager.getBatteryAverageCurrent(averageCurrentMa)) {
+      char currentText[16];
+      snprintf(currentText, sizeof(currentText), "%d mA", static_cast<int>(averageCurrentMa));
+      const bool hasLeftItem = leftClusterWidth > 0;
+      const int currentX = leftClusterX + leftClusterWidth + (hasLeftItem ? statusItemGap : 0);
+      renderer.drawText(SMALL_FONT_ID, currentX, textY, currentText, foregroundBlack);
+      leftClusterWidth += (hasLeftItem ? statusItemGap : 0) + renderer.getTextWidth(SMALL_FONT_ID, currentText);
+    }
+  }
+#endif
+
   const bool hasTimeLeftLabel = timeLeftLabel != nullptr && timeLeftLabel[0] != '\0';
   if (hasTimeLeftLabel) {
     const bool hasLeftItem = leftClusterWidth > 0;

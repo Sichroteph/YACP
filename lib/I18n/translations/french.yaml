@@ -2,6 +2,8 @@ _language_name: "Français"
 _language_code: "FR"
 _order: "2"
 
+STR_POWER_PAGES_DISPLAYED: "Pages affichées"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Choisir le profil du firmware"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Boutons latéraux pour choisir, puis Power pour appliquer"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP : reprise rapide · sans flash/page · veille 5 min"
@@ -685,3 +687,4 @@ STR_USE_DEFAULT_SLEEP_FOLDERS: "Utiliser les dossiers de veille par défaut"
 STR_VALIDATING_FIRMWARE: "Validation du firmware…"
 STR_VIEW_BOOKMARKS: "Voir les signets"
 STR_VIEW_CLIPPINGS: "Voir les extraits"
+STR_BATTERY_CURRENT: "Courant batterie"

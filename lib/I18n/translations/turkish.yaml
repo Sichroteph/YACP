@@ -2,6 +2,8 @@ _language_name: "Türkçe"
 _language_code: "TR"
 _order: "17"
 
+STR_POWER_PAGES_DISPLAYED: "Gösterilen sayfalar"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Ürün yazılımı profilini seçin"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Yan tuşlarla seçin, ardından Power'a basın"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: hızlı devam · yanıp sönmeden/sayfa · uyku 5 dk"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "Yakında okuyucu bulunamadı"
 STR_NEARBY_LABEL: "Yakında:"
 STR_APPLY_NEARBY_POSITION: "Yakındaki konumu uygula"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Yakındaki konum senkronu simülatörde kullanılamaz"
+STR_BATTERY_CURRENT: "Pil akımı"

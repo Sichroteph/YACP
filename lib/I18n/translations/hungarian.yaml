@@ -2,6 +2,8 @@ _language_name: "Magyar"
 _language_code: "HU"
 _order: "19"
 
+STR_POWER_PAGES_DISPLAYED: "Megjelenített oldalak"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Firmware-profil kiválasztása"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Válasszon az oldalsó gombokkal, majd nyomja meg a Powert"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: gyors folytatás · villanás nélkül/oldal · alvás 5 perc"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "Nem található közeli olvasó"
 STR_NEARBY_LABEL: "Közeli:"
 STR_APPLY_NEARBY_POSITION: "Közeli pozíció alkalmazása"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "A közeli pozíció szinkron nem érhető el a szimulátorban"
+STR_BATTERY_CURRENT: "Akkumulátoráram"

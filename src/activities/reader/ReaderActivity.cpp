@@ -124,7 +124,8 @@ void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
   const auto epubPath = epub->getPath();
   currentBookPath = epubPath;
   activityManager.replaceActivity(std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub),
-                                                                       initialRefreshCountdown()));
+                                                                       initialRefreshCountdown(),
+                                                                       allowFastInitialRefresh));
 }
 
 void ReaderActivity::onGoToBmpViewer(const std::string& path) {

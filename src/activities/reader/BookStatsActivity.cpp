@@ -260,13 +260,16 @@ void BookStatsActivity::loop() {
                                        mappedInput.wasPressed(MappedInputManager::Button::Left);
   const bool moreShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
                                    mappedInput.wasPressed(MappedInputManager::Button::Right);
+  // wasReleased() consumes one-shot suppression state. Cache it so the Summary
+  // page cannot reinterpret the same physical release on a second query.
+  const bool confirmReleased = mappedInput.wasReleased(MappedInputManager::Button::Confirm);
 
   if (usesNoRtcSingleScreenLayout() && page == Page::Summary) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       exitStatsActivity(true);
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (confirmReleased) {
       exitStatsActivity(false);
       return;
     }
@@ -285,7 +288,7 @@ void BookStatsActivity::loop() {
       requestUpdate();
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (confirmReleased) {
       cycleEditField();
       requestUpdate();
       return;
@@ -309,19 +312,19 @@ void BookStatsActivity::loop() {
   }
 
   if (page == Page::Achievement) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || moreShortcutPressed) {
+    if (confirmReleased || moreShortcutPressed) {
       exitStatsActivity(false);
     }
     return;
   }
 
   if (page == Page::Summary) {
-    if (hasEditableBook() && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (hasEditableBook() && confirmReleased) {
       page = Page::EditDates;
       requestUpdate();
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (confirmReleased) {
       exitStatsActivity(false);
       return;
     }
@@ -333,7 +336,7 @@ void BookStatsActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  if (confirmReleased) {
     exitStatsActivity(false);
     return;
   }

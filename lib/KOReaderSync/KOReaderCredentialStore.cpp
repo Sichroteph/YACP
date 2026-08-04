@@ -1,5 +1,6 @@
 #include "KOReaderCredentialStore.h"
 
+#include <HalStorage.h>
 #include <Logging.h>
 #include <MD5Builder.h>
 #include <ObfuscationUtils.h>
@@ -10,10 +11,35 @@ constexpr char DEFAULT_SERVER_URL[] = "https://sync.koreader.rocks:443";
 }  // namespace
 
 void KOReaderCredentialStore::toJson(JsonDocument& doc) const {
-  doc["username"] = getUsername();
-  doc["password_obf"] = obfuscation::obfuscateToBase64(getPassword());
-  doc["serverUrl"] = getServerUrl();
-  doc["matchMethod"] = static_cast<uint8_t>(getMatchMethod());
+  doc["username"] = username;
+  doc["password_obf"] = obfuscation::obfuscateToBase64(password);
+  doc["serverUrl"] = serverUrl;
+  doc["matchMethod"] = static_cast<uint8_t>(matchMethod);
+}
+
+bool KOReaderCredentialStore::loadFromFile() {
+  loadState = LoadState::Loading;
+  const bool hasStoreFile = Storage.exists(getFilePath());
+  const bool loaded = PersistableStore<KOReaderCredentialStore>::loadFromFile();
+  if (loaded || !hasStoreFile) {
+    loadState = LoadState::Loaded;
+    return true;
+  }
+  loadState = LoadState::Failed;
+  return false;
+}
+
+bool KOReaderCredentialStore::ensureLoaded() {
+  switch (loadState) {
+    case LoadState::Loaded:
+    case LoadState::Loading:
+      return true;
+    case LoadState::Failed:
+      return false;
+    case LoadState::NotLoaded:
+      return loadFromFile();
+  }
+  return false;
 }
 
 bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
@@ -53,12 +79,14 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
 }
 
 void KOReaderCredentialStore::setCredentials(const std::string& user, const std::string& pass) {
+  if (!ensureLoaded()) return;
   username = user;
   password = pass;
   LOG_DBG("KRS", "Set credentials for user: %s", user.c_str());
 }
 
 std::string KOReaderCredentialStore::getMd5Password() const {
+  const_cast<KOReaderCredentialStore*>(this)->ensureLoaded();
   if (password.empty()) {
     return "";
   }
@@ -72,9 +100,13 @@ std::string KOReaderCredentialStore::getMd5Password() const {
   return md5.toString().c_str();
 }
 
-bool KOReaderCredentialStore::hasCredentials() const { return !username.empty() && !password.empty(); }
+bool KOReaderCredentialStore::hasCredentials() const {
+  const_cast<KOReaderCredentialStore*>(this)->ensureLoaded();
+  return !username.empty() && !password.empty();
+}
 
 void KOReaderCredentialStore::clearCredentials() {
+  if (!ensureLoaded()) return;
   username.clear();
   password.clear();
   saveToFile();
@@ -82,11 +114,13 @@ void KOReaderCredentialStore::clearCredentials() {
 }
 
 void KOReaderCredentialStore::setServerUrl(const std::string& url) {
+  if (!ensureLoaded()) return;
   serverUrl = url;
   LOG_DBG("KRS", "Set server URL: %s", url.empty() ? "(default)" : url.c_str());
 }
 
 std::string KOReaderCredentialStore::getBaseUrl() const {
+  const_cast<KOReaderCredentialStore*>(this)->ensureLoaded();
   std::string url;
   if (serverUrl.empty()) {
     url = DEFAULT_SERVER_URL;
@@ -106,6 +140,7 @@ std::string KOReaderCredentialStore::getBaseUrl() const {
 }
 
 void KOReaderCredentialStore::setMatchMethod(DocumentMatchMethod method) {
+  if (!ensureLoaded()) return;
   matchMethod = method;
   LOG_DBG("KRS", "Set match method: %s", method == DocumentMatchMethod::FILENAME ? "Filename" : "Binary");
 }

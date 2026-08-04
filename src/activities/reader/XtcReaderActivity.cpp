@@ -31,6 +31,7 @@
 #include "components/UITheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "fontIds.h"
+#include "power/PowerHistory.h"
 #include "util/BookCacheUtils.h"
 #include "util/BookGallery.h"
 
@@ -1040,6 +1041,7 @@ void XtcReaderActivity::renderPage() {
 
     free(pageBuffer);
 
+    PowerHistory::recordReaderPageDisplay();
     LOG_DBG("XTR", "Rendered page %lu/%lu (2-bit grayscale)", currentPage + 1, xtc->getPageCount());
     return;
   } else {
@@ -1074,6 +1076,7 @@ void XtcReaderActivity::renderPage() {
   // Display with appropriate refresh
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
+  PowerHistory::recordReaderPageDisplay();
   LOG_DBG("XTR", "Rendered page %lu/%lu (%u-bit)", currentPage + 1, xtc->getPageCount(), bitDepth);
 }
 

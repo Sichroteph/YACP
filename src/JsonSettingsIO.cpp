@@ -123,6 +123,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   JsonObject powerHistory = doc["powerHistory"].to<JsonObject>();
   powerHistory["activeSeconds"] = s.powerHistory.activeSeconds;
   powerHistory["cycleStartDay"] = s.powerHistory.cycleStartDay;
+  powerHistory["readerPageDisplays"] = s.powerHistory.readerPageDisplays;
   powerHistory["sleepSamples"] = s.powerHistory.sleepSamples;
   powerHistory["lastPercent"] = s.powerHistory.lastPercent;
   powerHistory["chargePendingPercent"] = s.powerHistory.chargePendingPercent;
@@ -183,6 +184,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   if (!powerHistory.isNull()) {
     s.powerHistory.activeSeconds = powerHistory["activeSeconds"] | static_cast<uint32_t>(0);
     s.powerHistory.cycleStartDay = powerHistory["cycleStartDay"] | static_cast<uint32_t>(0);
+    s.powerHistory.readerPageDisplays = powerHistory["readerPageDisplays"] | static_cast<uint32_t>(0);
     s.powerHistory.sleepSamples = powerHistory["sleepSamples"] | static_cast<uint16_t>(0);
     s.powerHistory.lastPercent = powerHistory["lastPercent"] | static_cast<uint8_t>(UINT8_MAX);
     if (s.powerHistory.lastPercent > 100) s.powerHistory.lastPercent = UINT8_MAX;

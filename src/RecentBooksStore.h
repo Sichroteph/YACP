@@ -16,7 +16,10 @@ struct RecentBook {
 
 class RecentBooksStore : public PersistableStore<RecentBooksStore> {
  private:
+  enum class LoadState : uint8_t { NotLoaded, Loading, Loaded, Failed };
+
   std::vector<RecentBook> recentBooks;
+  LoadState loadState = LoadState::NotLoaded;
 
   static constexpr int MAX_RECENT_BOOKS = 18;
 
@@ -31,6 +34,7 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
   bool loadFromFile();
+  bool ensureLoaded();
 
   // Deprecated compatibility wrapper. Use addOrUpdateBook so the promote-or-update behavior is explicit.
   [[deprecated("use addOrUpdateBook")]]
@@ -67,10 +71,16 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
   bool pruneMissing();
 
   // Get the list of recent books (most recent first)
-  const std::vector<RecentBook>& getBooks() const { return recentBooks; }
+  const std::vector<RecentBook>& getBooks() const {
+    const_cast<RecentBooksStore*>(this)->ensureLoaded();
+    return recentBooks;
+  }
 
   // Get the count of recent books
-  int getCount() const { return static_cast<int>(recentBooks.size()); }
+  int getCount() const {
+    const_cast<RecentBooksStore*>(this)->ensureLoaded();
+    return static_cast<int>(recentBooks.size());
+  }
 
   RecentBook getDataFromBook(std::string path) const;
 };

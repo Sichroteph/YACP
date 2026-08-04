@@ -48,7 +48,12 @@ class CrossPointWebServer {
     UploadState() { buffer.resize(UPLOAD_BUFFER_SIZE); }
   } upload;
 
+#ifdef SIMULATOR
+  CrossPointWebServer();
+  explicit CrossPointWebServer(std::string currentBookPath) : CrossPointWebServer() { (void)currentBookPath; }
+#else
   explicit CrossPointWebServer(std::string currentBookPath = {});
+#endif
   ~CrossPointWebServer();
 
   // Start the web server (call after WiFi is connected)

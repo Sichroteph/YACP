@@ -7,8 +7,8 @@
 <p align="center"><em>Yet Another CrossPoint.</em></p>
 
 YACP is a personal, opinionated firmware for Xteink X3 and X4 readers. It is built for my own use and is primarily
-concerned with battery life, rendering efficiency, and getting back into the current book quickly. Reading statistics
-and a small autonomy view complement that focus.
+concerned with getting back into the current book quickly, avoiding unrelated SD-card work on that path, and improving
+battery and rendering efficiency. Reading statistics and a small autonomy view complement that focus.
 
 YACP is built for one primary path: open a book, keep the reader responsive, use as little battery and incidental work
 as practical, and read sequentially until the book is finished.
@@ -84,7 +84,30 @@ keep-current choice, while a fresh installation recommends YACP.
 
 ## Implemented direction
 
-### Quiet reading path
+### Faster X3 wake and lower-I/O sleep
+
+The normal X3 reading cycle is treated as a fast path: wake, restore the current page, and go back to sleep without
+starting unrelated subsystems or touching SD-card files that do not help display that page. An ESP32 deep-sleep wake is
+a fresh boot, so startup work removed here directly reduces the time needed to resume a book. This is the normal Quick
+Resume behavior rather than an optional performance mode.
+
+| Stage | Work avoided or deferred | Practical effect |
+| --- | --- | --- |
+| Battery-powered boot | USB CDC starts only when a cable is detected or Home is opened | Removes the fixed 250 ms USB enumeration wait from the normal X3 wake |
+| Boot-button detection | Two stable physical samples 8 ms apart replace the roughly 500 ms settling wait | Removes about another 492 ms of fixed startup delay while retaining chord detection |
+| Direct book resume | The retained framebuffer is reused; a valid cached EPUB section is prepared without rendering the visible page again | The existing reading page remains visible and becomes interactive sooner |
+| SD-card work at resume | The redundant reader-entry state write and recent-book update are skipped; Recent Books, OPDS, and KOReader credentials load only on first use; page metadata such as footnotes waits until requested | Avoids unrelated SD reads and writes on the common path back into the book |
+| Return to sleep | An identical same-day automatic statistics backup is not rewritten, and the panel controller switches off as soon as its localized refresh completes | Avoids an unnecessary SD rewrite and stops powering the display electronics earlier |
+
+These changes reduce, rather than eliminate, SD activity: progress, statistics, the cached section, and the state writes
+that protect against a failed-resume boot loop remain. A stale or missing EPUB cache also keeps the normal render and
+indexing fallback.
+
+The visual path is optimized at the same time. Automatic sleep defaults to Quick Resume, the X3 avoids the full-screen
+black synchronization pass, and the small wake marker is removed with a localized no-flash update. Waking from an
+image-based sleep screen restores the pre-sleep framebuffer instead of displaying the normal splash.
+
+The rest of the reading loop follows the same principle:
 
 - X3 stays awake at 10 MHz between unchanged 50 ms button polls. ESP light sleep is avoided because it can drop the
   power latch and prevent a button wake.
@@ -93,12 +116,38 @@ keep-current choice, while a fresh installation recommends YACP.
 - EPUB, TXT, and XTC progress writes are debounced, then flushed on normal reader exit.
 - Either side button can optionally turn back one page on a long press without changing its normal short-press page
   direction; one hold triggers one turn and must be released before another.
-- Automatic sleep defaults to Quick Resume. The X3 path avoids the full-screen black synchronization pass when
-  entering sleep and restoring the cached page.
-- Waking from an image-based sleep screen restores the pre-sleep framebuffer instead of displaying the normal boot
-  splash, keeping both Home and direct reader resumes visually quiet.
 
-The X3 before and after recording shows the Quick Resume flashes removed by this path:
+One hardware recording per configuration produced the following indicative wake timings, measured from the physical
+Power click until the loading dots were replaced by the battery indicator (approximately +/- 0.1 s):
+
+| Wake path | Updated firmware | Previous firmware | Difference |
+| --- | ---: | ---: | ---: |
+| Quick Resume to retained page | ~1.3 s | ~1.8 s | ~0.5 s faster (~27% less delay) |
+| Cover sleep image to reader | ~2.8 s | ~3.4 s | ~0.6 s faster (~19% less delay) |
+
+These single-run observations are not a formal benchmark or a battery-life claim. The implementation removes about
+742 ms of fixed X3 startup waits, but some of that time overlaps other startup work and should not be added directly to
+the end-to-end figures.
+
+<p align="center">
+  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-x3-faster-cover-wake-preview.gif"
+       alt="An X3 waking from a book-cover sleep image into the current reading page"
+       width="480">
+  <br>
+  <sub>GIF preview of the latest X3 Cover-wake recording from the hardware test session.
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-x3-faster-cover-wake.mp4">Download the unedited original MP4.</a></sub>
+</p>
+
+Boot chords use physical button positions, so custom reader mappings do not change them:
+
+| Hold while pressing Power | Result | Devices |
+| --- | --- | --- |
+| Front button No. 1 (leftmost in portrait) | Safe Home: bypass Quick Resume and open through the normal splash and Home path | X3 |
+| Left side button | Firmware update | X3 and X4 |
+| Right side button | Join Network / File Transfer | X3 and X4 |
+
+The earlier X3 before-and-after recording below documents the removal of full-screen Quick Resume flashes. It is
+separate from the current wake-timing recording above:
 
 <video src="https://github.com/user-attachments/assets/a3de8027-e6e2-45ea-9f48-99801f550def" controls></video>
 
@@ -109,8 +158,9 @@ refresh. The reinforcement is the page turn itself, not a second display update,
 are settled without a full-screen flash. It can run every 1, 5, 10, 15, 30, or 60 pages, or periodic maintenance can
 be disabled.
 
-Required cleanup remains conservative: pages containing images or grayscale, indexing and popup residue, wake and
-sleep transitions, manual full refreshes, and non-X3 devices continue to use the full-refresh path.
+Text-only EPUB and TXT pages remain eligible when font anti-aliasing is enabled: dense stroke pixels stay black while
+only lighter edge pixels use gray. Required cleanup remains conservative. Pages containing images, indexing and popup
+residue, wake and sleep transitions, manual full refreshes, and non-X3 devices continue to use the full-refresh path.
 
 The release demonstration compares the previous behavior with the new waveform over the same ten-second reading
 sequence. The same video adjustments are applied to both clips to make faint ghosting easier to see.
@@ -131,6 +181,23 @@ sequence. The same video adjustments are applied to both clips to make faint gho
 - Grayscale rendering reuses one bounded strip buffer per loaded section and releases it before chapter indexing.
 - Existing low-memory EPUB fallbacks remain available for difficult books.
 
+### Wi-Fi and transfer
+
+With several saved networks, Join Network scans once and sorts the visible saved SSIDs by signal strength. If the
+strongest candidate cannot connect, YACP silently tries the next one instead of showing an error and asking whether to
+forget valid credentials. The scan's channel and BSSID are passed into the connection attempt, avoiding a second scan
+inside the Wi-Fi driver. A single saved network keeps the faster direct path, and `Show` interrupts automatic attempts
+when the full network list is wanted immediately.
+
+<p align="center">
+  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-wifi-multi-network-before-after.gif"
+       alt="Previous and updated saved Wi-Fi selection paths when the last-used network is unavailable"
+       width="760">
+  <br>
+  <sub>The updated path advances through available saved networks without an error or credential-deletion prompt.
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-wifi-multi-network-before-after.mp4">Download the MP4.</a></sub>
+</p>
+
 ### Adaptive images and sleep galleries
 
 Sleep images use adaptive tonal analysis before four-level dithering. A fixed mapping can wash out highlights or
@@ -147,7 +214,8 @@ of the shades the panel can physically display.
 
 Prepared images can be attached to a particular book or kept in the global sleep-image collection. When several are
 available for the current book, YACP rotates them without immediately repeating the previous choice. Converted planes
-are cached on the SD card and reused while the source remains unchanged.
+are cached on the SD card and reused while the source remains unchanged. Percentile selection rounds tiny sample sets
+up to a valid source pixel, so the adaptive mapping also remains defined for very small images.
 
 The browser workflow can crop an image, resize it for X3 or X4, preview the actual four-level conversion, adjust its
 thresholds, and upload the reader-ready BMP. A dedicated Sleep Images page manages the global collection and one
@@ -178,6 +246,8 @@ view keeps the 32 most recently completed books in a bounded SD index and groups
 month's book count, reading time, titles, and authors. Existing installations recover completed entries from their
 recent-books list without scanning the entire SD card. Opening Reading Stats also reconciles a completed book's
 persistent dates and author with its retained entry, so legacy entries repair themselves without a fake edit.
+Opening the view from a long-press OK shortcut consumes the originating button release once, so that release cannot
+immediately close the statistics screen again.
 
 <table>
   <tr>
@@ -221,7 +291,10 @@ These screenshots use deterministic generated data and contain no personal histo
 
 Autonomy relates battery level to active use. It records one coarse point for each 5 percentage-point drop during the
 existing transition to sleep, reuses a cached battery value when possible, and stores at most 21 points in 96 bytes.
-It adds no timer or periodic wake-up.
+It also counts successfully displayed EPUB, TXT, and XTC reader pages during the current battery cycle, in both
+directions. The count is updated in RAM and persisted with the existing sleep-state save, so it adds no per-page SD
+write, timer, or periodic wake-up. X3 users doing power measurements can optionally add average battery current in mA
+to the reader status bar with the `Battery Current` setting.
 
 <p align="center">
   <img src="docs/images/yacp/media/autonomy.png" alt="Battery tracking rendered by the X3 simulator" width="264">

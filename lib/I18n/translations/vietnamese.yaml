@@ -2,6 +2,8 @@ _language_name: "Tiếng Việt"
 _language_code: "VI"
 _order: "24"
 
+STR_POWER_PAGES_DISPLAYED: "Trang đã hiển thị"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Chọn hồ sơ firmware"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Dùng nút bên để chọn, rồi nhấn Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: tiếp tục nhanh · không nháy/trang · ngủ 5 phút"
@@ -585,3 +587,4 @@ STR_NEARBY_POSITION_NO_READER: "Không tìm thấy máy đọc gần đây"
 STR_NEARBY_LABEL: "Gần đây:"
 STR_APPLY_NEARBY_POSITION: "Áp dụng vị trí gần đây"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Đồng bộ vị trí gần đây không khả dụng trong trình mô phỏng"
+STR_BATTERY_CURRENT: "Dòng điện pin"

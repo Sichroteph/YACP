@@ -190,7 +190,10 @@ void WifiSelectionActivity::onEnter() {
   tearDownWifiOnExit = false;
   savePromptSelection = 0;
   forgetPromptSelection = 0;
-  autoConnecting = false;
+  attemptedCredentialMask = 0;
+  selectedBssid.fill(0);
+  selectedChannel = 0;
+  hasSelectedAccessPointHint = false;
   lastConnectionStatusLogTime = 0;
   lastLoggedWifiStatus = -1;
 
@@ -200,23 +203,16 @@ void WifiSelectionActivity::onEnter() {
   // Trigger first update to show scanning message
   requestUpdate();
 
-  // Attempt to auto-connect to the last network
-  if (allowAutoConnect) {
-    const std::string lastSsid = WIFI_STORE.getLastConnectedSsid();
-    if (!lastSsid.empty()) {
-      const auto* cred = WIFI_STORE.findCredential(lastSsid);
-      if (cred) {
-        LOG_INF("WIFI", "Auto-connect candidate: ssid=%s saved=1", lastSsid.c_str());
-        selectedSSID = cred->ssid;
-        enteredPassword = cred->password;
-        selectedRequiresPassword = !cred->password.empty();
-        usedSavedPassword = true;
-        autoConnecting = true;
-        attemptConnection();
-        requestUpdate();
-        return;
-      }
+  const auto& credentials = WIFI_STORE.getCredentials();
+  if (allowAutoConnect && !credentials.empty()) {
+    // Preserve the fast path for the common single-network case. With several
+    // saved SSIDs, scan once and select the strongest visible candidate.
+    if (credentials.size() == 1 && tryAutomaticCredential(0)) {
+      return;
     }
+
+    startWifiScan(WifiConnectionOrigin::AUTOMATIC);
+    return;
   }
 
   // Fallback to scanning
@@ -249,9 +245,8 @@ void WifiSelectionActivity::onExit() {
   LOG_DBG("WIFI", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }
 
-void WifiSelectionActivity::startWifiScan() {
-  autoConnecting = false;
-  state = WifiSelectionState::SCANNING;
+void WifiSelectionActivity::startWifiScan(const WifiConnectionOrigin origin) {
+  state = origin == WifiConnectionOrigin::AUTOMATIC ? WifiSelectionState::AUTO_SCANNING : WifiSelectionState::SCANNING;
   networks.clear();
   requestUpdate();
 
@@ -268,6 +263,7 @@ void WifiSelectionActivity::startWifiScan() {
 }
 
 void WifiSelectionActivity::processWifiScanResults() {
+  const bool automaticScan = state == WifiSelectionState::AUTO_SCANNING;
   const int16_t scanResult = WiFi.scanComplete();
 
   if (scanResult == WIFI_SCAN_RUNNING) {
@@ -311,12 +307,22 @@ void WifiSelectionActivity::processWifiScanResults() {
       WifiNetworkInfo network;
       network.ssid = ssid;
       network.rssi = rssi;
+#ifndef SIMULATOR
+      network.channel = static_cast<uint8_t>(WiFi.channel(i));
+      WiFi.BSSID(i, network.bssid.data());
+      network.hasAccessPointHint = network.channel != 0;
+#endif
       network.isEncrypted = (authMode != WIFI_AUTH_OPEN);
       network.hasSavedPassword = WIFI_STORE.hasSavedCredential(network.ssid);
       networks.push_back(std::move(network));
     } else if (rssi > it->rssi) {
       it->rssi = rssi;
       it->isEncrypted = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+#ifndef SIMULATOR
+      it->channel = static_cast<uint8_t>(WiFi.channel(i));
+      WiFi.BSSID(i, it->bssid.data());
+      it->hasAccessPointHint = it->channel != 0;
+#endif
     }
 
     LOG_DBG("WIFI", "Scan result: ssid=%s rssi=%d auth=%s saved=%d", ssid, rssi, wifiAuthName(authMode),
@@ -334,9 +340,22 @@ void WifiSelectionActivity::processWifiScanResults() {
   WiFi.scanDelete();
   LOG_INF("WIFI", "WiFi scan usable networks=%zu hidden=%d duplicates=%d", networks.size(), hiddenNetworks,
           duplicateNetworks);
+
+  if (automaticScan && tryNextSavedNetworkFromScan()) {
+    return;
+  }
+
   state = WifiSelectionState::NETWORK_LIST;
   selectedNetworkIndex = 0;
   requestUpdate();
+}
+
+void WifiSelectionActivity::selectAccessPoint(const WifiNetworkInfo& network) {
+  selectedSSID = network.ssid;
+  selectedRequiresPassword = network.isEncrypted;
+  selectedBssid = network.bssid;
+  selectedChannel = network.channel;
+  hasSelectedAccessPointHint = network.hasAccessPointHint;
 }
 
 void WifiSelectionActivity::selectNetwork(const int index) {
@@ -345,11 +364,9 @@ void WifiSelectionActivity::selectNetwork(const int index) {
   }
 
   const auto& network = networks[index];
-  selectedSSID = network.ssid;
-  selectedRequiresPassword = network.isEncrypted;
+  selectAccessPoint(network);
   usedSavedPassword = false;
   enteredPassword.clear();
-  autoConnecting = false;
 
   // Check if we have saved credentials for this network
   const auto* savedCred = WIFI_STORE.findCredential(selectedSSID);
@@ -387,8 +404,97 @@ void WifiSelectionActivity::selectNetwork(const int index) {
   }
 }
 
-void WifiSelectionActivity::attemptConnection() {
-  state = autoConnecting ? WifiSelectionState::AUTO_CONNECTING : WifiSelectionState::CONNECTING;
+int WifiSelectionActivity::findCredentialIndex(const std::string& ssid) const {
+  const auto& credentials = WIFI_STORE.getCredentials();
+  for (size_t i = 0; i < credentials.size(); i++) {
+    if (credentials[i].ssid == ssid) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+bool WifiSelectionActivity::tryAutomaticCredential(const size_t credentialIndex, const WifiNetworkInfo* network) {
+  const auto& credentials = WIFI_STORE.getCredentials();
+  constexpr size_t kCredentialMaskBits = sizeof(attemptedCredentialMask) * 8;
+  if (credentialIndex >= credentials.size() || credentialIndex >= kCredentialMaskBits ||
+      (attemptedCredentialMask & (1U << credentialIndex)) != 0) {
+    return false;
+  }
+
+  const auto& credential = credentials[credentialIndex];
+  attemptedCredentialMask |= static_cast<uint8_t>(1U << credentialIndex);
+  selectedSSID = credential.ssid;
+  enteredPassword = credential.password;
+  selectedRequiresPassword = network ? network->isEncrypted : !credential.password.empty();
+  usedSavedPassword = true;
+
+  if (network) {
+    selectAccessPoint(*network);
+  } else {
+    selectedBssid.fill(0);
+    selectedChannel = 0;
+    hasSelectedAccessPointHint = false;
+  }
+
+  LOG_INF("WIFI", "Auto-connect candidate: ssid=%s index=%u rssi=%d channel=%u", selectedSSID.c_str(),
+          static_cast<unsigned>(credentialIndex), network ? network->rssi : 0, selectedChannel);
+  attemptConnection(WifiConnectionOrigin::AUTOMATIC);
+  return true;
+}
+
+bool WifiSelectionActivity::tryNextSavedNetworkFromScan() {
+  for (const auto& network : networks) {
+    if (!network.hasSavedPassword) {
+      continue;
+    }
+
+    const int credentialIndex = findCredentialIndex(network.ssid);
+    if (credentialIndex >= 0 && tryAutomaticCredential(static_cast<size_t>(credentialIndex), &network)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void WifiSelectionActivity::handleAutomaticConnectionFailure() {
+  LOG_INF("WIFI", "Saved network unavailable, trying next candidate: ssid=%s", selectedSSID.c_str());
+  WiFi.disconnect();
+
+  if (tryNextSavedNetworkFromScan()) {
+    return;
+  }
+
+  if (networks.empty()) {
+    startWifiScan(WifiConnectionOrigin::AUTOMATIC);
+    return;
+  }
+
+  state = WifiSelectionState::NETWORK_LIST;
+  selectedNetworkIndex = 0;
+  requestUpdate();
+}
+
+void WifiSelectionActivity::showNetworkListFromAutomaticConnection() {
+  LOG_INF("WIFI", "Automatic connection interrupted; showing network list");
+#ifndef SIMULATOR
+  sConnectionAttemptLoggingActive = false;
+#endif
+  WiFi.disconnect();
+
+  if (networks.empty()) {
+    startWifiScan();
+    return;
+  }
+
+  state = WifiSelectionState::NETWORK_LIST;
+  selectedNetworkIndex = 0;
+  requestUpdate();
+}
+
+void WifiSelectionActivity::attemptConnection(const WifiConnectionOrigin origin) {
+  const bool automaticConnection = origin == WifiConnectionOrigin::AUTOMATIC;
+  state = automaticConnection ? WifiSelectionState::AUTO_CONNECTING : WifiSelectionState::CONNECTING;
   connectionStartTime = millis();
   connectedIP.clear();
   connectionError.clear();
@@ -401,8 +507,8 @@ void WifiSelectionActivity::attemptConnection() {
   requestUpdate();
 
   LOG_INF("WIFI", "Connecting to ssid=%s auto=%d saved=%d encrypted=%d passProvided=%d heap=%u maxAlloc=%u",
-          selectedSSID.c_str(), autoConnecting, usedSavedPassword, selectedRequiresPassword, !enteredPassword.empty(),
-          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+          selectedSSID.c_str(), automaticConnection, usedSavedPassword, selectedRequiresPassword,
+          !enteredPassword.empty(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   WiFi.persistent(false);  // Credentials are managed by WifiCredentialStore; suppress SDK NVS auto-connect
   WiFi.mode(WIFI_STA);
@@ -428,12 +534,15 @@ void WifiSelectionActivity::attemptConnection() {
   String hostname = "CrossPoint-Reader-" + mac;
   WiFi.setHostname(hostname.c_str());
 
-  wl_status_t beginStatus = WL_IDLE_STATUS;
-  if (selectedRequiresPassword && !enteredPassword.empty()) {
-    beginStatus = WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());
-  } else {
-    beginStatus = WiFi.begin(selectedSSID.c_str());
-  }
+  WiFi.setScanMethod(WIFI_FAST_SCAN);
+  const char* password = selectedRequiresPassword && !enteredPassword.empty() ? enteredPassword.c_str() : nullptr;
+#ifdef SIMULATOR
+  const wl_status_t beginStatus = WiFi.begin(selectedSSID.c_str(), password);
+#else
+  const uint8_t* bssid = hasSelectedAccessPointHint ? selectedBssid.data() : nullptr;
+  const int32_t channel = hasSelectedAccessPointHint ? selectedChannel : 0;
+  const wl_status_t beginStatus = WiFi.begin(selectedSSID.c_str(), password, channel, bssid);
+#endif
   LOG_INF("WIFI", "WiFi.begin returned status=%d/%s", static_cast<int>(beginStatus), wifiStatusName(beginStatus));
 }
 
@@ -444,6 +553,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
 
   const wl_status_t status = WiFi.status();
   const unsigned long now = millis();
+  const bool automaticConnection = state == WifiSelectionState::AUTO_CONNECTING;
 
   if (lastLoggedWifiStatus != static_cast<int>(status) ||
       now - lastConnectionStatusLogTime >= CONNECTION_STATUS_LOG_INTERVAL_MS) {
@@ -459,7 +569,6 @@ void WifiSelectionActivity::checkConnectionStatus() {
     char ipStr[16];
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
     connectedIP = ipStr;
-    autoConnecting = false;
 #ifndef SIMULATOR
     sConnectionAttemptLoggingActive = false;
 #endif
@@ -519,13 +628,18 @@ void WifiSelectionActivity::checkConnectionStatus() {
     }
     sConnectionAttemptLoggingActive = false;
 #endif
+    if (automaticConnection) {
+      handleAutomaticConnectionFailure();
+      return;
+    }
     state = WifiSelectionState::CONNECTION_FAILED;
     requestUpdate();
     return;
   }
 
   // Check for timeout
-  if (millis() - connectionStartTime > CONNECTION_TIMEOUT_MS) {
+  const unsigned long timeoutMs = automaticConnection ? AUTO_CONNECTION_TIMEOUT_MS : CONNECTION_TIMEOUT_MS;
+  if (millis() - connectionStartTime > timeoutMs) {
     WiFi.disconnect();
     connectionError = tr(STR_ERROR_CONNECTION_TIMEOUT);
     LOG_INF("WIFI", "Connection timed out: ssid=%s elapsed=%lums lastStatus=%d/%s", selectedSSID.c_str(),
@@ -537,6 +651,10 @@ void WifiSelectionActivity::checkConnectionStatus() {
     }
     sConnectionAttemptLoggingActive = false;
 #endif
+    if (automaticConnection) {
+      handleAutomaticConnectionFailure();
+      return;
+    }
     state = WifiSelectionState::CONNECTION_FAILED;
     requestUpdate();
     return;
@@ -544,8 +662,8 @@ void WifiSelectionActivity::checkConnectionStatus() {
 }
 
 void WifiSelectionActivity::loop() {
-  if ((state == WifiSelectionState::SCANNING || state == WifiSelectionState::CONNECTING ||
-       state == WifiSelectionState::AUTO_CONNECTING) &&
+  if ((state == WifiSelectionState::AUTO_SCANNING || state == WifiSelectionState::SCANNING ||
+       state == WifiSelectionState::CONNECTING || state == WifiSelectionState::AUTO_CONNECTING) &&
       mappedInput.wasPressed(MappedInputManager::Button::Back)) {
 #ifndef SIMULATOR
     sConnectionAttemptLoggingActive = false;
@@ -557,13 +675,21 @@ void WifiSelectionActivity::loop() {
   }
 
   // Check scan progress
-  if (state == WifiSelectionState::SCANNING) {
+  if (state == WifiSelectionState::AUTO_SCANNING || state == WifiSelectionState::SCANNING) {
+    if (state == WifiSelectionState::AUTO_SCANNING && mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      state = WifiSelectionState::SCANNING;
+      requestUpdate();
+    }
     processWifiScanResults();
     return;
   }
 
   // Check connection progress
   if (state == WifiSelectionState::CONNECTING || state == WifiSelectionState::AUTO_CONNECTING) {
+    if (state == WifiSelectionState::AUTO_CONNECTING && mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      showNetworkListFromAutomaticConnection();
+      return;
+    }
     checkConnectionStatus();
     return;
   }
@@ -656,10 +782,9 @@ void WifiSelectionActivity::loop() {
   if (state == WifiSelectionState::CONNECTION_FAILED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
         mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      // If we were auto-connecting or using a saved credential, offer to forget
-      // the network
-      if (autoConnecting || usedSavedPassword) {
-        autoConnecting = false;
+      // Automatic failures never reach this state. A manually selected saved
+      // credential can still be forgotten explicitly.
+      if (usedSavedPassword) {
         state = WifiSelectionState::FORGET_PROMPT;
         forgetPromptSelection = 0;  // Default to "Cancel"
       } else {
@@ -758,6 +883,9 @@ void WifiSelectionActivity::render(RenderLock&&) {
       cachedMacAddress.c_str());
 
   switch (state) {
+    case WifiSelectionState::AUTO_SCANNING:
+      renderConnecting(&screen, &metrics);
+      break;
     case WifiSelectionState::AUTO_CONNECTING:
       renderConnecting(&screen, &metrics);
       break;
@@ -825,8 +953,9 @@ void WifiSelectionActivity::renderConnecting(const Rect* screen, const ThemeMetr
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = screen->y + (screen->height - height) / 2;
 
-  if (state == WifiSelectionState::SCANNING) {
-    UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top, tr(STR_SCANNING));
+  if (state == WifiSelectionState::AUTO_SCANNING || state == WifiSelectionState::SCANNING) {
+    UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top,
+                              state == WifiSelectionState::AUTO_SCANNING ? tr(STR_CHECKING_WIFI) : tr(STR_SCANNING));
   } else {
     UITheme::drawCenteredText(renderer, *screen, UI_12_FONT_ID, top - 40, tr(STR_CONNECTING), true,
                               EpdFontFamily::BOLD);
@@ -838,7 +967,10 @@ void WifiSelectionActivity::renderConnecting(const Rect* screen, const ThemeMetr
     UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top, ssidInfo.c_str());
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+  const auto labels = mappedInput.mapLabels(
+      tr(STR_BACK),
+      state == WifiSelectionState::AUTO_SCANNING || state == WifiSelectionState::AUTO_CONNECTING ? tr(STR_SHOW) : "",
+      "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 

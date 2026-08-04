@@ -2,6 +2,8 @@ _language_name: "Nederlands"
 _language_code: "NL"
 _order: "16"
 
+STR_POWER_PAGES_DISPLAYED: "Weergegeven pagina's"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Kies firmwareprofiel"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Kies met de zijknoppen en druk op Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: snel hervatten · zonder flits/pagina · slaap 5 min"
@@ -527,3 +529,4 @@ STR_NEARBY_POSITION_NO_READER: "Geen reader dichtbij gevonden"
 STR_NEARBY_LABEL: "Dichtbij:"
 STR_APPLY_NEARBY_POSITION: "Dichtbij positie toepassen"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Dichtbij positie syncen is niet beschikbaar in simulator"
+STR_BATTERY_CURRENT: "Batterijstroom"

@@ -26,6 +26,7 @@
 #define I2C_ADDR_BQ27220 0x55  // Fuel gauge I2C address
 #define BQ27220_SOC_REG 0x2C   // StateOfCharge() command code (%)
 #define BQ27220_CUR_REG 0x0C   // Current() command code (signed mA)
+#define BQ27220_AVG_CUR_REG 0x14  // AverageCurrent() command code (signed mA)
 #define BQ27220_VOLT_REG 0x08  // Voltage() command code (mV)
 
 // Analog DS3231 RTC I2C
@@ -74,6 +75,10 @@ class HalGPIO {
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
   unsigned long getPowerButtonHeldTime() const;
+
+  // Synchronous physical-button sample for boot-only chords. Runtime UI code
+  // must keep using MappedInputManager so remapping and orientation still apply.
+  uint8_t samplePhysicalButtons();
 
   // Setup wake up GPIO and enter deep sleep
   void startDeepSleep();

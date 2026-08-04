@@ -17,6 +17,16 @@ constexpr uint64_t FNV64_PRIME = 1099511628211ull;
 constexpr size_t MAX_LABEL_CHARS = 48;
 constexpr const char* LAST_SLEEP_MARKER = ".last-sleep-bmp";
 
+uint32_t galleryRandom() {
+#ifdef SIMULATOR
+  static uint32_t state = 0x6d2b79f5u;
+  state = state * 1664525u + 1013904223u;
+  return state;
+#else
+  return esp_random();
+#endif
+}
+
 uint64_t fnv1a64(std::string_view text) {
   uint64_t hash = FNV64_OFFSET;
   for (const char c : text) {
@@ -115,10 +125,10 @@ size_t chooseRandomIndexAvoidingLast(const std::vector<std::string>& names, cons
   }
 
   if (lastIndex >= names.size()) {
-    return static_cast<size_t>(esp_random() % names.size());
+    return static_cast<size_t>(galleryRandom() % names.size());
   }
 
-  const size_t raw = static_cast<size_t>(esp_random() % (names.size() - 1));
+  const size_t raw = static_cast<size_t>(galleryRandom() % (names.size() - 1));
   return raw >= lastIndex ? raw + 1 : raw;
 }
 

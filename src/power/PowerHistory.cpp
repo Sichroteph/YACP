@@ -24,6 +24,8 @@ struct RuntimeState {
   unsigned long lastUpdateMs = 0;
   uint32_t batterySeconds = 0;
   uint32_t secondsSinceUnplug = 0;
+  uint32_t batteryPageDisplays = 0;
+  uint32_t pageDisplaysSinceUnplug = 0;
   bool started = false;
   bool externalPower = false;
   bool sawExternalPower = false;
@@ -84,9 +86,10 @@ void appendSample(PowerHistoryState& history, const uint8_t percent) {
 }
 
 void startCycle(PowerHistoryState& history, const uint8_t percent, const uint32_t sessionSeconds,
-                const bool confirmed) {
+                const uint32_t sessionPageDisplays, const bool confirmed) {
   history = {};
   history.activeSeconds = sessionSeconds;
+  history.readerPageDisplays = sessionPageDisplays;
   history.lastPercent = percent;
   history.cycleConfirmed = confirmed;
 
@@ -121,6 +124,7 @@ const PowerHistoryState& demoHistory() {
   static const PowerHistoryState demo = [] {
     PowerHistoryState state;
     state.activeSeconds = (29U * 3600U) + (47U * 60U);
+    state.readerPageDisplays = 2840;
     state.cycleStartDay = 9695;
     state.hasCycleStartDay = true;
     state.cycleConfirmed = true;
@@ -167,9 +171,22 @@ void noteExternalPower(const bool connected) {
     runtime.sawExternalPower = true;
     runtime.unpluggedThisSession = false;
     runtime.secondsSinceUnplug = 0;
+    runtime.pageDisplaysSinceUnplug = 0;
   } else {
     runtime.unpluggedThisSession = true;
     runtime.secondsSinceUnplug = 0;
+    runtime.pageDisplaysSinceUnplug = 0;
+  }
+}
+
+void recordReaderPageDisplay() {
+  if (!runtime.started || runtime.externalPower) return;
+
+  auto& history = APP_STATE.powerHistory;
+  history.readerPageDisplays = saturatingAdd(history.readerPageDisplays, 1);
+  runtime.batteryPageDisplays = saturatingAdd(runtime.batteryPageDisplays, 1);
+  if (runtime.unpluggedThisSession) {
+    runtime.pageDisplaysSinceUnplug = saturatingAdd(runtime.pageDisplaysSinceUnplug, 1);
   }
 }
 
@@ -216,7 +233,10 @@ void commitBeforeSleep(const bool externalPowerConnected) {
   if (!hasPreviousSample || startsNewCycle) {
     const uint32_t newCycleSeconds =
         startsNewCycle && runtime.unpluggedThisSession ? runtime.secondsSinceUnplug : runtime.batterySeconds;
-    startCycle(history, percent, newCycleSeconds, startsNewCycle);
+    const uint32_t newCyclePageDisplays = startsNewCycle && runtime.unpluggedThisSession
+                                              ? runtime.pageDisplaysSinceUnplug
+                                              : runtime.batteryPageDisplays;
+    startCycle(history, percent, newCycleSeconds, newCyclePageDisplays, startsNewCycle);
   } else {
     history.activeSeconds = saturatingAdd(history.activeSeconds, runtime.batterySeconds);
     if (history.sampleCount == 0) {

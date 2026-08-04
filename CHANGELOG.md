@@ -1,3 +1,84 @@
+## [v1.6.0-yacp] - 2026-08-05
+
+This release primarily optimizes the normal X3 wake, book-resume, and sleep cycle. It removes fixed startup delays and
+avoids SD-card reads and writes that do not help restore the current page, so the improvement applies to the common
+reading path rather than to one optional feature.
+
+### Changed
+
+- **Optimized the complete X3 wake, resume, and sleep path to save time and avoid unrelated SD-card work.** Because a
+  deep-sleep wake is a fresh ESP32 boot, these changes directly shorten the normal path back into the current book:
+  - battery wake defers USB CDC until a cable is detected or Home is opened, removing its fixed 250 ms enumeration wait;
+  - two stable physical button samples 8 ms apart replace the roughly 500 ms boot settling wait, removing about another
+    492 ms while retaining boot-chord detection;
+  - Quick Resume reuses the retained framebuffer and prepares a valid cached EPUB section without rendering the visible
+    page again, then removes its small wake marker with a localized no-flash update;
+  - the redundant reader-entry state write and recent-book update are skipped on direct resume, while Recent Books,
+    OPDS servers, KOReader credentials, and current-page metadata such as footnotes load only when actually needed;
+  - on return to sleep, an identical same-day automatic statistics backup is not rewritten and the display controller
+    powers down as soon as the localized marker refresh finishes.
+- These optimizations reduce, rather than eliminate, SD activity. Required progress, statistics, cached-section reads,
+  and the state writes that protect against a failed-resume boot loop remain. Stale or missing caches still use the
+  normal safe render and indexing path. X4 retains its existing startup behavior.
+
+<p align="center">
+  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-x3-faster-cover-wake-preview.gif"
+       alt="An X3 waking from a book-cover sleep image into the current reading page"
+       width="480">
+</p>
+
+<p align="center">
+  <sub>GIF preview of the latest X3 Cover-wake recording from the hardware test session.
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-x3-faster-cover-wake.mp4">Download the unedited original MP4.</a></sub>
+</p>
+
+Indicative measurements from one recording per configuration, timed from the physical Power click until the loading
+dots are replaced by the battery indicator (approximately +/- 0.1 s):
+
+| Wake path | Updated firmware | Previous firmware | Difference |
+| --- | ---: | ---: | ---: |
+| Quick Resume to retained page | ~1.3 s | ~1.8 s | ~0.5 s faster (~27% less delay) |
+| Cover sleep image to reader | ~2.8 s | ~3.4 s | ~0.6 s faster (~19% less delay) |
+
+These are single-run timing observations, not a formal benchmark or battery-life claim. The fixed X3 startup waits
+removed by the implementation total about 742 ms; some of that time overlaps other startup work, so it should not be
+added directly to the end-to-end figures above.
+
+- X3 text-only pages with font anti-aliasing now honor no-flash screen maintenance and use a higher-contrast AA mapping:
+  high-coverage stroke pixels stay black while only lighter edge pixels receive gray. Pages containing images and
+  explicit full cleanups retain the stronger refresh.
+- When several Wi-Fi networks are saved, YACP scans once, orders visible saved networks by signal strength, and silently
+  tries the next candidate if the first one cannot connect. The scan's channel and BSSID are reused for connection to
+  avoid a second driver scan. A single saved network keeps the faster direct path, and `Show` can interrupt the automatic
+  attempts to display the network list.
+
+<p align="center">
+  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-wifi-multi-network-before-after.gif"
+       alt="Previous and updated saved Wi-Fi selection paths when the last-used network is unavailable"
+       width="760">
+</p>
+
+<p align="center">
+  <sub>When the last-used SSID is unavailable, the updated path moves through the other saved visible networks without
+  an error or a credential-deletion prompt.
+  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-wifi-multi-network-before-after.mp4">Download the MP4.</a></sub>
+</p>
+
+### Added
+
+- Added an X3 Safe Home boot chord: hold physical front button No. 1 (the leftmost in portrait) with Power to bypass
+  Quick Resume and reopen through the normal splash and Home path. Custom reader button mappings do not affect it.
+- Added a boot shortcut to open Join Network directly by holding the right side button while powering on.
+- Added an optional X3 battery-current reading to the reader status bar for power-consumption testing.
+- The autonomy screen now reports reader pages displayed on battery during the current charge cycle, counting both
+  forward and backward page refreshes without periodic wake-ups or per-page SD writes.
+
+### Fixed
+
+- Opening reading statistics from a long-press OK shortcut no longer closes the statistics screen when the held
+  button is released.
+- Adaptive sleep-image tone mapping now selects valid percentile samples for very small images.
+
 ## [v1.5.0-yacp] - 2026-08-03
 
 ### Added
@@ -14,8 +95,15 @@
 
 ### Changed
 
-- Sleep-image rendering now analyzes each image's tonal range before dithering, preserving more highlight and midtone
-  detail in four-level e-ink output.
+- Sleep-image rendering now analyzes each image's tonal range before dithering, preserving substantially more useful
+  highlight and midtone detail on the four-level e-ink output.
+- Rendered grayscale sleep-image planes are cached on the SD card and reused while the source image remains unchanged.
+- Per-book sleep images take priority in Cover, Custom, and Cover/Custom modes, rotate randomly, and avoid immediately
+  repeating the previous image when several prepared BMPs are available.
+- Waking after an image-based sleep screen restores the pre-sleep framebuffer instead of showing the normal boot
+  splash. This implementation was inspired by CrossPoint PR #2731 by Marek Vesely (`notmarek`).
+- Finished Books now groups completed titles by finish month and shows each month's book count, reading time, titles,
+  and authors.
 
 <p align="center">
   <img src="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-image-before-after.jpg"
@@ -29,14 +117,6 @@ https://github.com/user-attachments/assets/9954121c-3b27-4330-a455-f3d60a4063e7
   <sub>Per-book sleep images on the reader, followed by preparation and attachment from the browser.
   <a href="https://github.com/Sichroteph/YACP/releases/download/v1.5.0-yacp/YACP-sleep-images-overview.mp4">Download the original-quality video.</a></sub>
 </p>
-
-- Rendered grayscale sleep-image planes are cached on the SD card and reused while the source image remains unchanged.
-- Per-book sleep images take priority in Cover, Custom, and Cover/Custom modes, rotate randomly, and avoid immediately
-  repeating the previous image when several prepared BMPs are available.
-- Waking after an image-based sleep screen restores the pre-sleep framebuffer instead of showing the normal boot
-  splash. This implementation was inspired by CrossPoint PR #2731 by Marek Vesely (`notmarek`).
-- Finished Books now groups completed titles by finish month and shows each month's book count, reading time, titles,
-  and authors.
 
 ### Removed
 

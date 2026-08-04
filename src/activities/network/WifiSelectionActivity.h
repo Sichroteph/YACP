@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -15,13 +16,19 @@ struct ThemeMetrics;
 // Structure to hold WiFi network information
 struct WifiNetworkInfo {
   std::string ssid;
-  int32_t rssi;
-  bool isEncrypted;
-  bool hasSavedPassword;  // Whether we have saved credentials for this network
+  std::array<uint8_t, 6> bssid{};
+  int32_t rssi = 0;
+  uint8_t channel = 0;
+  bool isEncrypted = false;
+  bool hasSavedPassword = false;  // Whether we have saved credentials for this network
+  bool hasAccessPointHint = false;
 };
+
+enum class WifiConnectionOrigin { AUTOMATIC, MANUAL };
 
 // WiFi selection states
 enum class WifiSelectionState {
+  AUTO_SCANNING,      // Scanning before silently selecting a saved network
   AUTO_CONNECTING,    // Trying to connect to the last known network
   SCANNING,           // Scanning for networks
   NETWORK_LIST,       // Displaying available networks
@@ -71,9 +78,15 @@ class WifiSelectionActivity final : public Activity {
   // Whether to attempt auto-connect on entry
   const bool allowAutoConnect;
 
-  // Whether we are attempting to auto-connect
-  bool autoConnecting = false;
   bool tearDownWifiOnExit = false;
+
+  // One bit per stored credential (WifiCredentialStore is capped at 8).
+  uint8_t attemptedCredentialMask = 0;
+
+  // Optional scan result used to skip the driver's second channel scan.
+  std::array<uint8_t, 6> selectedBssid{};
+  uint8_t selectedChannel = 0;
+  bool hasSelectedAccessPointHint = false;
 
   // Save/forget prompt selection (0 = Yes, 1 = No)
   int savePromptSelection = 0;
@@ -81,6 +94,7 @@ class WifiSelectionActivity final : public Activity {
 
   // Connection timeout
   static constexpr unsigned long CONNECTION_TIMEOUT_MS = 15000;
+  static constexpr unsigned long AUTO_CONNECTION_TIMEOUT_MS = 7000;
   static constexpr unsigned long CONNECTION_STATUS_LOG_INTERVAL_MS = 2000;
   unsigned long connectionStartTime = 0;
   unsigned long lastConnectionStatusLogTime = 0;
@@ -94,11 +108,17 @@ class WifiSelectionActivity final : public Activity {
   void renderConnectionFailed(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderForgetPrompt(const Rect* screen, const ThemeMetrics* metrics) const;
 
-  void startWifiScan();
+  void startWifiScan(WifiConnectionOrigin origin = WifiConnectionOrigin::MANUAL);
   void processWifiScanResults();
   void selectNetwork(int index);
-  void attemptConnection();
+  void selectAccessPoint(const WifiNetworkInfo& network);
+  void attemptConnection(WifiConnectionOrigin origin = WifiConnectionOrigin::MANUAL);
   void checkConnectionStatus();
+  bool tryAutomaticCredential(size_t credentialIndex, const WifiNetworkInfo* network = nullptr);
+  bool tryNextSavedNetworkFromScan();
+  void handleAutomaticConnectionFailure();
+  void showNetworkListFromAutomaticConnection();
+  int findCredentialIndex(const std::string& ssid) const;
   std::string getSignalStrengthIndicator(int32_t rssi) const;
 
   void onComplete(bool connected);

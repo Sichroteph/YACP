@@ -2,6 +2,8 @@ _language_name: "Deutsch"
 _language_code: "DE"
 _order: "3"
 
+STR_POWER_PAGES_DISPLAYED: "Angezeigte Seiten"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Firmwareprofil wählen"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Mit Seitentasten wählen, dann Power drücken"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: Schnell fortsetzen · ohne Blinken/Seite · Ruhe 5 Min"
@@ -675,3 +677,4 @@ STR_NEARBY_POSITION_NO_READER: "Kein naher Reader gefunden"
 STR_NEARBY_LABEL: "In der Nähe:"
 STR_APPLY_NEARBY_POSITION: "Nahe Position anwenden"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Positions-Nahsync ist im Simulator nicht verfügbar"
+STR_BATTERY_CURRENT: "Batteriestrom"

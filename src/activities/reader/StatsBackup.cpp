@@ -179,6 +179,28 @@ bool writeBackupFile(const char* path, const uint8_t* data, const size_t size) {
 
   return true;
 }
+
+bool backupFileMatches(const char* path, const uint8_t* expected, const size_t expectedSize) {
+  FsFile file;
+  if (!Storage.openFileForRead(LOG_TAG, path, file) || file.fileSize() != expectedSize) {
+    if (file) file.close();
+    return false;
+  }
+
+  uint8_t chunk[64];
+  size_t offset = 0;
+  while (offset < expectedSize) {
+    const size_t requested = std::min(sizeof(chunk), expectedSize - offset);
+    const int read = file.read(chunk, requested);
+    if (read != static_cast<int>(requested) || memcmp(chunk, expected + offset, requested) != 0) {
+      file.close();
+      return false;
+    }
+    offset += requested;
+  }
+  file.close();
+  return true;
+}
 }  // namespace
 
 bool backupGlobalStats(const bool manual, char* outFileName, const size_t outFileNameLen) {
@@ -202,6 +224,14 @@ bool backupGlobalStats(const bool manual, char* outFileName, const size_t outFil
   if (pathWritten <= 0 || static_cast<size_t>(pathWritten) >= sizeof(backupPath)) {
     LOG_ERR(LOG_TAG, "Could not build backup path");
     return false;
+  }
+
+  if (!manual && Storage.exists(backupPath) && backupFileMatches(backupPath, data.data(), dataSize)) {
+    if (outFileName != nullptr && outFileNameLen > 0) {
+      copyString(fileName, outFileName, outFileNameLen);
+    }
+    LOG_DBG(LOG_TAG, "Automatic stats backup already current: %s", backupPath);
+    return true;
   }
 
   if (!writeBackupFile(backupPath, data.data(), dataSize)) return false;

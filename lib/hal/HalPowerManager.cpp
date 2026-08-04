@@ -173,6 +173,29 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
   return _batteryCachedPercent / 10;
 }
 
+bool HalPowerManager::getBatteryAverageCurrent(int16_t& outCurrentMa) const {
+  if (!_batteryUseI2C) return false;
+
+  Wire.beginTransmission(I2C_ADDR_BQ27220);
+  Wire.write(BQ27220_AVG_CUR_REG);
+  if (Wire.endTransmission(false) != 0) {
+    LOG_ERR("PWR", "BQ27220 average-current register select failed");
+    return false;
+  }
+  if (Wire.requestFrom(I2C_ADDR_BQ27220, static_cast<uint8_t>(2), static_cast<uint8_t>(true)) < 2) {
+    while (Wire.available()) {
+      Wire.read();
+    }
+    LOG_ERR("PWR", "BQ27220 average-current read failed");
+    return false;
+  }
+
+  const uint8_t lo = Wire.read();
+  const uint8_t hi = Wire.read();
+  outCurrentMa = static_cast<int16_t>((static_cast<uint16_t>(hi) << 8) | lo);
+  return true;
+}
+
 bool HalPowerManager::getCachedBatteryPercentage(uint16_t& outPercentage) const {
   if (!_batteryHasValidSample) return false;
   outPercentage = static_cast<uint16_t>(_batteryUseI2C ? _batteryCachedPercent : _batteryCachedPercent / 10);

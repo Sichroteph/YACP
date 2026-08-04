@@ -2,6 +2,8 @@ _language_name: "Suomi"
 _language_code: "FI"
 _order: "14"
 
+STR_POWER_PAGES_DISPLAYED: "Näytetyt sivut"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Valitse laiteohjelmistoprofiili"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Valitse sivupainikkeilla ja paina Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: pikapalautus · ei välähdystä/sivu · lepo 5 min"
@@ -516,3 +518,4 @@ STR_NEARBY_POSITION_NO_READER: "Lähellä olevaa lukijaa ei löytynyt"
 STR_NEARBY_LABEL: "Lähellä:"
 STR_APPLY_NEARBY_POSITION: "Käytä lähisijaintia"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Lähisijainnin synkronointi ei ole käytettävissä simulaattorissa"
+STR_BATTERY_CURRENT: "Akun virta"

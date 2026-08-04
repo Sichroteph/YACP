@@ -86,19 +86,38 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
 }
 
 bool OpdsServerStore::loadFromFile() {
+  loadState = LoadState::Loading;
   const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<OpdsServerStore>::loadFromFile()) {
+    loadState = LoadState::Loaded;
     return true;
   }
   if (hasStoreFile) {
+    loadState = LoadState::Failed;
     return false;
   }
 
   if (migrateFromSettings()) {
     LOG_DBG("OPS", "Migrated legacy OPDS settings");
+    loadState = LoadState::Loaded;
     return true;
   }
 
+  servers.clear();
+  loadState = LoadState::Loaded;
+  return true;
+}
+
+bool OpdsServerStore::ensureLoaded() {
+  switch (loadState) {
+    case LoadState::Loaded:
+    case LoadState::Loading:
+      return true;
+    case LoadState::Failed:
+      return false;
+    case LoadState::NotLoaded:
+      return loadFromFile();
+  }
   return false;
 }
 
@@ -130,6 +149,7 @@ bool OpdsServerStore::migrateFromSettings() {
 }
 
 bool OpdsServerStore::addServer(const OpdsServer& server) {
+  if (!ensureLoaded()) return false;
   if (servers.size() >= MAX_SERVERS) {
     LOG_DBG("OPS", "Cannot add more servers, limit of %zu reached", MAX_SERVERS);
     return false;
@@ -141,6 +161,7 @@ bool OpdsServerStore::addServer(const OpdsServer& server) {
 }
 
 bool OpdsServerStore::updateServer(size_t index, const OpdsServer& server) {
+  if (!ensureLoaded()) return false;
   if (index >= servers.size()) {
     return false;
   }
@@ -151,6 +172,7 @@ bool OpdsServerStore::updateServer(size_t index, const OpdsServer& server) {
 }
 
 bool OpdsServerStore::removeServer(size_t index) {
+  if (!ensureLoaded()) return false;
   if (index >= servers.size()) {
     return false;
   }
@@ -161,6 +183,7 @@ bool OpdsServerStore::removeServer(size_t index) {
 }
 
 const OpdsServer* OpdsServerStore::getServer(size_t index) const {
+  const_cast<OpdsServerStore*>(this)->ensureLoaded();
   if (index >= servers.size()) {
     return nullptr;
   }

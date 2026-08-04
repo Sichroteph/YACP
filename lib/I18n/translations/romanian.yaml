@@ -2,6 +2,8 @@ _language_name: "Română"
 _language_code: "RO"
 _order: "8"
 
+STR_POWER_PAGES_DISPLAYED: "Pagini afișate"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Alegeți profilul firmware"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Alegeți cu butoanele laterale, apoi apăsați Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: reluare rapidă · fără clipire/pagină · repaus 5 min"
@@ -526,3 +528,4 @@ STR_NEARBY_POSITION_NO_READER: "Nu s-a găsit niciun cititor apropiat"
 STR_NEARBY_LABEL: "Apropiat:"
 STR_APPLY_NEARBY_POSITION: "Aplică poziția apropiată"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Sincronizarea poziției apropiate nu este disponibilă în simulator"
+STR_BATTERY_CURRENT: "Curent baterie"

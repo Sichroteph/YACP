@@ -332,6 +332,7 @@ class CrossPointSettings {
   uint8_t statusBarTitle = CHAPTER_TITLE;
   uint8_t statusBarTimeLeft = TIME_LEFT_HIDE;
   uint8_t statusBarBattery = 1;
+  uint8_t statusBarBatteryCurrent = 0;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
   // Clock visibility mode (X3 only, requires DS3231 RTC)
   uint8_t hideClock = HIDE_CLOCK_ALWAYS;

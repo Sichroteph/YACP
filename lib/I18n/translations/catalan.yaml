@@ -2,6 +2,8 @@ _language_name: "Català"
 _language_code: "CA"
 _order: "9"
 
+STR_POWER_PAGES_DISPLAYED: "Pàgines mostrades"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Trieu el perfil del microprogramari"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Useu els botons laterals i premeu Power per aplicar"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: represa ràpida · sense flaix/pàgina · repòs 5 min"
@@ -588,3 +590,4 @@ STR_NEARBY_POSITION_NO_READER: "No s'ha trobat cap lector proper"
 STR_NEARBY_LABEL: "Proper:"
 STR_APPLY_NEARBY_POSITION: "Aplica la posició propera"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "La sincronització de posició propera no està disponible al simulador"
+STR_BATTERY_CURRENT: "Corrent de la bateria"

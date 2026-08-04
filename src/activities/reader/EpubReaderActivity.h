@@ -52,6 +52,9 @@ class EpubReaderActivity final : public Activity {
  private:
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
+  bool preserveQuickResumeFrame = false;
+  bool resumeProgressLoaded = false;
+  bool currentPageMetadataPending = false;
   int currentSpineIndex = 0;
   int nextPageNumber = 0;
   int activeSectionFontId = 0;
@@ -174,6 +177,8 @@ class EpubReaderActivity final : public Activity {
   bool shouldUseFootnotePreview(int targetSpineIndex, const std::string& anchor) const;
   std::string footnotePreviewCacheSuffix(EpubRenderMode renderMode, const std::string& anchor) const;
   void clearFootnotePreviewState();
+  bool prepareCachedQuickResumeWithoutRendering();
+  void ensureCurrentPageMetadataLoaded();
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   // Remap the cached relative reading position once the section's real page count is known
   // (used after a settings change re-paginates a chapter). Returns true if currentPage moved.
@@ -254,9 +259,10 @@ class EpubReaderActivity final : public Activity {
 
  public:
   explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub,
-                              int initialRefreshCountdown = 0)
+                              int initialRefreshCountdown = 0, bool preserveQuickResumeFrame = false)
       : Activity("EpubReader", renderer, mappedInput),
         epub(std::move(epub)),
+        preserveQuickResumeFrame(preserveQuickResumeFrame),
         pagesUntilFullRefresh(initialRefreshCountdown) {}
   void onEnter() override;
   void onExit() override;

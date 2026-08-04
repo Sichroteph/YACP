@@ -2,6 +2,8 @@ _language_name: "Русский"
 _language_code: "RU"
 _order: "6"
 
+STR_POWER_PAGES_DISPLAYED: "Показано страниц"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Выберите профиль прошивки"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Выберите боковыми кнопками, затем нажмите Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: быстрое продолжение · без мигания/страница · сон 5 мин"
@@ -579,3 +581,4 @@ STR_NEARBY_POSITION_NO_READER: "Читалка рядом не найдена"
 STR_NEARBY_LABEL: "Рядом:"
 STR_APPLY_NEARBY_POSITION: "Применить позицию рядом"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "Синхронизация позиции рядом недоступна в симуляторе"
+STR_BATTERY_CURRENT: "Ток батареи"

@@ -3,6 +3,8 @@ _language_code: "HE"
 STR_PREVIOUS_PAGE_OPT: "דף קודם"
 _order: "23"
 
+STR_POWER_PAGES_DISPLAYED: "עמודים שהוצגו"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "בחירת פרופיל קושחה"
 STR_BUTTON_LAYOUT_SETUP_HELP: "בחרו בלחצני הצד ואז לחצו על Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: חזרה מהירה · ללא הבהוב/עמוד · שינה 5 דקות"
@@ -518,3 +520,4 @@ STR_NEARBY_POSITION_NO_READER: "לא נמצא קורא קרוב"
 STR_NEARBY_LABEL: "קרוב:"
 STR_APPLY_NEARBY_POSITION: "החל מיקום קרוב"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "סנכרון מיקום קרוב אינו זמין בסימולטור"
+STR_BATTERY_CURRENT: "זרם סוללה"

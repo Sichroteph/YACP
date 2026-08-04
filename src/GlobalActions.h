@@ -35,3 +35,7 @@ inline bool isPowerButtonActionAvailableOutsideReader(const CrossPointSettings::
 }
 
 void enterDeepSleep(bool fromTimeout = false);
+
+// Restores the saved page pixels under the X3 Quick Resume loading marker and
+// applies the same no-flash differential update used to draw it.
+bool finishQuickResumeLoadingIndicator();

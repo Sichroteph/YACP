@@ -119,7 +119,6 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input, bool& side
 
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
-
   const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
   const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
@@ -161,14 +160,19 @@ inline void countOrdinaryRefresh(int& pagesUntilRefreshAction) {
   }
 }
 
+inline bool shouldUseNoFlashReinforcement(const int pagesUntilRefreshAction,
+                                          const bool pageSupportsNoFlashReinforcement = true) {
+  return gpio.deviceIsX3() && pageSupportsNoFlashReinforcement &&
+         (isBwReinforcementForced(pagesUntilRefreshAction) ||
+          (!isFullRefreshForced(pagesUntilRefreshAction) &&
+           SETTINGS.refreshAction == CrossPointSettings::REFRESH_ACTION_BW_REINFORCEMENT));
+}
+
 inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilRefreshAction,
-                                    const bool isBlackAndWhitePage = true) {
+                                    const bool pageSupportsNoFlashReinforcement = true) {
   if (isRefreshActionDue(pagesUntilRefreshAction)) {
     const bool usePeriodicReinforcement =
-        gpio.deviceIsX3() && isBlackAndWhitePage &&
-        (isBwReinforcementForced(pagesUntilRefreshAction) ||
-         (!isFullRefreshForced(pagesUntilRefreshAction) &&
-          SETTINGS.refreshAction == CrossPointSettings::REFRESH_ACTION_BW_REINFORCEMENT));
+        shouldUseNoFlashReinforcement(pagesUntilRefreshAction, pageSupportsNoFlashReinforcement);
     if (usePeriodicReinforcement) {
       // X3: the OEM AA-pre-BW(mid) differential waveform changes the page
       // while gently reinforcing unchanged white and black pixels.
@@ -190,11 +194,14 @@ inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntil
 // and other overlays should be drawn before calling this.
 // Kept as a template to avoid std::function overhead; instantiated once per reader type.
 template <typename RenderFn>
-void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
+void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool highContrastText = false) {
   if (!renderer.storeBwBuffer()) {
     LOG_ERR("READER", "Failed to store BW buffer for anti-aliasing");
     return;
   }
+
+  const bool previousHighContrast = renderer.getHighContrastTextAntialiasing();
+  renderer.setHighContrastTextAntialiasing(highContrastText);
 
   renderer.clearScreen(0x00);
   renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
@@ -208,6 +215,7 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
 
   renderer.displayGrayBuffer();
   renderer.setRenderMode(GfxRenderer::BW);
+  renderer.setHighContrastTextAntialiasing(previousHighContrast);
 
   renderer.restoreBwBuffer();
 }

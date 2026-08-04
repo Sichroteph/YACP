@@ -54,6 +54,10 @@ class HalPowerManager {
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;
 
+  // Read the X3 fuel gauge's filtered signed current in mA.
+  // Returns false on devices without a BQ27220 or when the I2C read fails.
+  bool getBatteryAverageCurrent(int16_t& outCurrentMa) const;
+
   // Reuse the latest value without touching the ADC or I2C bus.
   bool getCachedBatteryPercentage(uint16_t& outPercentage) const;
 

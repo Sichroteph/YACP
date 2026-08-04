@@ -9,6 +9,7 @@ struct PowerHistoryState {
 
   uint32_t activeSeconds = 0;
   uint32_t cycleStartDay = 0;
+  uint32_t readerPageDisplays = 0;
   uint16_t sampleActiveMinutes[SAMPLE_CAPACITY] = {};
   uint16_t sleepSamples = 0;
   uint8_t samplePercents[SAMPLE_CAPACITY] = {};

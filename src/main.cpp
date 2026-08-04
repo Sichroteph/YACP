@@ -62,6 +62,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #ifdef SIMULATOR
 #include <cstdlib>
@@ -110,6 +111,64 @@ namespace {
 constexpr uint32_t READER_IDLE_POLL_MS = 50;
 constexpr uint32_t INPUT_DEBOUNCE_REPOLL_MS = 10;
 
+enum class BootShortcut : uint8_t {
+  None,
+  SafeHome,
+  FirmwareUpdate,
+  JoinNetwork,
+};
+
+constexpr uint32_t USB_ENUMERATION_READY_MS = 250;
+constexpr uint32_t BOOT_CHORD_SAMPLE_GAP_MS = 8;
+constexpr size_t QUICK_RESUME_INDICATOR_BYTES = (LOADINGICON_WIDTH / 8) * LOADINGICON_HEIGHT;
+
+std::array<uint8_t, QUICK_RESUME_INDICATOR_BYTES> quickResumeIndicatorBackground{};
+bool quickResumeIndicatorCaptured = false;
+bool serialLoggingStarted = false;
+
+BootShortcut bootShortcutFromPhysicalState(const uint8_t buttons) {
+  const auto pressed = [buttons](const uint8_t button) { return (buttons & (1u << button)) != 0; };
+  if (pressed(HalGPIO::BTN_BACK)) return BootShortcut::SafeHome;
+  if (pressed(HalGPIO::BTN_UP)) return BootShortcut::FirmwareUpdate;
+  if (pressed(HalGPIO::BTN_DOWN)) return BootShortcut::JoinNetwork;
+  return BootShortcut::None;
+}
+
+BootShortcut sampleStableBootShortcut() {
+#ifdef SIMULATOR
+  return BootShortcut::None;
+#else
+  const uint8_t first = gpio.samplePhysicalButtons();
+  delay(BOOT_CHORD_SAMPLE_GAP_MS);
+  const uint8_t second = gpio.samplePhysicalButtons();
+  return bootShortcutFromPhysicalState(first & second);
+#endif
+}
+
+void startSerialLogging(const uint32_t bootStartedAtMs, const bool waitForEnumeration) {
+#ifdef ENABLE_SERIAL_LOG
+  if (serialLoggingStarted) return;
+  if (waitForEnumeration) {
+    const uint32_t elapsed = millis() - bootStartedAtMs;
+    if (elapsed < USB_ENUMERATION_READY_MS) {
+      delay(USB_ENUMERATION_READY_MS - elapsed);
+    }
+  }
+#ifndef SIMULATOR
+  logSerial.setRxBufferSize(1024);
+  logSerial.setTxBufferSize(1024);
+#endif
+  Serial.begin(115200);
+#ifndef SIMULATOR
+  logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
+#endif
+  serialLoggingStarted = true;
+#else
+  (void)bootStartedAtMs;
+  (void)waitForEnumeration;
+#endif
+}
+
 bool externalPowerConnectedForHistory() {
 #ifdef SIMULATOR
   return gpio.isUsbConnected();
@@ -132,6 +191,12 @@ void drawReaderWakeLoadingIcon() {
   const auto savedOrientation = renderer.getOrientation();
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
   const auto pageHeight = renderer.getScreenHeight();
+  const size_t regionSize =
+      renderer.getRegionByteSize(0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
+  quickResumeIndicatorCaptured =
+      regionSize == quickResumeIndicatorBackground.size() &&
+      renderer.copyRegionToBuffer(0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT,
+                                  quickResumeIndicatorBackground.data(), quickResumeIndicatorBackground.size());
   if (ReaderUtils::readerDarkModeEnabled()) {
     renderer.drawImageInverted(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
   } else {
@@ -140,8 +205,8 @@ void drawReaderWakeLoadingIcon() {
   renderer.setOrientation(savedOrientation);
 }
 
-bool quickResumeRoutesToReader(const bool recoveryFirmwareMode) {
-  return !recoveryFirmwareMode && !HalSystem::isRebootFromPanic() &&
+bool quickResumeRoutesToReader(const BootShortcut bootShortcut) {
+  return bootShortcut == BootShortcut::None && !HalSystem::isRebootFromPanic() &&
          strcmp(SETTINGS.buttonLayoutPromptVersion, CROSSINK_VERSION) == 0 && !APP_STATE.openEpubPath.empty() &&
          APP_STATE.lastSleepFromReader && !mappedInputManager.isPressed(MappedInputManager::Button::Back) &&
          APP_STATE.readerActivityLoadCount == 0;
@@ -170,6 +235,23 @@ void beginDisplayBusyWaitPowerSaving() { powerManager.beginDisplayBusyWait(); }
 void endDisplayBusyWaitPowerSaving() { powerManager.endDisplayBusyWait(); }
 #endif
 }  // namespace
+
+bool finishQuickResumeLoadingIndicator() {
+  if (!quickResumeIndicatorCaptured || !gpio.deviceIsX3()) return false;
+
+  const auto savedOrientation = renderer.getOrientation();
+  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  const auto pageHeight = renderer.getScreenHeight();
+  const bool restored =
+      renderer.copyBufferToRegion(0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT,
+                                  quickResumeIndicatorBackground.data(), quickResumeIndicatorBackground.size());
+  quickResumeIndicatorCaptured = false;
+  if (restored) {
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+  }
+  renderer.setOrientation(savedOrientation);
+  return restored;
+}
 
 // Fonts
 #ifndef OMIT_MEDIUM_FONT
@@ -778,26 +860,11 @@ void setup() {
   const esp_reset_reason_t rawResetReason = esp_reset_reason();
   const esp_sleep_wakeup_cause_t rawWakeupCause = esp_sleep_get_wakeup_cause();
 
-#ifdef ENABLE_SERIAL_LOG
-  // Earliest possible Serial setup. The 250 ms stall before begin() lets the
-  // USB Serial/JTAG peripheral finish power-on and lets the host complete USB
-  // enumeration before we touch the CDC state — otherwise cold boot races
-  // and the host has to be physically replugged for logs to flow. Warm reboot
-  // worked without the delay because USB was already enumerated.
-  delay(250);
+  // CDC starts after hardware detection below. Cable boots retain the 250 ms
+  // enumeration floor that prevents cold-boot host races; battery X3 wakes skip it.
   // Web Serial sends file data in 256-byte chunks and waits for a 1-byte ACK.
   // HWCDC defaults to a 256-byte RX queue, which is fine for logs but too small
   // for chunked file transfer.
-#ifndef SIMULATOR
-  logSerial.setRxBufferSize(1024);
-  logSerial.setTxBufferSize(1024);
-#endif
-  Serial.begin(115200);
-#ifndef SIMULATOR
-  logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
-#endif
-#endif
-
   HalSystem::begin();
   LOG_INF("BOOT", "Reset diagnostic: reset=%d(%s) sleepWake=%d(%s)", static_cast<int>(rawResetReason),
           resetReasonName(rawResetReason), static_cast<int>(rawWakeupCause), wakeupCauseName(rawWakeupCause));
@@ -814,6 +881,25 @@ void setup() {
   powerManager.begin();
   halTiltSensor.begin();
   halClock.begin();
+  gpio.update();  // Seed cached USB state before deciding whether CDC is needed.
+
+  const auto wakeupReason = gpio.getWakeupReason();
+  BootShortcut bootShortcut = BootShortcut::None;
+  if (gpio.deviceIsX3() && wakeupReason == HalGPIO::WakeupReason::PowerButton) {
+    // Two direct samples reject ADC noise without paying the old 500 ms boot
+    // debounce. Back is deliberately the highest-priority safe-home chord.
+    bootShortcut = sampleStableBootShortcut();
+  }
+
+#ifdef SIMULATOR
+  startSerialLogging(t1, false);
+#else
+  // Preserve eager CDC on X4. X3 starts it only with external power; the
+  // enumeration floor overlaps hardware detection instead of every wake.
+  if (gpio.deviceIsX4() || gpio.isUsbConnectedCached()) {
+    startSerialLogging(t1, true);
+  }
+#endif
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
   LOG_INF("BOOT", "Post-GPIO diagnostic: device=%s usb=%d silentReboot=%d silentTarget=%lu",
@@ -837,20 +923,16 @@ void setup() {
   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
 #endif
   APP_STATE.loadFromFile();
-  RECENT_BOOKS.loadFromFile();
 #ifdef SIMULATOR
   I18N.setLanguage(languageForSimulatorRun());
 #else
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
 #endif
-  KOREADER_STORE.loadFromFile();
-  OPDS_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   // Check wake duration before the remaining file loads so the user does not
   // have to hold the power button across all of the SD reads below.
-  const auto wakeupReason = gpio.getWakeupReason();
   LOG_INF("BOOT", "Wake route: %s", wakeupRouteName(wakeupReason));
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
@@ -877,8 +959,7 @@ void setup() {
   // Recovery firmware mode: hold left side button (BTN_UP) together with the power button at
   // boot to skip directly to the SD-card firmware update screen. Useful on devices where USB
   // flashing has been locked down (e.g. recent X3 firmware).
-  bool recoveryFirmwareMode = false;
-  if (wakeupReason == HalGPIO::WakeupReason::PowerButton) {
+  if (gpio.deviceIsX4() && wakeupReason == HalGPIO::WakeupReason::PowerButton) {
     // Refresh the cached button state a few times — isPressed() needs ~half a second to settle
     // after boot per the HalGPIO contract. Use a millis-based deadline so we always wait the full
     // settle window even if the loop body takes longer than expected on slow boots.
@@ -888,9 +969,24 @@ void setup() {
       delay(10);
     }
     if (gpio.isPressed(HalGPIO::BTN_UP)) {
-      recoveryFirmwareMode = true;
-      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
+      bootShortcut = BootShortcut::FirmwareUpdate;
+    } else if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
+      bootShortcut = BootShortcut::JoinNetwork;
     }
+  }
+
+  switch (bootShortcut) {
+    case BootShortcut::SafeHome:
+      LOG_INF("MAIN", "Safe Home mode (BACK + POWER held at boot)");
+      break;
+    case BootShortcut::FirmwareUpdate:
+      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
+      break;
+    case BootShortcut::JoinNetwork:
+      LOG_INF("MAIN", "Join network mode (DOWN + POWER held at boot)");
+      break;
+    case BootShortcut::None:
+      break;
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
@@ -900,11 +996,14 @@ void setup() {
   // skips the panel-clearing pass and the X3 initial-full-sync arming (see
   // HalDisplay::begin), so the first paint is FAST_REFRESH (~500ms) over the
   // retained frame and input dispatches against a visible UI.
-  const BootResume resume = isSilentReboot              ? BootResume::Silent
-                            : !APP_STATE.showBootScreen ? BootResume::QuickResume
-                                                        : BootResume::Splash;
+  BootResume resume = BootResume::Splash;
+  if (isSilentReboot) {
+    resume = BootResume::Silent;
+  } else if (bootShortcut != BootShortcut::SafeHome && !APP_STATE.showBootScreen) {
+    resume = BootResume::QuickResume;
+  }
   const bool quickResumeReaderRouteExpected =
-      resume == BootResume::QuickResume && quickResumeRoutesToReader(recoveryFirmwareMode);
+      resume == BootResume::QuickResume && quickResumeRoutesToReader(bootShortcut);
   bool allowFastInitialReaderRefresh = false;
   bool allowFastInitialHomeRefresh = false;
 
@@ -955,10 +1054,17 @@ void setup() {
       break;
   }
 
-  if (recoveryFirmwareMode) {
+  if (bootShortcut == BootShortcut::SafeHome) {
+    // The full splash above resynchronizes the panel. Never reopen the last
+    // book on this deliberately conservative recovery path.
+    activityManager.goHome();
+  } else if (bootShortcut == BootShortcut::FirmwareUpdate) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
         std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
+  } else if (bootShortcut == BootShortcut::JoinNetwork) {
+    // Skip normal home/reader routing and the network-mode chooser.
+    activityManager.goToJoinNetworkFileTransfer();
   } else if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
@@ -1029,17 +1135,24 @@ void loop() {
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.tiltPageTurnDirection, SETTINGS.orientation,
                        activityManager.isReaderActivity());
 
+  if (!serialLoggingStarted && gpio.deviceIsX3() && activityManager.isHomeActivity()) {
+    // Home is the explicit boundary where USB file transfer becomes useful.
+    // Starting CDC here also covers a fully charged X3 whose fuel gauge reports
+    // zero current and therefore cannot reliably expose the cable edge.
+    startSerialLogging(t1, false);
+  }
+
   renderer.setFadingFix(SETTINGS.fadingFix);
 
-  if (Serial && millis() - lastMemPrint >= 10000) {
+  if (serialLoggingStarted && Serial && millis() - lastMemPrint >= 10000) {
     LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
     lastMemPrint = millis();
   }
 
 #ifndef SIMULATOR
-  if (UsbSerialFileTransfer::process(activityManager.isHomeActivity()) ==
-      UsbSerialFileTransfer::ProcessResult::ScreenshotRequested) {
+  if (serialLoggingStarted && UsbSerialFileTransfer::process(activityManager.isHomeActivity()) ==
+                                  UsbSerialFileTransfer::ProcessResult::ScreenshotRequested) {
     const uint32_t bufferSize = display.getBufferSize();
     logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
     uint8_t* buf = display.getFrameBuffer();
@@ -1111,6 +1224,11 @@ void loop() {
   // Placed after sleep guards so we never queue a render that won't be processed.
   if (gpio.wasUsbStateChanged()) {
     PowerHistory::noteExternalPower(externalPowerConnectedForHistory());
+    if (gpio.deviceIsX3() && externalPowerConnectedForHistory()) {
+      // A cable connected after boot gets the same CDC/file-transfer features;
+      // no enumeration delay is needed because the edge arrives well after boot.
+      startSerialLogging(t1, false);
+    }
     activityManager.requestUpdate();
   }
 

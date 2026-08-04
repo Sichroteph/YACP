@@ -2,6 +2,8 @@ _language_name: "Português (Brasil)"
 _language_code: "PT"
 _order: "5"
 
+STR_POWER_PAGES_DISPLAYED: "Páginas exibidas"
+
 STR_BUTTON_LAYOUT_SETUP_TITLE: "Escolha o perfil do firmware"
 STR_BUTTON_LAYOUT_SETUP_HELP: "Use os botões laterais e prima Power"
 STR_BUTTON_LAYOUT_YACP_POWER_HELP: "YACP: retoma rápida · sem flash/página · suspensão 5 min"
@@ -515,3 +517,4 @@ STR_NEARBY_POSITION_NO_READER: "Nenhum leitor próximo encontrado"
 STR_NEARBY_LABEL: "Próximo:"
 STR_APPLY_NEARBY_POSITION: "Aplicar posição próxima"
 STR_NEARBY_POSITION_SIMULATOR_UNAVAILABLE: "A sincronização próxima de posição não está disponível no simulador"
+STR_BATTERY_CURRENT: "Corrente da bateria"
