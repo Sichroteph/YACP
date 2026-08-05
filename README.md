@@ -130,12 +130,11 @@ These single-run observations are not a formal benchmark or a battery-life claim
 the end-to-end figures.
 
 <p align="center">
-  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-x3-faster-cover-wake-preview.gif"
+  <img src="docs/media/YACP-x3-faster-cover-wake-preview.gif"
        alt="An X3 waking from a book-cover sleep image into the current reading page"
        width="480">
   <br>
-  <sub>GIF preview of the latest X3 Cover-wake recording from the hardware test session.
-  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-x3-faster-cover-wake.mp4">Download the unedited original MP4.</a></sub>
+  <sub>GIF preview of the latest X3 Cover-wake recording from the hardware test session.</sub>
 </p>
 
 Boot chords use physical button positions, so custom reader mappings do not change them:
@@ -190,12 +189,11 @@ inside the Wi-Fi driver. A single saved network keeps the faster direct path, an
 when the full network list is wanted immediately.
 
 <p align="center">
-  <img src="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-wifi-multi-network-before-after.gif"
+  <img src="docs/media/YACP-wifi-multi-network-before-after.gif"
        alt="Previous and updated saved Wi-Fi selection paths when the last-used network is unavailable"
        width="760">
   <br>
-  <sub>The updated path advances through available saved networks without an error or credential-deletion prompt.
-  <a href="https://github.com/Sichroteph/YACP/releases/download/v1.6.0-yacp/YACP-wifi-multi-network-before-after.mp4">Download the MP4.</a></sub>
+  <sub>The updated path advances through available saved networks without an error or credential-deletion prompt.</sub>
 </p>
 
 ### Adaptive images and sleep galleries
