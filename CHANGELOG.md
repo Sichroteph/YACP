@@ -1,3 +1,10 @@
+## [v1.6.1-yacp] - 2026-08-05
+
+### Fixed
+
+- X3 Quick Resume now reinforces the retained page with a second no-flash settle pass before sleep, reducing the risk
+  of white pixels drifting toward gray during long standby periods.
+
 ## [v1.6.0-yacp] - 2026-08-05
 
 This release primarily optimizes the normal X3 wake, book-resume, and sleep cycle. It removes fixed startup delays and

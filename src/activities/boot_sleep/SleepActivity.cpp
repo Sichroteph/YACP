@@ -998,8 +998,9 @@ void SleepActivity::renderLastScreenSleepScreen() const {
   if (gpio.deviceIsX3()) {
     // The controller still holds the displayed reader frame here, so the X3 can
     // paint the sleep icon differentially without a full-screen black flash.
-    // Turn it off as soon as BUSY clears; stats backup and sensor shutdown do
-    // not need the panel electronics to remain powered.
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+    // Repeat the no-change AA-pre-BW(mid) pass so unchanged white and black
+    // pixels get an extra no-flash settle before the panel is powered down.
     renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
   } else {
     renderer.displayBuffer(HalDisplay::FULL_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
