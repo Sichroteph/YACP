@@ -174,7 +174,6 @@ void writeX3DisplayBootDiagnostics() {
   return;
 #else
   constexpr char DIAGNOSTIC_PATH[] = "/YACP-X3-DIAGNOSTIC.txt";
-  if (!gpio.deviceIsX3()) return;
   const auto& diag = gpio.getDisplayProbeDiagnostics();
 
   // Static storage keeps this one-shot support report off the constrained setup
@@ -190,6 +189,7 @@ void writeX3DisplayBootDiagnostics() {
       "override_raw=%u\n"
       "cached_raw=%u\n"
       "verdict_raw=%u\n"
+      "selection_mode=%s\n"
       "selected_controller=%s\n"
       "ver=%02X %02X %02X %02X %02X\n"
       "flg=%02X\n"
@@ -197,10 +197,10 @@ void writeX3DisplayBootDiagnostics() {
       "mtp_head=%02X %02X %02X %02X %02X %02X %02X %02X\n",
       CROSSINK_VERSION, CROSSINK_FIRMWARE_VARIANT, gpio.deviceIsX3() ? "X3" : "X4", diag.probeRan ? 1u : 0u,
       static_cast<unsigned>(diag.overrideValue), static_cast<unsigned>(diag.cachedValue),
-      static_cast<unsigned>(diag.verdict), diag.selectedUc8279 ? "UC8279" : "UC8253/default", diag.ver[0],
-      diag.ver[1], diag.ver[2], diag.ver[3], diag.ver[4], diag.flg, diag.mtpValid ? 1u : 0u, diag.mtpHead[0],
-      diag.mtpHead[1], diag.mtpHead[2], diag.mtpHead[3], diag.mtpHead[4], diag.mtpHead[5], diag.mtpHead[6],
-      diag.mtpHead[7]);
+      static_cast<unsigned>(diag.verdict), diag.forcedRecoverySelection ? "forced_recovery" : "automatic",
+      diag.selectedUc8279 ? "UC8279" : "UC8253/default", diag.ver[0], diag.ver[1], diag.ver[2], diag.ver[3],
+      diag.ver[4], diag.flg, diag.mtpValid ? 1u : 0u, diag.mtpHead[0], diag.mtpHead[1], diag.mtpHead[2],
+      diag.mtpHead[3], diag.mtpHead[4], diag.mtpHead[5], diag.mtpHead[6], diag.mtpHead[7]);
   if (reportLength <= 0 || static_cast<size_t>(reportLength) >= sizeof(report)) {
     LOG_ERR("DIAG", "X3 display diagnostic report overflow");
     return;

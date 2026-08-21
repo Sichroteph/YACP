@@ -244,6 +244,15 @@ bool detectX3DisplayIsUc8279() {
 }  // namespace
 
 void HalGPIO::begin() {
+#ifdef YACP_X3_UC8279_RECOVERY_BUILD
+  // This support-only build targets one known X3. Skip both hardware probes so
+  // neither can prevent SD initialization or hide whether this image booted.
+  _deviceType = DeviceType::X3;
+  BoardConfig::selectDevice(BoardConfig::Board::XteinkX3Uc8279);
+  displayProbeDiagnostics.selectedUc8279 = true;
+  displayProbeDiagnostics.forcedRecoverySelection = true;
+  LOG_INF("HW", "Recovery build forced to X3 with UC8279 controller");
+#else
 #ifdef FORCE_DEVICE_X3
   _deviceType = DeviceType::X3;
   LOG_INF("HW", "Device override active via build flag: X3");
@@ -268,6 +277,7 @@ void HalGPIO::begin() {
   if (deviceIsX4()) {
     freeink::applyXteinkDisplayController();
   }
+#endif
 
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
   inputMgr.begin();

@@ -1,9 +1,8 @@
-## [v1.6.2-yacp.15] - 2026-08-21
+## [v1.6.2-yacp.18] - 2026-08-21
 
-This pre-release extends YACP to newer X3 production runs whose display uses a UC8279d controller instead of the
-original UC8253. The diagnostic build detects the controller before normal SPI initialization and deliberately
-repeats the probe on each boot while hardware validation is in progress. The UC8279d path should still be treated as
-experimental.
+This support-only pre-release targets a known newer X3 whose display uses a UC8279d controller instead of the original
+UC8253. It deliberately forces the X3 hardware profile and UC8279d driver without running either automatic hardware
+probe. It should not be installed on an X4 or an original UC8253 X3.
 
 ### Added
 
@@ -18,6 +17,10 @@ experimental.
 
 ### Changed
 
+- Made the SD-card diagnostic report unconditional after storage initialization, so a mistaken device classification
+  cannot suppress the evidence that this firmware booted.
+- Forced the X3 hardware profile and UC8279d controller in this support-only build, bypassing all automatic hardware
+  and display-controller probes.
 - Renamed Sunlight Fading Fix to Display Power Saving and enabled it by default for new settings. Multi-pass
   grayscale refreshes now keep the display powered only until their final pass, avoiding intermediate power cycles.
 - Text anti-aliasing is now enabled by default for new settings and for the YACP first-run profile. Existing saved
@@ -27,8 +30,8 @@ experimental.
 
 ### Fixed
 
-- Matched CrossPoint's X3 controller-detection order by selecting the base X3 profile before probing. The diagnostic
-  pre-release bypasses the previous cached panel verdict so a failed early probe cannot keep selecting UC8253.
+- Removed the diagnostic blind spot where the controller probe or an incorrect X4 classification could prevent the
+  SD-card report from being written.
 
 - Restored CrossInk's text anti-aliasing mapping for YACP: dark-gray and light-gray glyph edge pixels are written to
   the same grayscale planes on X3 and X4, without the YACP-specific high-contrast reduction.

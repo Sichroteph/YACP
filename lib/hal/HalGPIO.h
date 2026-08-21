@@ -61,6 +61,7 @@ class HalGPIO {
     bool mtpValid = false;
     uint8_t mtpHead[8] = {0};
     bool selectedUc8279 = false;
+    bool forcedRecoverySelection = false;
   };
 
  private:
