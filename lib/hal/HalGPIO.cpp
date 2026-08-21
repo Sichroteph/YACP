@@ -7,6 +7,8 @@
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
 
+#include <cstring>
+
 // Global HalGPIO instance
 HalGPIO gpio;
 
@@ -196,28 +198,40 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
 // conclusive result so normal boots do not repeatedly reset the display bus.
 constexpr char NVS_KEY_EPD_OVERRIDE[] = "epd_ovr";  // 0=auto, 1=uc8253, 2=uc8279
 constexpr char NVS_KEY_EPD_CACHED[] = "epd_det";    // 0=unknown, 1=uc8253, 2=uc8279
+HalGPIO::DisplayProbeDiagnostics displayProbeDiagnostics;
 
 bool detectX3DisplayIsUc8279() {
   const NvsDeviceValue overrideValue = readNvsDeviceValue(NVS_KEY_EPD_OVERRIDE, NvsDeviceValue::Unknown);
+  const NvsDeviceValue cachedValue = readNvsDeviceValue(NVS_KEY_EPD_CACHED, NvsDeviceValue::Unknown);
+  displayProbeDiagnostics.overrideValue = static_cast<uint8_t>(overrideValue);
+  displayProbeDiagnostics.cachedValue = static_cast<uint8_t>(cachedValue);
+
   if (overrideValue != NvsDeviceValue::Unknown) {
     LOG_INF("HW", "EPD controller override active: %s", overrideValue == NvsDeviceValue::X3 ? "UC8279" : "UC8253");
+    displayProbeDiagnostics.selectedUc8279 = overrideValue == NvsDeviceValue::X3;
     return overrideValue == NvsDeviceValue::X3;
   }
 
-  const NvsDeviceValue cachedValue = readNvsDeviceValue(NVS_KEY_EPD_CACHED, NvsDeviceValue::Unknown);
-  if (cachedValue != NvsDeviceValue::Unknown) {
-    LOG_INF("HW", "Using cached EPD controller: %s", cachedValue == NvsDeviceValue::X3 ? "UC8279" : "UC8253");
-    return cachedValue == NvsDeviceValue::X3;
-  }
-
+  // This diagnostic pre-release deliberately bypasses the cached verdict. The
+  // previous integration could probe while the dual-device build still had its
+  // X4 profile active, then persist a false UC8253 result. Re-probing after the
+  // caller selects the base X3 profile reproduces CrossPoint's known-good order.
   uint8_t ver[5] = {0};
   uint8_t flg = 0;
   const freeink::X3DisplayVerdict verdict = freeink::detectX3DisplayController(ver, &flg);
+  const auto& sdkDiagnostics = freeink::getXteinkDisplayProbeDiag();
+  displayProbeDiagnostics.probeRan = true;
+  displayProbeDiagnostics.verdict = static_cast<uint8_t>(verdict);
+  memcpy(displayProbeDiagnostics.ver, ver, sizeof(ver));
+  displayProbeDiagnostics.flg = flg;
+  displayProbeDiagnostics.mtpValid = sdkDiagnostics.mtpValid;
+  memcpy(displayProbeDiagnostics.mtpHead, sdkDiagnostics.mtp, sizeof(displayProbeDiagnostics.mtpHead));
   LOG_INF("HW", "EPD probe: ver=%02X %02X %02X %02X %02X flg=%02X verdict=%u", ver[0], ver[1], ver[2], ver[3],
           ver[4], flg, static_cast<unsigned>(verdict));
 
   if (verdict == freeink::X3DisplayVerdict::Uc8279Confirmed) {
     writeNvsDeviceValue(NVS_KEY_EPD_CACHED, NvsDeviceValue::X3);
+    displayProbeDiagnostics.selectedUc8279 = true;
     return true;
   }
   if (verdict == freeink::X3DisplayVerdict::Uc8253Assumed) {
@@ -237,12 +251,17 @@ void HalGPIO::begin() {
   _deviceType = detectDeviceTypeWithFingerprint();
 #endif
 
+  // CrossPoint selects the base device profile before probing the controller.
+  // On the dual X3/X4 build this is significant: X3 enables the vendor's 50 ms
+  // reset retry, while the compile-time default X4 profile uses the short path.
+  BoardConfig::selectDevice(deviceIsX3() ? BoardConfig::Board::XteinkX3 : BoardConfig::Board::XteinkX4);
+
   // The controller probe bit-bangs the display pins and must complete before
   // SPI.begin() attaches them to the SPI matrix.
   const bool x3IsUc8279 = deviceIsX3() && detectX3DisplayIsUc8279();
-  BoardConfig::selectDevice(!deviceIsX3() ? BoardConfig::Board::XteinkX4
-                            : x3IsUc8279  ? BoardConfig::Board::XteinkX3Uc8279
-                                          : BoardConfig::Board::XteinkX3);
+  if (x3IsUc8279) {
+    BoardConfig::selectDevice(BoardConfig::Board::XteinkX3Uc8279);
+  }
 
   // Keep the SDK's factory-aware per-batch controller selection for X4 while
   // the X3-specific override/cache above remains authoritative for recovery.
@@ -257,6 +276,10 @@ void HalGPIO::begin() {
     pinMode(BAT_GPIO0, INPUT);
     pinMode(UART0_RXD, INPUT);
   }
+}
+
+const HalGPIO::DisplayProbeDiagnostics& HalGPIO::getDisplayProbeDiagnostics() const {
+  return displayProbeDiagnostics;
 }
 
 void HalGPIO::update() {

@@ -1,13 +1,16 @@
-## [v1.6.2-yacp.10] - 2026-08-20
+## [v1.6.2-yacp.15] - 2026-08-21
 
 This pre-release extends YACP to newer X3 production runs whose display uses a UC8279d controller instead of the
-original UC8253. The controller is detected before normal SPI initialization and a conclusive result is cached for
-later boots. The UC8279d path is included for hardware validation and should still be treated as experimental.
+original UC8253. The diagnostic build detects the controller before normal SPI initialization and deliberately
+repeats the probe on each boot while hardware validation is in progress. The UC8279d path should still be treated as
+experimental.
 
 ### Added
 
 - Added a dedicated UC8279d display driver and automatic UC8253/UC8279d detection for newer X3 production runs,
   preventing the blank or frozen display caused by driving the new controller as an original X3.
+- Added a visible `YACP-X3-DIAGNOSTIC.txt` report on the SD-card root before display initialization, containing the
+  running build, raw controller probe values, previous cached decision, and controller selected for that boot.
 - Added experimental runtime detection and driver selection for newer X4 UC8179 and UC8279 controller variants. These
   paths are compiled into the shared X3/X4 firmware but have not yet been validated on matching X4 hardware.
 - Reading Rhythm now shows the exact reading time for each of the last seven days, making day-to-day comparisons
@@ -23,6 +26,9 @@ later boots. The UC8279d path is included for hardware validation and should sti
   the first real screen after the splash, removing that redundant long refresh while preserving the wake cleanup.
 
 ### Fixed
+
+- Matched CrossPoint's X3 controller-detection order by selecting the base X3 profile before probing. The diagnostic
+  pre-release bypasses the previous cached panel verdict so a failed early probe cannot keep selecting UC8253.
 
 - Restored CrossInk's text anti-aliasing mapping for YACP: dark-gray and light-gray glyph edge pixels are written to
   the same grayscale planes on X3 and X4, without the YACP-specific high-contrast reduction.

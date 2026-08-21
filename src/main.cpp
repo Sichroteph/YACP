@@ -169,6 +169,60 @@ void startSerialLogging(const uint32_t bootStartedAtMs, const bool waitForEnumer
 #endif
 }
 
+void writeX3DisplayBootDiagnostics() {
+#ifdef SIMULATOR
+  return;
+#else
+  constexpr char DIAGNOSTIC_PATH[] = "/YACP-X3-DIAGNOSTIC.txt";
+  if (!gpio.deviceIsX3()) return;
+  const auto& diag = gpio.getDisplayProbeDiagnostics();
+
+  // Static storage keeps this one-shot support report off the constrained setup
+  // stack and avoids heap allocation before display initialization.
+  static char report[512];
+  const int reportLength = snprintf(
+      report, sizeof(report),
+      "YACP X3 display diagnostic\n"
+      "version=%s\n"
+      "variant=%s\n"
+      "device=%s\n"
+      "probe_ran=%u\n"
+      "override_raw=%u\n"
+      "cached_raw=%u\n"
+      "verdict_raw=%u\n"
+      "selected_controller=%s\n"
+      "ver=%02X %02X %02X %02X %02X\n"
+      "flg=%02X\n"
+      "mtp_valid=%u\n"
+      "mtp_head=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+      CROSSINK_VERSION, CROSSINK_FIRMWARE_VARIANT, gpio.deviceIsX3() ? "X3" : "X4", diag.probeRan ? 1u : 0u,
+      static_cast<unsigned>(diag.overrideValue), static_cast<unsigned>(diag.cachedValue),
+      static_cast<unsigned>(diag.verdict), diag.selectedUc8279 ? "UC8279" : "UC8253/default", diag.ver[0],
+      diag.ver[1], diag.ver[2], diag.ver[3], diag.ver[4], diag.flg, diag.mtpValid ? 1u : 0u, diag.mtpHead[0],
+      diag.mtpHead[1], diag.mtpHead[2], diag.mtpHead[3], diag.mtpHead[4], diag.mtpHead[5], diag.mtpHead[6],
+      diag.mtpHead[7]);
+  if (reportLength <= 0 || static_cast<size_t>(reportLength) >= sizeof(report)) {
+    LOG_ERR("DIAG", "X3 display diagnostic report overflow");
+    return;
+  }
+
+  HalFile file;
+  if (!Storage.openFileForWrite("DIAG", DIAGNOSTIC_PATH, file)) {
+    LOG_ERR("DIAG", "Could not open %s", DIAGNOSTIC_PATH);
+    return;
+  }
+  const size_t written = file.write(report, static_cast<size_t>(reportLength));
+  file.flush();
+  const bool synced = file.sync();
+  const bool closed = file.close();
+  if (written != static_cast<size_t>(reportLength) || !synced || !closed) {
+    LOG_ERR("DIAG", "Could not persist complete X3 display diagnostic report");
+    return;
+  }
+  LOG_INF("DIAG", "Wrote %s", DIAGNOSTIC_PATH);
+#endif
+}
+
 bool externalPowerConnectedForHistory() {
 #ifdef SIMULATOR
   return gpio.isUsbConnected();
@@ -915,6 +969,10 @@ void setup() {
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
     return;
   }
+
+  // Persist evidence before display.begin(): even if the selected controller
+  // cannot refresh the panel, support can identify the running build and probe.
+  writeX3DisplayBootDiagnostics();
 
   HalSystem::checkPanic();
 

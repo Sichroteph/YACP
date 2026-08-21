@@ -51,6 +51,18 @@ class HalGPIO {
  public:
   enum class DeviceType : uint8_t { X4, X3 };
 
+  struct DisplayProbeDiagnostics {
+    bool probeRan = false;
+    uint8_t overrideValue = 0;
+    uint8_t cachedValue = 0;
+    uint8_t verdict = 0;
+    uint8_t ver[5] = {0};
+    uint8_t flg = 0;
+    bool mtpValid = false;
+    uint8_t mtpHead[8] = {0};
+    bool selectedUc8279 = false;
+  };
+
  private:
   DeviceType _deviceType = DeviceType::X4;
 
@@ -60,6 +72,8 @@ class HalGPIO {
   // Inline device type helpers for cleaner downstream checks
   inline bool deviceIsX3() const { return _deviceType == DeviceType::X3; }
   inline bool deviceIsX4() const { return _deviceType == DeviceType::X4; }
+
+  const DisplayProbeDiagnostics& getDisplayProbeDiagnostics() const;
 
   // Start button GPIO and setup SPI for screen and SD card
   void begin();
