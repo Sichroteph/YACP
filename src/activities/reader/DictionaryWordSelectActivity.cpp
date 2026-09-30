@@ -94,6 +94,7 @@ bool DictionaryWordSelectActivity::extractWords() {
       if (isSelectableToken(line.getBlock()->wordText(i))) selectableCount++;
     }
   }
+  const size_t availableCount = selectableCount;
   selectableCount = std::min(selectableCount, MAX_SELECTABLE_WORDS);
   if (selectableCount == 0) return false;
 
@@ -166,6 +167,9 @@ bool DictionaryWordSelectActivity::extractWords() {
     const int width = renderer.getTextAdvanceX(fontId_, word.text, word.style);
     word.width = static_cast<int16_t>(std::clamp(width, 1, static_cast<int>(INT16_MAX)));
   }
+  LOG_INF("DICT", "Word selector retained %u of %u selectable words (%u-byte list, free=%u, maxAlloc=%u)",
+          static_cast<unsigned>(wordCount_), static_cast<unsigned>(availableCount), reserveBytes, memory.freeHeap,
+          memory.maxAllocHeap);
   return wordCount_ > 0;
 }
 

@@ -516,6 +516,12 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
       std::min<size_t>(currentTextRunBytes + static_cast<size_t>(partWordBufferIndex), UINT16_MAX));
   partWordBufferIndex = 0;
   nextWordContinues = false;
+
+  // A single Expat character-data callback may contain several MAX_WORD_SIZE
+  // fragments. Check the layout bound after every fragment instead of only at
+  // the end of the callback, otherwise CJK token vectors can grow past their
+  // nominal limit and double their retained capacity before being consumed.
+  flushLongTextRunIfNeeded();
 }
 
 size_t ChapterHtmlSlimParser::bufferedWordsBeforeLayoutLimit() const {

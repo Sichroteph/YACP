@@ -84,6 +84,32 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
       continue;
     }
 
+    if (!isCombining && !hasRealGlyph && syntheticGlyph::isOutlineCircle(cp)) {
+      const EpdFontData* data = getData(style);
+      const uint16_t advanceX = syntheticGlyph::solidAdvanceX(data, getGlyph('M', style));
+      const int glyphHeight = syntheticGlyph::solidHeight(data, syntheticGlyph::BLACK_SQUARE);
+      const int glyphWidth = syntheticGlyph::solidWidth(syntheticGlyph::BLACK_SQUARE, advanceX, glyphHeight);
+      const int glyphLeft = syntheticGlyph::solidLeft(syntheticGlyph::BLACK_SQUARE, advanceX, glyphWidth);
+      const int glyphTop = syntheticGlyph::solidTop(data, syntheticGlyph::BLACK_SQUARE, glyphHeight);
+
+      if (prevCp != 0) {
+        const auto kernFP = getKerning(prevCp, cp, style);
+        lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);
+      }
+
+      minX = std::min(minX, lastBaseX + glyphLeft);
+      maxX = std::max(maxX, lastBaseX + glyphLeft + glyphWidth);
+      minY = std::min(minY, glyphTop - glyphHeight);
+      maxY = std::max(maxY, glyphTop);
+
+      lastBaseLeft = glyphLeft;
+      lastBaseWidth = glyphWidth;
+      lastBaseTop = glyphTop;
+      prevAdvanceFP = advanceX;
+      prevCp = cp;
+      continue;
+    }
+
     if (!isCombining && !hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
       const EpdFontData* data = getData(style);
       const uint16_t advanceX = syntheticGlyph::greekAdvanceX(data, getGlyph('M', style), cp);
@@ -218,7 +244,9 @@ uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style styl
     return findGlyphData(aliasCp, style).glyph ? aliasCp : REPLACEMENT_GLYPH;
   }
   if (syntheticGlyph::isSpaceFallback(cp)) return cp;
-  if (syntheticGlyph::isSolid(cp) || syntheticGlyph::isGreekFallback(cp)) return cp;
+  if (syntheticGlyph::isSolid(cp) || syntheticGlyph::isOutlineCircle(cp) || syntheticGlyph::isGreekFallback(cp)) {
+    return cp;
+  }
   return REPLACEMENT_GLYPH;
 }
 

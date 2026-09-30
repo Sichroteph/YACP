@@ -266,7 +266,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     if (cp == 0) break;
 
     int32_t glyphIdx = findGlyphIndex(fontData, cp);
-    if (glyphIdx < 0 && !syntheticGlyph::isSpaceFallback(cp)) {
+    if (glyphIdx < 0 && !syntheticGlyph::isSpaceFallback(cp) && !syntheticGlyph::isOutlineCircle(cp)) {
       glyphIdx = findGlyphIndex(fontData, REPLACEMENT_GLYPH);
     }
     if (glyphIdx < 0) continue;

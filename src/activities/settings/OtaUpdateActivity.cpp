@@ -86,7 +86,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
 
 void OtaUpdateActivity::onEnter() {
   Activity::onEnter();
-  sdFontSystem.releaseLoadedFont(renderer);
+  sdFontSystem.releaseForNetwork(renderer);
 
   if (hasActiveWifiConnection()) {
     LOG_DBG("OTA", "WiFi already connected, checking for update");

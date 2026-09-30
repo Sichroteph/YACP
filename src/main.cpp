@@ -86,6 +86,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/reader/StatsBackup.h"
 #include "activities/settings/ButtonLayoutSetupActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
+#include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -486,6 +487,7 @@ RTC_NOINIT_ATTR uint32_t silentRebootTarget;
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
+constexpr uint32_t SILENT_REBOOT_TARGET_OTA = 2;
 
 // How the device is coming back to life, resolved once at boot. Both resume
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
@@ -523,6 +525,16 @@ void silentRestartToReader() {
   silentRebootTarget = SILENT_REBOOT_TARGET_READER;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=reader)");
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  delay(50);
+  ESP.restart();
+}
+
+void silentRestartToOta() {
+  if (deepSleepInProgress) return;
+  silentRebootTarget = SILENT_REBOOT_TARGET_OTA;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  LOG_INF("MAIN", "Silent restart (target=ota)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
   ESP.restart();
@@ -875,7 +887,7 @@ void setup() {
   // Bound the target range too — RTC_NOINIT memory is uninitialized on cold boot.
   const bool isSilentReboot = (silentRebootMagic == SILENT_REBOOT_MAGIC);
   const uint32_t snapshotTarget =
-      (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_READER) ? silentRebootTarget : 0;
+      (isSilentReboot && silentRebootTarget <= SILENT_REBOOT_TARGET_OTA) ? silentRebootTarget : 0;
   silentRebootMagic = 0;
   silentRebootTarget = 0;
 
@@ -1082,6 +1094,14 @@ void setup() {
       activityManager.replaceActivity(std::move(setupActivity));
     } else {
       LOG_ERR("BOOT", "Could not allocate initial button-layout activity");
+      activityManager.goHome(HomeMenuItem::NONE, allowFastInitialHomeRefresh);
+    }
+  } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_OTA) {
+    auto otaActivity = makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInputManager);
+    if (otaActivity) {
+      activityManager.replaceActivity(std::move(otaActivity));
+    } else {
+      LOG_ERR("BOOT", "Could not allocate OTA activity after silent restart");
       activityManager.goHome(HomeMenuItem::NONE, allowFastInitialHomeRefresh);
     }
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&

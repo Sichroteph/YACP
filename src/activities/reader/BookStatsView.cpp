@@ -125,7 +125,7 @@ void finishedBookMonthSummary(const std::vector<FinishedBookEntry>& finishedBook
   }
 }
 
-void readingIntensityStyle(const uint8_t minutes, const int activeDotSize, const int inactiveDotSize, int& dotSize,
+void readingIntensityStyle(const uint16_t minutes, const int activeDotSize, const int inactiveDotSize, int& dotSize,
                            Color& color) {
   if (minutes == 0) {
     dotSize = inactiveDotSize;
@@ -900,7 +900,7 @@ void renderReadingRhythmPage(GfxRenderer& renderer, const MappedInputManager* ma
       }
 
       const int centerX = gridX + week * columnStride + columnStride / 2;
-      const uint8_t readingMinutes = dailyHistory.minutesOnDay(dayIndex);
+      const uint16_t readingMinutes = dailyHistory.minutesOnDay(dayIndex);
       int dotSize = inactiveDotSize;
       Color dotColor = Color::LightGray;
       readingIntensityStyle(readingMinutes, activeDotSize, inactiveDotSize, dotSize, dotColor);
@@ -956,7 +956,7 @@ void renderReadingRhythmPage(GfxRenderer& renderer, const MappedInputManager* ma
     for (int weekday = 0; weekday < 7; ++weekday) {
       const uint32_t dayIndex = firstDay + static_cast<uint32_t>(week) * 7u + static_cast<uint32_t>(weekday);
       if (dayIndex <= displayDay) {
-        const uint8_t minutes = dailyHistory.minutesOnDay(dayIndex);
+        const uint16_t minutes = dailyHistory.minutesOnDay(dayIndex);
         weeklyMinutes[static_cast<size_t>(week)] += minutes;
       }
     }

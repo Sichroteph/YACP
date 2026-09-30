@@ -24,6 +24,15 @@ uint32_t readUint32LE(const uint8_t* data) {
          (static_cast<uint32_t>(data[2]) << 16u) | (static_cast<uint32_t>(data[3]) << 24u);
 }
 
+uint16_t readUint16LE(const uint8_t* data) {
+  return static_cast<uint16_t>(data[0]) | static_cast<uint16_t>(static_cast<uint16_t>(data[1]) << 8u);
+}
+
+void writeUint16LE(uint8_t* data, const uint16_t value) {
+  data[0] = static_cast<uint8_t>(value & 0xFFu);
+  data[1] = static_cast<uint8_t>((value >> 8u) & 0xFFu);
+}
+
 void writeUint32LE(uint8_t* data, const uint32_t value) {
   data[0] = static_cast<uint8_t>(value & 0xFFu);
   data[1] = static_cast<uint8_t>((value >> 8u) & 0xFFu);
@@ -41,16 +50,12 @@ bool verifyFileSize(const char* path) {
   return actualSize == DailyReadingHistory::CURRENT_FILE_SIZE;
 }
 
-LoadResult loadFromFile(const char* path, uint32_t& anchorDay, std::array<uint8_t, READING_HISTORY_DAYS>& minutes,
-                        bool& hasData) {
+LoadResult loadFromFile(const char* path, uint32_t& anchorDay, std::array<uint16_t, READING_HISTORY_DAYS>& minutes,
+                        bool& hasData, bool& needsMigration) {
   hasData = false;
+  needsMigration = false;
   FsFile file;
   if (!Storage.openFileForRead(LOG_TAG, path, file)) {
-    return LoadResult::MissingOrInvalid;
-  }
-
-  if (file.fileSize() != DailyReadingHistory::CURRENT_FILE_SIZE) {
-    file.close();
     return LoadResult::MissingOrInvalid;
   }
 
@@ -65,20 +70,41 @@ LoadResult loadFromFile(const char* path, uint32_t& anchorDay, std::array<uint8_
     file.close();
     return LoadResult::NewerFormat;
   }
-  if (header[4] != DailyReadingHistory::CURRENT_FILE_VERSION) {
+  const bool isLegacy = header[4] == DailyReadingHistory::LEGACY_FILE_VERSION;
+  if (!isLegacy && header[4] != DailyReadingHistory::CURRENT_FILE_VERSION) {
+    file.close();
+    return LoadResult::MissingOrInvalid;
+  }
+  const size_t expectedSize = isLegacy ? DailyReadingHistory::LEGACY_FILE_SIZE
+                                       : DailyReadingHistory::CURRENT_FILE_SIZE;
+  if (file.fileSize() != expectedSize) {
     file.close();
     return LoadResult::MissingOrInvalid;
   }
 
-  const int historyRead = file.read(minutes.data(), minutes.size());
-  file.close();
-  if (historyRead != static_cast<int>(minutes.size())) {
-    minutes.fill(0);
-    return LoadResult::MissingOrInvalid;
+  // Keep the conversion buffer small for the reader task stack. Version 1
+  // stores one byte per day, while version 2 stores little-endian uint16_t.
+  std::array<uint8_t, 64> buffer{};
+  size_t bucketIndex = 0;
+  while (bucketIndex < minutes.size()) {
+    const size_t bucketsThisPass =
+        std::min(minutes.size() - bucketIndex, isLegacy ? buffer.size() : buffer.size() / sizeof(uint16_t));
+    const size_t bytesThisPass = bucketsThisPass * (isLegacy ? 1u : sizeof(uint16_t));
+    if (file.read(buffer.data(), bytesThisPass) != static_cast<int>(bytesThisPass)) {
+      file.close();
+      minutes.fill(0);
+      return LoadResult::MissingOrInvalid;
+    }
+    for (size_t i = 0; i < bucketsThisPass; ++i) {
+      minutes[bucketIndex + i] = isLegacy ? buffer[i] : readUint16LE(buffer.data() + i * sizeof(uint16_t));
+    }
+    bucketIndex += bucketsThisPass;
   }
+  file.close();
 
   anchorDay = readUint32LE(header.data() + 5);
-  hasData = std::any_of(minutes.begin(), minutes.end(), [](const uint8_t storedMinutes) { return storedMinutes != 0; });
+  hasData = std::any_of(minutes.begin(), minutes.end(), [](const uint16_t storedMinutes) { return storedMinutes != 0; });
+  needsMigration = isLegacy;
   ReadingStatsDate anchorDate;
   if (hasData && !readingStatsDateFromDayIndex(anchorDay, anchorDate)) {
     anchorDay = 0;
@@ -92,12 +118,25 @@ LoadResult loadFromFile(const char* path, uint32_t& anchorDay, std::array<uint8_
   return LoadResult::Ok;
 }
 
-bool writePayload(FsFile& file, const std::array<uint8_t, READING_HISTORY_DAYS>* minutes) {
+bool writePayload(FsFile& file, const std::array<uint16_t, READING_HISTORY_DAYS>* minutes) {
   if (minutes != nullptr) {
-    return file.write(minutes->data(), minutes->size()) == minutes->size();
+    std::array<uint8_t, 64> buffer{};
+    size_t bucketIndex = 0;
+    while (bucketIndex < minutes->size()) {
+      const size_t bucketsThisPass = std::min(minutes->size() - bucketIndex, buffer.size() / sizeof(uint16_t));
+      const size_t bytesThisPass = bucketsThisPass * sizeof(uint16_t);
+      for (size_t i = 0; i < bucketsThisPass; ++i) {
+        writeUint16LE(buffer.data() + i * sizeof(uint16_t), (*minutes)[bucketIndex + i]);
+      }
+      if (file.write(buffer.data(), bytesThisPass) != bytesThisPass) {
+        return false;
+      }
+      bucketIndex += bucketsThisPass;
+    }
+    return true;
   }
 
-  size_t remaining = READING_HISTORY_DAYS;
+  size_t remaining = READING_HISTORY_DAYS * sizeof(uint16_t);
   while (remaining > 0) {
     const size_t chunkSize = std::min(remaining, ZERO_CHUNK.size());
     if (file.write(ZERO_CHUNK.data(), chunkSize) != chunkSize) {
@@ -108,7 +147,7 @@ bool writePayload(FsFile& file, const std::array<uint8_t, READING_HISTORY_DAYS>*
   return true;
 }
 
-bool saveToFile(const uint32_t anchorDay, const std::array<uint8_t, READING_HISTORY_DAYS>* minutes,
+bool saveToFile(const uint32_t anchorDay, const std::array<uint16_t, READING_HISTORY_DAYS>* minutes,
                 const bool rotateBackup) {
   if (Storage.exists(HISTORY_TMP_PATH) && !Storage.remove(HISTORY_TMP_PATH)) {
     LOG_ERR(LOG_TAG, "Could not remove stale daily history temp file");
@@ -187,8 +226,13 @@ void DailyReadingHistory::load(const GlobalReadingStats& legacyStats) {
   dirty_ = false;
   saveBlocked_ = false;
 
-  const LoadResult primary = loadFromFile(HISTORY_PATH, anchorDay_, minutes_, hasData_);
+  bool needsMigration = false;
+  const LoadResult primary = loadFromFile(HISTORY_PATH, anchorDay_, minutes_, hasData_, needsMigration);
   if (primary == LoadResult::Ok) {
+    dirty_ = needsMigration;
+    if (needsMigration) {
+      LOG_INF(LOG_TAG, "Loaded version 1 daily history; version 2 will be written on the next save");
+    }
     return;
   }
   if (primary == LoadResult::NewerFormat) {
@@ -197,7 +241,7 @@ void DailyReadingHistory::load(const GlobalReadingStats& legacyStats) {
     return;
   }
 
-  const LoadResult backup = loadFromFile(HISTORY_BACKUP_PATH, anchorDay_, minutes_, hasData_);
+  const LoadResult backup = loadFromFile(HISTORY_BACKUP_PATH, anchorDay_, minutes_, hasData_, needsMigration);
   if (backup == LoadResult::Ok) {
     dirty_ = true;
     LOG_DBG(LOG_TAG, "Recovered daily reading history from backup");
@@ -258,7 +302,8 @@ void DailyReadingHistory::advanceAnchor(const uint32_t dayIndex) {
     minutes_.fill(0);
   } else {
     const size_t shift = static_cast<size_t>(shiftDays);
-    std::memmove(minutes_.data() + shift, minutes_.data(), READING_HISTORY_DAYS - shift);
+    std::memmove(minutes_.data() + shift, minutes_.data(),
+                 (READING_HISTORY_DAYS - shift) * sizeof(minutes_[0]));
     std::fill_n(minutes_.begin(), shift, 0);
   }
   anchorDay_ = dayIndex;
@@ -278,9 +323,9 @@ void DailyReadingHistory::addMinutes(const uint32_t dayIndex, const uint32_t min
     return;
   }
 
-  uint8_t& storedMinutes = minutes_[static_cast<size_t>(age)];
+  uint16_t& storedMinutes = minutes_[static_cast<size_t>(age)];
   const uint32_t updatedMinutes = static_cast<uint32_t>(storedMinutes) + minutes;
-  storedMinutes = static_cast<uint8_t>(std::min<uint32_t>(updatedMinutes, UINT8_MAX));
+  storedMinutes = static_cast<uint16_t>(std::min<uint32_t>(updatedMinutes, MAX_DAILY_READING_MINUTES));
   hasData_ = true;
   dirty_ = true;
 }
@@ -303,7 +348,7 @@ void DailyReadingHistory::recordReadingSpan(const ReadingStatsDateTime& localSta
   }
 }
 
-uint8_t DailyReadingHistory::minutesOnDay(const uint32_t dayIndex) const {
+uint16_t DailyReadingHistory::minutesOnDay(const uint32_t dayIndex) const {
   if (!hasData_ || dayIndex > anchorDay_) {
     return 0;
   }

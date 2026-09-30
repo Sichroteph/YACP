@@ -157,6 +157,7 @@ namespace syntheticGlyph {
 
 constexpr uint32_t FULL_BLOCK = 0x2588;
 constexpr uint32_t BLACK_SQUARE = 0x25A0;
+constexpr uint32_t WHITE_CIRCLE = 0x25CB;
 constexpr uint32_t GREEK_CAPITAL_GAMMA = 0x0393;
 constexpr uint32_t GREEK_SMALL_EPSILON = 0x03B5;
 constexpr uint32_t GREEK_SMALL_OMEGA = 0x03C9;
@@ -164,6 +165,7 @@ constexpr uint32_t MODIFIER_LETTER_TURNED_COMMA = 0x02BB;
 constexpr uint32_t LEFT_SINGLE_QUOTATION_MARK = 0x2018;
 
 constexpr bool isSolid(uint32_t cp) { return cp == FULL_BLOCK || cp == BLACK_SQUARE; }
+constexpr bool isOutlineCircle(uint32_t cp) { return cp == WHITE_CIRCLE; }
 constexpr bool isGreekFallback(uint32_t cp) {
   return cp == GREEK_CAPITAL_GAMMA || cp == GREEK_SMALL_EPSILON || cp == GREEK_SMALL_OMEGA;
 }
@@ -173,7 +175,8 @@ constexpr bool isSpaceFallback(uint32_t cp) {
          (cp >= 0x2060 && cp <= 0x2063) || cp == 0x205F || cp == 0x3000;
 }
 constexpr uint32_t aliasCodepoint(uint32_t cp) {
-  return cp == MODIFIER_LETTER_TURNED_COMMA ? LEFT_SINGLE_QUOTATION_MARK : cp;
+  if (cp == MODIFIER_LETTER_TURNED_COMMA) return LEFT_SINGLE_QUOTATION_MARK;
+  return cp;
 }
 
 inline uint16_t solidAdvanceX(const EpdFontData* data, const EpdGlyph* emGlyph) {

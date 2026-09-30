@@ -33,6 +33,10 @@ int32_t resolveSdCardAdvanceFP(const SdCardFont& sdFont, const EpdFontFamily& fo
     return advanceFP;
   }
 
+  if (syntheticGlyph::isOutlineCircle(cp)) {
+    return syntheticGlyph::solidAdvanceX(font.getData(style), font.getGlyph('M', style));
+  }
+
   const EpdGlyph* glyph = font.getGlyph(cp, style);
   return glyph ? glyph->advanceX : 0;
 }
@@ -277,6 +281,11 @@ static SyntheticSolidGlyphMetrics getSyntheticSolidGlyphMetrics(const EpdFontFam
       width,    height};
 }
 
+static SyntheticSolidGlyphMetrics getSyntheticOutlineCircleGlyphMetrics(const EpdFontFamily& font,
+                                                                        const EpdFontFamily::Style style) {
+  return getSyntheticSolidGlyphMetrics(font, style, syntheticGlyph::BLACK_SQUARE);
+}
+
 static SyntheticSolidGlyphMetrics getSyntheticGreekGlyphMetrics(const EpdFontFamily& font,
                                                                 const EpdFontFamily::Style style, const uint32_t cp) {
   const EpdFontData* data = font.getData(style);
@@ -318,6 +327,55 @@ static void fillSyntheticSolidGlyphRotated90CW(const GfxRenderer& renderer, cons
 static int syntheticStroke(const SyntheticSolidGlyphMetrics& metrics) {
   const int minDim = metrics.width < metrics.height ? metrics.width : metrics.height;
   return minDim >= 14 ? 2 : 1;
+}
+
+static void drawSyntheticOutlineCircle(const GfxRenderer& renderer, const SyntheticSolidGlyphMetrics& metrics,
+                                       const int cursorX, const int baselineY, const bool pixelState) {
+  const int x = cursorX + metrics.left;
+  const int y = baselineY - metrics.top;
+  const int diameter = metrics.width < metrics.height ? metrics.width : metrics.height;
+  if (diameter <= 0) return;
+
+  const int stroke = syntheticStroke(metrics);
+  const int outerRadius2 = diameter;
+  const int innerRadius2 = std::max(0, diameter - 4 * stroke);
+  const int centerOffsetX = metrics.width - diameter;
+  const int centerOffsetY = metrics.height - diameter;
+  for (int gy = 0; gy < diameter; ++gy) {
+    for (int gx = 0; gx < diameter; ++gx) {
+      const int dx2 = 2 * gx + 1 - diameter;
+      const int dy2 = 2 * gy + 1 - diameter;
+      const int distance2 = dx2 * dx2 + dy2 * dy2;
+      if (distance2 <= outerRadius2 * outerRadius2 && distance2 >= innerRadius2 * innerRadius2) {
+        drawPixelClipped(renderer, x + centerOffsetX / 2 + gx, y + centerOffsetY / 2 + gy, pixelState);
+      }
+    }
+  }
+}
+
+static void drawSyntheticOutlineCircleRotated90CW(const GfxRenderer& renderer,
+                                                  const SyntheticSolidGlyphMetrics& metrics, const int cursorX,
+                                                  const int cursorY, const bool pixelState) {
+  const int baseX = cursorX + metrics.ascender - metrics.top;
+  const int baseY = cursorY - metrics.left;
+  const int diameter = metrics.width < metrics.height ? metrics.width : metrics.height;
+  if (diameter <= 0) return;
+
+  const int stroke = syntheticStroke(metrics);
+  const int outerRadius2 = diameter;
+  const int innerRadius2 = std::max(0, diameter - 4 * stroke);
+  const int centerOffsetX = metrics.width - diameter;
+  const int centerOffsetY = metrics.height - diameter;
+  for (int gy = 0; gy < diameter; ++gy) {
+    for (int gx = 0; gx < diameter; ++gx) {
+      const int dx2 = 2 * gx + 1 - diameter;
+      const int dy2 = 2 * gy + 1 - diameter;
+      const int distance2 = dx2 * dx2 + dy2 * dy2;
+      if (distance2 <= outerRadius2 * outerRadius2 && distance2 >= innerRadius2 * innerRadius2) {
+        drawPixelClipped(renderer, baseX + centerOffsetY / 2 + gy, baseY - centerOffsetX / 2 - gx, pixelState);
+      }
+    }
+  }
 }
 
 static bool epsilonTemplatePixel(const int srcX, const int srcY) {
@@ -809,6 +867,17 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     if (!hasRealGlyph && syntheticGlyph::isSolid(cp)) {
       const auto metrics = getSyntheticSolidGlyphMetrics(font, style, cp);
       fillSyntheticSolidGlyph(*this, metrics, lastBaseX, yPos, black);
+      lastBaseLeft = metrics.left;
+      lastBaseWidth = metrics.width;
+      lastBaseTop = metrics.top;
+      prevAdvanceFP = metrics.advanceX;
+      prevCp = cp;
+      continue;
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isOutlineCircle(cp)) {
+      const auto metrics = getSyntheticOutlineCircleGlyphMetrics(font, style);
+      drawSyntheticOutlineCircle(*this, metrics, lastBaseX, yPos, black);
       lastBaseLeft = metrics.left;
       lastBaseWidth = metrics.width;
       lastBaseTop = metrics.top;
@@ -2323,6 +2392,12 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       continue;
     }
 
+    if (!hasRealGlyph && syntheticGlyph::isOutlineCircle(cp)) {
+      prevAdvanceFP = getSyntheticOutlineCircleGlyphMetrics(font, style).advanceX;
+      prevCp = cp;
+      continue;
+    }
+
     if (!hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
       prevAdvanceFP = getSyntheticGreekGlyphMetrics(font, style, cp).advanceX;
       prevCp = cp;
@@ -2433,6 +2508,17 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     if (!hasRealGlyph && syntheticGlyph::isSolid(cp)) {
       const auto metrics = getSyntheticSolidGlyphMetrics(font, style, cp);
       fillSyntheticSolidGlyphRotated90CW(*this, metrics, x, lastBaseY, black);
+      lastBaseLeft = metrics.left;
+      lastBaseWidth = metrics.width;
+      lastBaseTop = metrics.top;
+      prevAdvanceFP = metrics.advanceX;
+      prevCp = cp;
+      continue;
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isOutlineCircle(cp)) {
+      const auto metrics = getSyntheticOutlineCircleGlyphMetrics(font, style);
+      drawSyntheticOutlineCircleRotated90CW(*this, metrics, x, lastBaseY, black);
       lastBaseLeft = metrics.left;
       lastBaseWidth = metrics.width;
       lastBaseTop = metrics.top;

@@ -1,3 +1,58 @@
+## [v1.8.1-yacp.9] - 2026-09-30
+
+XLarge companion build of YACP 1.8 beta 2. It contains the same source changes and credits as the Standard build below,
+with the XLarge built-in font sizes and a distinct embedded version.
+
+## [v1.8.1-yacp.8] - 2026-09-30
+
+YACP keeps reading responsive while reducing battery use and unnecessary memory, storage, display, and network work.
+
+### Added
+
+- The optional KOReader Smart Sync behavior can now be changed in the web portal as well as on the reader. The choice
+  is saved with the other KOReader credentials and remains set after a restart.
+
+### Changed
+
+- Dictionary word selection covers up to 240 selectable words on dense EPUB pages, matching the clipping limit. The
+  existing largest-free-block guard still applies, so a page under severe memory pressure may retain fewer words.
+- Starting an online firmware check now performs a silent restart and returns directly to the update screen. The
+  network connection begins from a fresh boot, and SD font memory is released before TLS activity. A complete
+  update was confirmed once on an X3 after a reading session; reliability across devices remains beta validation.
+
+### Fixed
+
+- Reading Rhythm no longer caps a day's duration at 255 minutes (4 h 15). Its version 2 history file stores 16-bit
+  minute counts and migrates version 1 data automatically. Minutes already lost to the old cap cannot be restored.
+- Long unbroken Chinese text runs stay within the configured layout bound even when a single XML callback contains
+  several internal fragments. This lets adaptive pagination continue instead of retaining an oversized token batch.
+  The affected long chapters still need confirmation on the reporter's original X4.
+- A lightweight fallback draws the white-circle character when the chosen font lacks it, avoiding a replacement
+  diamond for that character.
+
+### Credits
+
+- walloftexts supplied Chinese EPUB diagnostics and test cases that
+  exposed the remaining adaptive-pagination limit. Their private books are not included in this release.
+- [OzzyMcBean](https://github.com/Sichroteph/YACP/issues/13) proposed extending dictionary selection to 240 words
+  and also reported the updater problem in [issue #7](https://github.com/Sichroteph/YACP/issues/7).
+- [Doxxxxxx](https://github.com/Sichroteph/YACP/issues/7#issuecomment-5866109455) supplied the X3 serial logs showing
+  that beta 1 could still fail while checking for updates, before any firmware download began.
+- [TheRealGieve](https://github.com/Sichroteph/YACP/issues/11) identified the 4 h 15 Reading Rhythm cap.
+- [ludovic-marce](https://github.com/Sichroteph/YACP/issues/10#issuecomment-5833737447) suggested making Smart Sync
+  configurable through the web portal and validated beta 1 behavior on an X3.
+- CrossInk and CrossPoint contributors provided the open-source foundation for YACP's reader and update paths.
+
+## [v1.8.0-yacp.3] - 2026-09-30
+
+### Fixed
+
+- Kept long unbroken CJK text runs within their configured layout bound even when one XML callback contains several
+  internal word-buffer fragments. This prevents adaptive pagination from stalling after its first few pages while
+  retaining an oversized token allocation.
+- Drew a lightweight white-circle fallback when the active font does not contain that commonly used year digit,
+  instead of showing a replacement diamond.
+
 ## [v1.8.0-yacp.1] - 2026-09-25
 
 This beta keeps YACP focused on reading: difficult books and unreliable networks should become usable without

@@ -296,26 +296,31 @@ the full SD-card library.
 
 ## `/.crosspoint/daily_reading.bin`
 
-### Version 1
+### Version 2
 
 `daily_reading.bin` stores the local device's rolling reading-duration history
 used by the Reading Rhythm heatmap. It is deliberately separate from
 `global_stats.bin`, so adding daily intensity does not change Nearby Stats Sync
 payloads or the global statistics schema.
 
-The file is 739 bytes:
+The file is 1469 bytes:
 
 - `[0-3]` magic ASCII `CRHM`
-- `[4]` version (`1`)
+- `[4]` version (`2`)
 - `[5-8]` anchor day (`uint32_t` LE, days since 2000-01-01)
-- `[9-738]` 730 daily minute buckets (`uint8_t` each)
+- `[9-1468]` 730 daily minute buckets (`uint16_t` LE each)
 
 Minute bucket index `0` belongs to the anchor day, index `1` to the previous
-day, and so on. Values saturate at 255 minutes because the UI's highest
-intensity begins at 30 minutes. When the anchor advances, older buckets shift
+day, and so on. Values saturate at 1440 minutes, the maximum duration of one
+calendar day. When the anchor advances, older buckets shift
 toward the end and entries beyond 730 days are discarded.
 
-CrossInk writes through `daily_reading.bin.tmp`, rotates the previous primary
+Version 1 used one `uint8_t` per day and therefore saturated at 255 minutes.
+It is widened automatically when loaded and rewritten as version 2 on the next
+save. Time above 255 minutes that was already lost in a version 1 file cannot
+be reconstructed.
+
+YACP writes through `daily_reading.bin.tmp`, rotates the previous primary
 to `daily_reading.bin.bak`, and can recover from that backup. On first use, days
 known only through the older binary read/not-read history are imported as one
 minute; exact duration levels are collected for subsequent EPUB and XTC/XTCH

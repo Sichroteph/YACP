@@ -744,6 +744,7 @@ int SdCardFont::prewarm(const char* const* utf8Texts, const size_t textCount, ui
     while (*p && cpCount < MAX_PAGE_GLYPHS) {
       uint32_t cp = utf8NextCodepoint(&p);
       if (cp == 0) break;
+      cp = syntheticGlyph::aliasCodepoint(cp);
 
       bool found = false;
       for (uint32_t i = 0; i < cpCount; i++) {

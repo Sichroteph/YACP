@@ -34,7 +34,7 @@ class DictionaryWordSelectActivity final : public Activity {
 
   enum class Popup : uint8_t { None, Busy, NotFound, Unavailable, Error };
 
-  static constexpr size_t MAX_SELECTABLE_WORDS = 192;
+  static constexpr size_t MAX_SELECTABLE_WORDS = 240;
   static constexpr size_t SNAPSHOT_CAPACITY = 4096;
 
   bool extractWords();
