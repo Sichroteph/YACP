@@ -76,13 +76,22 @@ struct FootnoteResult {
   std::string href;
 };
 
+struct ReadingStatsResult {
+  bool changed = false;
+};
+
+struct RecentBooksResult {
+  bool changed = false;
+};
+
 struct FilePathResult {
   std::string path;
 };
 
 using ResultVariant =
     std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
-                 PageResult, ClippingResult, ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult>;
+                 PageResult, ClippingResult, ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult, ReadingStatsResult,
+                 RecentBooksResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

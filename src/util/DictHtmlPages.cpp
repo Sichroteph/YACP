@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "util/ParagraphIndentMigration.h"
 
 namespace {
 
@@ -259,7 +260,8 @@ bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definiti
       LOG_ERR("DHTML", "OOM: ChapterHtmlSlimParser");
     } else {
       parser->setTextSpacing(SETTINGS.getCharacterSpacing(), SETTINGS.wordSpacing);
-      parser->setParagraphIndentSpaces(SETTINGS.paragraphIndentSpaces);
+      parser->setParagraphIndentSpaces(
+          paragraphIndentWidth(SETTINGS.paragraphIndentSpaces, SETTINGS.extraParagraphSpacing != 0));
       ok = parser->parseAndBuildPages();  // closes the file on both outcomes
     }
   }

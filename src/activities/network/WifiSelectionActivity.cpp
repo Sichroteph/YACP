@@ -90,6 +90,16 @@ void WifiSelectionActivity::onPromptEvent(const fui::ActionEvent& event, void* u
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
 
+#if FREEINK_DEVICE_X4PRO
+  // The Arduino WiFi layer can retry a missing AP while this activity is
+  // switching from the saved-network attempt to discovery. Remember its
+  // caller-owned setting so the reset below remains local to this screen.
+#if !defined(SIMULATOR)
+  autoReconnectBeforeSelection = WiFi.getAutoReconnect();
+  autoReconnectStateCaptured = true;
+#endif
+#endif
+
   // Load saved WiFi credentials - SD card operations need lock as we use SPI
   // for both
   {
@@ -172,6 +182,13 @@ void WifiSelectionActivity::onExit() {
   WiFi.scanDelete();
   LOG_DBG("WIFI", "Free heap after scanDelete: %d bytes", ESP.getFreeHeap());
 
+#if FREEINK_DEVICE_X4PRO
+  if (autoReconnectStateCaptured) {
+    WiFi.setAutoReconnect(autoReconnectBeforeSelection);
+    autoReconnectStateCaptured = false;
+  }
+#endif
+
   // Note: We do NOT disconnect WiFi here - the parent activity
   // (CrossPointWebServerActivity) manages WiFi connection state. We just clean
   // up the scan and task.
@@ -196,16 +213,55 @@ void WifiSelectionActivity::startWifiScan(const bool autoScan) {
   delay(100);
 
   // Start async scan
+#if FREEINK_DEVICE_X4PRO
+  scanAttempt = 0;
+  scanRetryAt = 0;
+  startX4ProScanAttempt();
+#else
   WiFi.scanNetworks(true);  // true = async scan
+#endif
 }
 
+#if FREEINK_DEVICE_X4PRO
+void WifiSelectionActivity::startX4ProScanAttempt() {
+  constexpr uint8_t MAX_ATTEMPTS = 3;
+  ++scanAttempt;
+  const bool passive = scanAttempt == MAX_ATTEMPTS;
+  const uint32_t dwellMs = scanAttempt == 1 ? 300 : 500;
+  const int16_t startResult = WiFi.scanNetworks(true, false, passive, dwellMs);
+  LOG_INF("WIFI", "X4 Pro scan attempt %u started: result=%d, passive=%u", static_cast<unsigned>(scanAttempt),
+          startResult, static_cast<unsigned>(passive));
+  if (startResult == WIFI_SCAN_FAILED && scanAttempt < MAX_ATTEMPTS) {
+    WiFi.scanDelete();
+    scanRetryAt = millis() + 300;
+  }
+}
+#endif
+
 void WifiSelectionActivity::processWifiScanResults() {
+#if FREEINK_DEVICE_X4PRO
+  if (scanRetryAt != 0) {
+    if (static_cast<int32_t>(millis() - scanRetryAt) < 0) return;
+    scanRetryAt = 0;
+    startX4ProScanAttempt();
+    return;
+  }
+#endif
   const int16_t scanResult = WiFi.scanComplete();
 
   if (scanResult == WIFI_SCAN_RUNNING) {
     // Scan still in progress
     return;
   }
+
+#if FREEINK_DEVICE_X4PRO
+  LOG_INF("WIFI", "X4 Pro scan attempt %u completed: result=%d", static_cast<unsigned>(scanAttempt), scanResult);
+  if (scanResult <= 0 && scanAttempt < 3) {
+    WiFi.scanDelete();
+    scanRetryAt = millis() + 300;
+    return;
+  }
+#endif
 
   if (scanResult == WIFI_SCAN_FAILED) {
     networks.clear();
@@ -257,6 +313,10 @@ void WifiSelectionActivity::processWifiScanResults() {
   });
 
   realNetworkCount = networks.size();
+#if FREEINK_DEVICE_X4PRO
+  LOG_INF("WIFI", "X4 Pro scan attempt %u visible SSIDs: %u", static_cast<unsigned>(scanAttempt),
+          static_cast<unsigned>(realNetworkCount));
+#endif
   appendHiddenNetworkEntry();
   rebuildNetworkRowItems();
 
@@ -438,8 +498,31 @@ void WifiSelectionActivity::handleAutoConnectFailure() {
     return;
   }
 
+#if FREEINK_DEVICE_X4PRO
+  resetX4ProStationBeforeScan();
+#endif
   startWifiScan(true);
 }
+
+#if FREEINK_DEVICE_X4PRO
+void WifiSelectionActivity::resetX4ProStationBeforeScan() {
+  // A missing AP reports WL_NO_SSID_AVAIL before the Arduino framework has
+  // finished its own retry. Starting esp_wifi_scan_start during that window
+  // can return ESP_ERR_WIFI_STATE and be exposed as an empty scan. Turning
+  // the station off cancels both the retry and its pending connection event.
+  WiFi.setAutoReconnect(false);
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+#if defined(SIMULATOR)
+    WiFi.mode(WIFI_OFF);
+#else
+    if (!WiFi.mode(WIFI_OFF)) {
+      LOG_ERR("WIFI", "X4 Pro failed to stop WiFi before fallback scan");
+    }
+#endif
+  }
+  delay(150);
+}
+#endif
 
 void WifiSelectionActivity::showNetworkListFromAutoConnect() {
   LOG_DBG("WIFI", "User requested manual network list");
@@ -519,12 +602,20 @@ void WifiSelectionActivity::checkConnectionStatus() {
             WiFi.RSSI());
 #endif
 
-    // Sync RTC from NTP on the first successful WiFi connection only. The DS3231
-    // drifts ~2 ppm so one sync is enough; users can force a re-sync from
-    // Settings > System > Clock > Sync clock now.
-    if (halClock.isAvailable() && !SETTINGS.clockHasBeenSynced) {
+    // A saved "synced" flag is historical, not proof that the RTC still has
+    // valid time. Retry NTP on connection if the RTC was reset or lost power.
+    struct tm rtcTime = {};
+    const bool rtcTimeValid = halClock.localTime(rtcTime) && rtcTime.tm_year + 1900 >= 2024;
+#if FREEINK_MCU_C3
+    if (halClock.isAvailable() && (!SETTINGS.clockHasBeenSynced || !SETTINGS.clockDateHasBeenSynced || !rtcTimeValid)) {
+#else
+    if (halClock.isAvailable() && (!SETTINGS.clockHasBeenSynced || !rtcTimeValid)) {
+#endif
       if (halClock.syncFromNTP()) {
         SETTINGS.clockHasBeenSynced = 1;
+#if FREEINK_MCU_C3
+        SETTINGS.clockDateHasBeenSynced = 1;
+#endif
         SETTINGS.saveToFile();
       }
     }

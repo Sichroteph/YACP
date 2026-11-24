@@ -24,6 +24,9 @@ struct ReaderRenderSpec {
   bool embeddedStyle = true;
   uint8_t imageRendering = 0;
   bool focusReadingEnabled = false;
+  bool forceParagraphIndents = false;
+  bool guideReadingEnabled = false;
+  bool publisherPageNumbers = false;
 };
 
 // Stable signature for clipping anchors. Page-local word ordinals are valid
@@ -35,11 +38,13 @@ inline uint32_t readerRenderSpecSignature(const ReaderRenderSpec& spec) {
     signature *= 16777619U;
   };
   // Bump when the same spec values lay out differently, so old clipping word ranges stop matching.
-  constexpr uint32_t LAYOUT_SIGNATURE_VERSION = 1;
+  constexpr uint32_t LAYOUT_SIGNATURE_VERSION = 2;
   mix(LAYOUT_SIGNATURE_VERSION);
   mix(static_cast<uint32_t>(spec.fontId));
   mix(static_cast<uint32_t>(spec.lineCompression * 1000.0f));
   mix(spec.extraParagraphSpacing);
+  mix(spec.paragraphIndentSpaces);
+  mix(spec.forceParagraphIndents);
   mix(static_cast<uint8_t>(spec.characterSpacing));
   mix(spec.wordSpacingPercent);
   mix(spec.paragraphAlignment);

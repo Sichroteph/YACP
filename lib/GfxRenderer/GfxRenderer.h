@@ -397,6 +397,9 @@ class GfxRenderer {
   // follows (X3: OEM differential base waveform; others: plain display with
   // `fallback`).
   void displayGrayscaleBase(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
+  void displayMonochromeReinforcement() const;
+  // Same BW base, keeping panel power on until the next base or grayscale pass.
+  void displayGrayscaleBaseIntermediate(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
   bool displayGrayscaleBase(HalDisplay::GrayscaleMode mode,
                             HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
   void copyGrayscaleLsbBuffers() const;

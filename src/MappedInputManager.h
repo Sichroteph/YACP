@@ -46,6 +46,7 @@ class MappedInputManager {
   // Home-key actions so the next main-loop pass can dispatch them, while the
   // current action remains available for immediate Home cancellation.
   void update(bool deferHomeButtonAction = false) const;
+  void setReaderMode(bool enabled) { readerMode = enabled; }
 #if FREEINK_CAP_TOUCH
   // X4 Pro delays a single power click until its frontlight double-click window
   // expires. The main loop supplies that one-frame event here.
@@ -57,10 +58,16 @@ class MappedInputManager {
   bool wasReleased(Button button) const;
   // One-shot threshold event while the button is down; consumes its release.
   bool wasLongPressed(Button button, unsigned long thresholdMs) const;
+  // Suppress a short action without consuming the configured long-press event.
+  void suppressNextRelease(Button button) const;
   bool consumeSuppressedRelease() const;
+  // Keep a held physical key from acquiring a second role after rotation.
+  void waitForButtonReleaseAfterRemap() const;
+  bool isSideNavDirectionSwapped() const;
   bool isPressed(Button button) const;
   bool hasTouch() const;
   bool wasScreenTapped(int& x, int& y) const;
+  bool wasTapInRect(int x, int y, int width, int height) const;
   // Immediate press edge for drag handles, without the row-selection dwell.
   bool wasScreenTouchPressed(int& x, int& y) const;
   bool wasScreenTouchDown(int& x, int& y) const;
@@ -90,6 +97,8 @@ class MappedInputManager {
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
   SwipeDir wasSwipe(int* startX = nullptr, int* startY = nullptr) const;
+  // Swipe endpoints in the same oriented coordinates as screen taps.
+  bool decodeSwipe(int& sx, int& sy, int& ex, int& ey) const;
   // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
   // page turns (reader) can exclude it from a plain SwipeDir::Right.
   bool wasBackGesture() const;
@@ -134,22 +143,25 @@ class MappedInputManager {
   // read it here instead of CrossPointSettings.orientation, which is just the persisted reader
   // preference and stays "rotated" even while portrait UI like home/settings is on screen.
   const GfxRenderer& renderer;
+  bool readerMode = false;
+  uint8_t frontButtonForRole(Button role) const;
+  bool usesYacpFrontOrientation() const;
+  bool usesYacpSideOrientation() const;
+  bool crossPointNavDirectionSwapped() const;
+  bool isSidePageDirectionSwapped() const;
 
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
-  bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+  bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const, uint8_t* physicalButtons = nullptr) const;
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
   // bookkeeping; the wrappers below give each edge its board meaning.
   bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;
   bool wasTopEdgeDownSwipe() const;
   bool wasBottomEdgeUpSwipe() const;
-  // Fetch the pending swipe (if any) and map both endpoints to logical screen coords
-  bool decodeSwipe(int& sx, int& sy, int& ex, int& ey) const;
 #if FREEINK_CAP_TOUCH
   bool wasPowerConfirmClick() const;
 #endif
   void rememberTouchHeldTime() const;
-  void suppressNextRelease(Button button) const;
 
   mutable RemoteButtonInput remoteInput;
   mutable HomeButtonInput homeButtonInput;
@@ -158,8 +170,9 @@ class MappedInputManager {
   mutable bool touchHeldOverrideValid = false;
   mutable unsigned long touchHeldOverrideMs = 0;
   mutable unsigned long touchHeldOverrideAt = 0;
-  mutable uint16_t longPressFiredButtons = 0;
-  mutable uint16_t suppressedReleaseButtons = 0;
+  mutable uint8_t longPressFiredPhysicalButtons = 0;
+  mutable uint8_t suppressedPhysicalReleases = 0;
+  mutable uint8_t remapHeldButtons = 0;
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;
 #endif

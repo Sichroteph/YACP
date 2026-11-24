@@ -9,16 +9,19 @@
 #include "activities/Activity.h"
 #include "util/Dictionary.h"
 
+class EpubReaderActivity;
+
 // Controller for dictionary lookup: renders the background page, runs the
 // lookup against the active StarDict dictionary, and either opens
 // DictionaryDefinitionActivity or displays a status popup (Looking up,
 // Indexing, Not found, Error).
 class DictionaryWordSelectActivity final : public Activity {
  public:
-  explicit DictionaryWordSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                        std::unique_ptr<Page> page, int marginLeft, int marginTop,
-                                        std::string lookupText = {})
+  DictionaryWordSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                               const EpubReaderActivity& reader, std::unique_ptr<Page> page, int marginLeft,
+                               int marginTop, std::string lookupText)
       : Activity("DictionaryWordSelect", renderer, mappedInput),
+        reader(reader),
         page(std::move(page)),
         marginLeft(marginLeft),
         marginTop(marginTop),
@@ -27,12 +30,14 @@ class DictionaryWordSelectActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool usesReaderColors() const override { return mappedInput.hasTouch(); }
 
  private:
   enum class Popup : uint8_t { None, Busy, NotFound, Error };
 
   void performLookup();
 
+  const EpubReaderActivity& reader;  // The activity stack keeps the reader alive.
   std::unique_ptr<Page> page;
   const int marginLeft;
   const int marginTop;

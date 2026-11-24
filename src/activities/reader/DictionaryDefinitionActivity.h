@@ -14,6 +14,8 @@
 #include "util/ButtonNavigator.h"
 #include "util/Dictionary.h"
 
+class EpubReaderActivity;
+
 // Paged viewer for one dictionary definition. HTML definitions are laid out
 // through the EPUB chapter parser into styled Pages; anything else (plain
 // text, or HTML too damaged to parse) is word-wrapped once on entry and each
@@ -21,17 +23,35 @@
 class DictionaryDefinitionActivity final : public Activity {
  public:
   explicit DictionaryDefinitionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string headword,
-                                        std::string definition, bool htmlDefinition = false)
+                                        std::string definition, bool htmlDefinition = false,
+                                        const Page* backgroundPage = nullptr, int backgroundLeft = 0,
+                                        int backgroundTop = 0, const EpubReaderActivity* backgroundReader = nullptr)
       : Activity("DictionaryDefinition", renderer, mappedInput),
         content{.headword = std::move(headword), .text = std::move(definition)},
-        htmlDefinition(htmlDefinition) {}
+        htmlDefinition(htmlDefinition), backgroundPage(backgroundPage),
+        backgroundLeft(backgroundLeft), backgroundTop(backgroundTop), backgroundReader(backgroundReader) {}
 
+  struct History {
+    History(std::string name, int selectedIndex) : dictionaryName(std::move(name)), index(selectedIndex) {}
+    std::string dictionaryName;
+    Dictionary dictionary;
+    std::string removedWord;
+    int removedIndex = 0;
+    int index = 0;
+    int count = 0;
+    bool writeFailed = false;
+  };
+
+  DictionaryDefinitionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<History> history);
+  const std::string& getHeadword() const { return content.headword; }
   bool enableLookup(Dictionary& dictionary, std::string&& query);
 
   void onEnter() override;
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  void onUncovered() override { backgroundPainted = false; }
+  bool usesReaderColors() const override { return backgroundPage != nullptr; }
 
  private:
   // One wrapped display line: a byte span of `definition`. Wrapping keeps
@@ -53,6 +73,17 @@ class DictionaryDefinitionActivity final : public Activity {
   };
 
   BodyArea bodyArea() const;
+  struct PopupArea {
+    int x, y, width, height;
+    bool contains(int px, int py) const { return px >= x && py >= y && px < x + width && py < y + height; }
+  };
+  PopupArea popupArea() const;
+  bool isPopup() const { return backgroundPage || history; }
+  void renderPopup();
+  void loadHistoryWord(int index);
+  void changeHistoryWord(int direction);
+  void editHistory();
+  void changeDefinitionPage(int direction);
 
   struct Definition {
     std::string headword;
@@ -104,7 +135,13 @@ class DictionaryDefinitionActivity final : public Activity {
   void showMessage(StrId message);
 
   Definition content;
-  const bool htmlDefinition;
+  bool htmlDefinition;
+  const Page* backgroundPage;
+  const int backgroundLeft;
+  const int backgroundTop;
+  const EpubReaderActivity* backgroundReader = nullptr;
+  bool backgroundPainted = false;
+  std::unique_ptr<History> history;
   std::unique_ptr<LookupState> lookup;
   StrId message = StrId::STR_DICT_NOT_FOUND;
   unsigned long messageTime = 0;

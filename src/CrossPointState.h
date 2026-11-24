@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include "power/PowerHistoryState.h"
 
 class CrossPointState : public PersistableStore<CrossPointState> {
   CrossPointState() = default;
@@ -20,7 +21,9 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint32_t sleepOverlayLcgState = 0;
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
+  bool sleepFrameInverted = false;
   bool showBootScreen = true;
+  PowerHistoryState powerHistory;
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
   void toJson(JsonDocument& doc) const;

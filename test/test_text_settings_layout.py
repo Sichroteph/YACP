@@ -321,32 +321,47 @@ void checkStyleRowsFit(const BoardConfig::BoardProfile& profile, GfxRenderer::Or
   fui::InteractionBuffer<32> interactions;
   fui::Frame<32> frame(target, device, input, interactions);
   auto theme = uiThemeTokens(target);
+  const int count = activity.listCount();
   for (bool checked : {false, true}) {
     for (auto& row : activity.rowItems_) row.toggleChecked = checked;
-    for (int focus : {0, 1, 2, 3, 4}) {
+    for (int focus = 0; focus <= count; ++focus) {
       activity.selected = focus;
       activity.nav.reset(focus);
-      interactions.clear();
-      UiScreen screen(frame, theme);
-      activity.buildScreen(screen);
-      target.textRects.clear();
-      target.textStrings.clear();
-      target.clippedText = false;
-      activity.buildRows(screen);
-      if (activity.nav.drawnRows != 4) {
-        std::fprintf(stderr, "%s orientation %d: list height %d, full rows %d\n",
-                     profile.name, static_cast<int>(orientation), screen.contentRect().height, activity.nav.drawnRows);
+      fui::Rect content;
+      int redraws = 0;
+      do {
+        assert(redraws++ <= 8);
+        interactions.clear();
+        UiScreen screen(frame, theme);
+        activity.buildScreen(screen);
+        content = screen.contentRect();
+        target.textRects.clear();
+        target.textStrings.clear();
+        target.clippedText = false;
+        activity.buildRows(screen);
+      } while (activity.nav.consumeRebuildNeeded());
+      const int firstRow = activity.nav.top;
+      const int fullRows = activity.nav.drawnRows;
+      assert(fullRows > 0 && firstRow + fullRows <= count);
+      if (focus == 0) {
+        assert(firstRow == 0);
+      } else {
+        const int selectedRow = focus - 1;
+        assert(firstRow <= selectedRow && selectedRow < firstRow + fullRows);
       }
-      assert(activity.nav.top == 0);
-      assert(activity.nav.drawnRows == 4);
-      assert(target.textRects.size() == 4);
-      assert(!target.clippedText);
-      assert(target.textStrings[0].find("(no preview)") == std::string::npos);
-      for (int row = 0; row < 4; ++row) {
-        assert(target.textStrings[row] == labels[row]);
-        assert(target.measureText(theme.smallText.font, labels[row], theme.smallText).width <=
-               target.textRects[row].width);
-        if (row != 0) assert(target.textStrings[row].find("(no preview)") != std::string::npos);
+      const int textCount = static_cast<int>(target.textRects.size());
+      assert(textCount >= fullRows && textCount <= std::min(count - firstRow, fullRows + 1));
+      for (int row = 0; row < textCount; ++row) {
+        const char* label = labels[firstRow + row];
+        if (target.textStrings[row] != label) {
+          std::fprintf(stderr, "%s orientation %d focus %d, row %d: expected [%s], got [%s]\n",
+                       profile.name, static_cast<int>(orientation), focus, firstRow + row, label,
+                       target.textStrings[row].c_str());
+        }
+        assert(target.textStrings[row] == label);
+        assert(target.measureText(theme.smallText.font, label, theme.smallText).width <= target.textRects[row].width);
+        const auto& rect = target.textRects[row];
+        assert(rect.y >= content.y && rect.bottom() <= content.bottom());
       }
     }
   }
@@ -389,7 +404,7 @@ void checkSharedPartialRows() {
 int main() {
   using Tab = TextSettingsActivity::Tab;
   for (const auto& profile : {BoardConfig::XTEINK_X3, BoardConfig::XTEINK_X3_UC8279,
-                              BoardConfig::XTEINK_X4, BoardConfig::XTEINK_X4_CLASSIC})
+                              BoardConfig::XTEINK_X4, BoardConfig::XTEINK_X4_PRO, BoardConfig::XTEINK_X4_CLASSIC})
     for (auto orientation : {GfxRenderer::Portrait, GfxRenderer::PortraitInverted,
                              GfxRenderer::LandscapeClockwise, GfxRenderer::LandscapeCounterClockwise})
       for (const auto& metrics : {LyraMetrics::values, RoundedRaffMetrics::values})

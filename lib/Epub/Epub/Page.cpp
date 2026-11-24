@@ -313,6 +313,64 @@ void Page::renderWithImagePlaceholders(GfxRenderer& renderer, const int fontId, 
   }
 }
 
+bool Page::addPublisherMarker(const char* label, const int16_t y) {
+  if (!label || !label[0] || publisherMarkerCount == MAX_PUBLISHER_MARKERS) return true;
+  if (!publisherMarkers) {
+    publisherMarkers = makeUniqueNoThrow<PublisherMarker[]>(MAX_PUBLISHER_MARKERS);
+    if (!publisherMarkers) { LOG_ERR("PGE", "OOM: publisher annotations"); return false; }
+  }
+  auto& marker = publisherMarkers[publisherMarkerCount++];
+  marker.y = y;
+  size_t length = strnlen(label, sizeof(marker.label));
+  if (length == sizeof(marker.label)) {
+    length = sizeof(marker.label) - 1;
+    while (length && (static_cast<uint8_t>(label[length]) & 0xC0) == 0x80) --length;
+  }
+  memcpy(marker.label, label, length);
+  marker.label[length] = '\0';
+  return true;
+}
+
+void Page::renderPublisherMarkers(GfxRenderer& renderer, const int fontId, const int x,
+                                  const int top, const int bottom) const {
+  const int height = renderer.getLineHeight(fontId);
+  const int step = std::max(1, height - 2);
+  if (bottom - top <= height) return;
+  int previousBottom = top - 2;
+  for (unsigned i = 0; i < publisherMarkerCount; ++i) {
+    const auto& marker = publisherMarkers[i];
+    bool nonAscii = false;
+    int length = 0, width = 0;
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(marker.label); *p; ++p) {
+      if (*p >= 0x80) { nonAscii = true; break; }
+      if (*p <= ' ') continue;
+      const char ch[2] = {static_cast<char>(*p), '\0'};
+      width = std::max(width, renderer.getTextWidth(fontId, ch));
+      ++length;
+    }
+    if (nonAscii) {
+      const int textWidth = renderer.getTextWidth(fontId, marker.label);
+      const int y = std::max(previousBottom + 2,
+                             std::clamp(top + marker.y, top, std::max(top, bottom - textWidth)));
+      if (y + textWidth > bottom) continue;
+      renderer.drawTextRotated90CW(fontId, x, y + textWidth, marker.label);
+      previousBottom = y + textWidth;
+    } else if (length) {
+      const int markerHeight = height + (length - 1) * step;
+      int y = std::max(previousBottom + 2,
+                       std::clamp(top + marker.y - height / 2, top, std::max(top, bottom - markerHeight)));
+      if (y + markerHeight > bottom) continue;
+      previousBottom = y + markerHeight;
+      for (const char* p = marker.label; *p; ++p) {
+        if (static_cast<unsigned char>(*p) <= ' ') continue;
+        const char ch[2] = {*p, '\0'};
+        renderer.drawText(fontId, x + (width - renderer.getTextWidth(fontId, ch)) / 2, y, ch);
+        y += step;
+      }
+    }
+  }
+}
+
 bool Page::serialize(HalFile& file) const {
   const uint16_t count = elements.size();
   serialization::writePod(file, count);
@@ -352,6 +410,18 @@ bool Page::serialize(HalFile& file) const {
     serialization::writePod(file, link.height);
   }
 
+  if (file.write(&publisherMarkerCount, 1) != 1) {
+    LOG_ERR("PGE", "Failed to write publisher annotation count");
+    return false;
+  }
+  for (unsigned i = 0; i < publisherMarkerCount; ++i) {
+    const auto& marker = publisherMarkers[i];
+    if (file.write(reinterpret_cast<const uint8_t*>(&marker.y), 2) != 2 ||
+        file.write(marker.label, sizeof(marker.label)) != sizeof(marker.label)) {
+      LOG_ERR("PGE", "Failed to write publisher annotation");
+      return false;
+    }
+  }
   return true;
 }
 
@@ -458,5 +528,19 @@ std::unique_ptr<Page> Page::deserialize(HalFile& file) {
     }
   }
 
+  uint8_t markerCount = 0;
+  if (file.read(&markerCount, 1) != 1 || markerCount > MAX_PUBLISHER_MARKERS) {
+    LOG_ERR("PGE", "Invalid publisher annotation count");
+    return nullptr;
+  }
+  for (unsigned i = 0; i < markerCount; ++i) {
+    PublisherMarker marker;
+    if (file.read(&marker.y, 2) != 2 || file.read(marker.label, sizeof(marker.label)) != sizeof(marker.label) ||
+        !memchr(marker.label, '\0', sizeof(marker.label)) || marker.y < 0 ||
+        !page->addPublisherMarker(marker.label, marker.y)) {
+      LOG_ERR("PGE", "Invalid publisher annotation");
+      return nullptr;
+    }
+  }
   return page;
 }

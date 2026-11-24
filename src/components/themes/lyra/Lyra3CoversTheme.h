@@ -9,7 +9,8 @@ class GfxRenderer;
 namespace Lyra3CoversMetrics {
 constexpr ThemeMetrics values = [] {
   ThemeMetrics v = LyraMetrics::values;
-  v.homeCoverTileHeight = 300;
+  v.homeCoverTileHeight = 260;
+  v.homeCoverHeight = 186;
   v.homeRecentBooksCount = 3;
   return v;
 }();

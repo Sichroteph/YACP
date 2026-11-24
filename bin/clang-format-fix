@@ -13,6 +13,7 @@ fi
 
 set -euo pipefail
 
+
 GIT_LS_FILES_FLAGS=""
 # -g scopes formatting to tracked files currently modified in git status.
 if [[ "${1:-}" == "-g" ]]; then
@@ -28,6 +29,20 @@ if [[ -z "${CLANG_FORMAT_MAJOR}" || "${CLANG_FORMAT_MAJOR}" -lt 21 ]]; then
   echo "This repository's .clang-format requires clang-format 21 or newer."
   echo "Install clang-format-21 and rerun ./bin/clang-format-fix"
   exit 1
+fi
+
+# Explicit files avoid formatting unrelated local integration work.
+if [[ "${1:-}" == "--files" ]]; then
+  shift
+  if [[ "$#" -eq 0 ]]; then
+    echo "Expected at least one C/C++ source path"
+    exit 1
+  fi
+  for path in "$@"; do
+    [[ -f "$path" && "$path" =~ \.(c|cpp|h|hpp)$ ]] || exit 1
+  done
+  "${CLANG_FORMAT_BIN}" -style=file -i -- "$@"
+  exit 0
 fi
 
 # --- Main Logic ---

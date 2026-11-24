@@ -2,6 +2,8 @@
 
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Logging.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -14,8 +16,10 @@
 #include "MappedInputManager.h"
 #include "ReaderFontSizes.h"
 #include "ReaderLineSpacing.h"
+#include "ReaderParagraphIndent.h"
 #include "SdCardFontSystem.h"
 #include "TextSettingsPreview.h"
+#include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -28,8 +32,10 @@ constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_L
 constexpr StrId LAYOUT_ROW_NAME_IDS[] = {
     StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING, StrId::STR_CHARACTER_SPACING, StrId::STR_EXTRA_SPACING,
     StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN};
-constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION_NO_PREVIEW,
-                                        StrId::STR_EMBEDDED_STYLE_NO_PREVIEW, StrId::STR_TEXT_AA_NO_PREVIEW};
+constexpr StrId STYLE_ROW_NAME_IDS[] = {
+    StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION_NO_PREVIEW, StrId::STR_EMBEDDED_STYLE_NO_PREVIEW,
+    StrId::STR_TEXT_AA_NO_PREVIEW, StrId::STR_GUIDE_READING, StrId::STR_PUBLISHER_PAGE_NUMBERS,
+    StrId::STR_READER_DARK_MODE};
 
 int findCurrentFontIndex(const SdCardFontRegistry* registry, const char* sdFontFamilyName, uint8_t fontFamily) {
   if (sdFontFamilyName[0] != '\0' && registry) {
@@ -81,7 +87,8 @@ void TextSettingsActivity::onEnter() {
 
   fonts_.clear();
   fonts_.reserve(CrossPointSettings::BUILTIN_FONT_COUNT + (registry_ ? registry_->getFamilyCount() : 0));
-  fonts_.push_back({I18N.get(StrId::STR_NOTO_SANS), true, static_cast<uint8_t>(CrossPointSettings::NOTOSANS)});
+  fonts_.push_back({tr(STR_LEXEND_DECA), true, CrossPointSettings::LEXENDDECA});
+  fonts_.push_back({tr(STR_ATKINSON_HYPERLEGIBLE_NEXT), true, CrossPointSettings::ATKINSONNEXT});
   if (registry_) {
     const auto& families = registry_->getFamilies();
     for (int i = 0; i < static_cast<int>(families.size()); i++) {
@@ -183,7 +190,35 @@ void TextSettingsActivity::activateIndex(const int index) {
 }
 
 bool TextSettingsActivity::handleCustomInput() {
-  return optionPopup_.handleInput(mappedInput, [this] { requestUpdate(); });
+  const bool handled = optionPopup_.handleInput(mappedInput, [this] {
+    if (!lineHeightPickerRequested_) requestUpdate();
+  });
+  if (lineHeightPickerRequested_) {
+    lineHeightPickerRequested_ = false;
+    openLineHeightPicker();
+  }
+  return handled;
+}
+
+void TextSettingsActivity::openLineHeightPicker() {
+  // Allocate the slider only during an explicit adjustment.
+  auto picker = makeUniqueNoThrow<IntervalSelectionActivity>(
+      renderer, mappedInput, "LineHeight", StrId::STR_LINE_SPACING,
+      static_cast<int>(SETTINGS.getReaderLineCompression() * 100.0f + 0.5f), CrossPointSettings::LINE_HEIGHT_MIN,
+      CrossPointSettings::LINE_HEIGHT_MAX, 1, 10, StrId::STR_PERCENT_VALUE_FORMAT);
+  if (!picker) {
+    LOG_ERR("TXTSET", "OOM: line height picker");
+    requestUpdate();
+    return;
+  }
+  requestUpdateAndWait();  // Remove the option popup from the slider background.
+  startActivityForResult(std::move(picker), [this](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      SETTINGS.lineHeightPercent = static_cast<uint8_t>(std::get<IntervalResult>(result.data).value);
+      SETTINGS.saveToFile();
+    }
+    requestUpdate();
+  });
 }
 
 bool TextSettingsActivity::handleButtons() {
@@ -389,26 +424,29 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       SETTINGS.saveToFile();
       requestUpdate();
       break;
-    case LayoutRow::ParaIndentation: {
-      std::vector<std::string> options;
-      options.reserve(6);
-      options.push_back(tr(STR_STATE_OFF));
-      for (int spaces = 1; spaces <= 5; ++spaces) options.push_back(std::to_string(spaces));
-      optionPopup_.show(StrId::STR_PARAGRAPH_INDENTATION, options, SETTINGS.paragraphIndentSpaces, [](int idx) {
-        SETTINGS.paragraphIndentSpaces = static_cast<uint8_t>(idx);
-        SETTINGS.saveToFile();
-      });
-      requestUpdate();
-      break;
-    }
-    case LayoutRow::LineSpacing:
-      optionPopup_.show(StrId::STR_LINE_SPACING, LINE_SPACING_IDS, static_cast<int>(std::size(LINE_SPACING_IDS)),
-                        SETTINGS.lineSpacing, [](int idx) {
-                          SETTINGS.lineSpacing = static_cast<uint8_t>(idx);
+    case LayoutRow::ParaIndentation:
+      optionPopup_.show(StrId::STR_PARAGRAPH_INDENTATION, paragraphIndentLabels(), SETTINGS.paragraphIndentSpaces,
+                        [](int idx) {
+                          SETTINGS.paragraphIndentSpaces = static_cast<uint8_t>(idx);
                           SETTINGS.saveToFile();
                         });
       requestUpdate();
       break;
+    case LayoutRow::LineSpacing: {
+      const int selected = SETTINGS.lineHeightPercent ? CUSTOM_LINE_SPACING_INDEX : SETTINGS.lineSpacing;
+      optionPopup_.show(StrId::STR_LINE_SPACING, LINE_SPACING_PICKER_IDS.data(), LINE_SPACING_PICKER_IDS.size(),
+                        selected, [this](int idx) {
+                          if (idx == CUSTOM_LINE_SPACING_INDEX) {
+                            lineHeightPickerRequested_ = true;
+                            return;
+                          }
+                          SETTINGS.lineSpacing = static_cast<uint8_t>(idx);
+                          SETTINGS.lineHeightPercent = 0;
+                          SETTINGS.saveToFile();
+                        });
+      requestUpdate();
+      break;
+    }
     case LayoutRow::Alignment:
       optionPopup_.show(StrId::STR_ALIGNMENT, ALIGNMENT_IDS, static_cast<int>(std::size(ALIGNMENT_IDS)),
                         SETTINGS.paragraphAlignment, [](int idx) {
@@ -457,13 +495,16 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
 std::string TextSettingsActivity::layoutValueText(int row) const {
   switch (static_cast<LayoutRow>(row)) {
     case LayoutRow::LineSpacing: {
+      if (SETTINGS.lineHeightPercent != 0) {
+        char text[16];
+        snprintf(text, sizeof(text), tr(STR_PERCENT_VALUE_FORMAT), static_cast<int>(SETTINGS.lineHeightPercent));
+        return text;
+      }
       const uint8_t v = SETTINGS.lineSpacing;
       return I18N.get(LINE_SPACING_IDS[v < std::size(LINE_SPACING_IDS) ? v : CrossPointSettings::LINE_SPACING_120]);
     }
-    case LayoutRow::ParaIndentation: {
-      const int spaces = std::clamp<int>(SETTINGS.paragraphIndentSpaces, 0, 5);
-      return spaces == 0 ? tr(STR_STATE_OFF) : std::to_string(spaces);
-    }
+    case LayoutRow::ParaIndentation:
+      return paragraphIndentLabel(SETTINGS.paragraphIndentSpaces);
     case LayoutRow::Alignment: {
       const uint8_t v = SETTINGS.paragraphAlignment;
       return v < std::size(ALIGNMENT_IDS) ? I18N.get(ALIGNMENT_IDS[v]) : I18N.get(StrId::STR_JUSTIFY);
@@ -495,7 +536,22 @@ void TextSettingsActivity::confirmStyleRow(int row) {
       SETTINGS.embeddedStyle = !SETTINGS.embeddedStyle;
       break;
     case StyleRow::AntiAliasing:
+      if (SETTINGS.isMagicFlash()) {
+        static constexpr StrId options[] = {StrId::STR_BACK};
+        optionPopup_.show(StrId::STR_TEXT_AA, options, 1, 0, {}, nullptr, 0, tr(STR_AA_MAGIC_HINT));
+        requestUpdate();
+        return;
+      }
       SETTINGS.textAntiAliasing = !SETTINGS.textAntiAliasing;
+      break;
+    case StyleRow::GuideDots:
+      SETTINGS.guideReadingEnabled = !SETTINGS.guideReadingEnabled;
+      break;
+    case StyleRow::PublisherPages:
+      SETTINGS.publisherPageNumbers = !SETTINGS.publisherPageNumbers;
+      break;
+    case StyleRow::ReaderDark:
+      SETTINGS.readerDarkMode = !SETTINGS.readerDarkMode;
       break;
 
     default:
@@ -514,7 +570,13 @@ bool TextSettingsActivity::styleRowChecked(int row) const {
     case StyleRow::EmbeddedStyle:
       return SETTINGS.embeddedStyle;
     case StyleRow::AntiAliasing:
-      return SETTINGS.textAntiAliasing;
+      return SETTINGS.textAntiAliasing && !SETTINGS.isMagicFlash();
+    case StyleRow::GuideDots:
+      return SETTINGS.guideReadingEnabled;
+    case StyleRow::PublisherPages:
+      return SETTINGS.publisherPageNumbers;
+    case StyleRow::ReaderDark:
+      return SETTINGS.readerDarkMode;
 
     default:
       return false;

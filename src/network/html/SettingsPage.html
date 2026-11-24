@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Settings - CrossPoint Reader</title>
+  <title>Settings - YACP</title>
   <style>
     .save-container {
       margin: 20px 0;
@@ -18,6 +18,12 @@
       display: flex;
       gap: 8px;
       margin-top: 8px;
+    }
+    .mode-hint {
+      display: block;
+    }
+    .mode-hint:empty {
+      display: none;
     }
   </style>
   <link rel="stylesheet" href="/assets/web.css" />
@@ -65,19 +71,21 @@
 
   function renderControl(setting) {
     const id = 'setting-' + setting.key;
+    const disabled = setting.disabled ? ' disabled' : '';
 
     if (setting.type === 'toggle') {
       const checked = setting.value ? 'checked' : '';
       return '<label class="toggle-switch">' +
-        '<input type="checkbox" id="' + id + '" ' + checked + ' onchange="handleSettingChanged(\'' + setting.key + '\')">' +
+        '<input type="checkbox" id="' + id + '" ' + checked + disabled + ' onchange="handleSettingChanged(\'' + setting.key + '\')">' +
         '<span class="toggle-slider"></span></label>';
     }
 
     if (setting.type === 'enum') {
-      let html = '<select id="' + id + '" onchange="handleSettingChanged(\'' + setting.key + '\')">';
+      let html = '<select id="' + id + '"' + disabled + ' onchange="handleSettingChanged(\'' + setting.key + '\')">';
       setting.options.forEach(function(opt, idx) {
         const selected = idx === setting.value ? ' selected' : '';
-        html += '<option value="' + idx + '"' + selected + '>' + escapeHtml(opt) + '</option>';
+        const optionDisabled = (setting.disabledOptions || []).includes(idx) ? ' disabled' : '';
+        html += '<option value="' + idx + '"' + selected + optionDisabled + '>' + escapeHtml(opt) + '</option>';
       });
       html += '</select>';
       return html;
@@ -231,11 +239,29 @@
   }
 
   function handleSettingChanged(key) {
+    if (key === 'displayMode') syncDisplayMode(true);
     syncQuickResumeTimeoutForSleepScreen(key === 'sleepScreen', key === 'quickResumeSleepScreen');
     if (key === 'shortPwrBtn') {
       updateSettingsVisibility();
     }
     markChanged();
+  }
+
+  function syncDisplayMode(changed) {
+    const mode = findSetting('displayMode');
+    if (!mode || mode.magicFlashAvailable === false) return;
+    const magic = getControlValue('displayMode') === 0;
+    ['refreshFrequency', 'textAntiAliasing'].forEach(function(key) {
+      const setting = findSetting(key);
+      const el = document.getElementById('setting-' + key);
+      if (!setting || !el) return;
+      if (changed && magic) setting.classicValue = getValue(setting);
+      setControlValue(key, magic ? 0 : setting.classicValue);
+      el.disabled = magic;
+      el.title = magic ? setting.disabledHint : '';
+      const hint = document.getElementById('mode-hint-' + key);
+      if (hint) hint.textContent = magic ? setting.disabledHint : '';
+    });
   }
 
   async function loadSettings() {
@@ -266,7 +292,10 @@
         html += '<div class="card"><h2>' + escapeHtml(category) + '</h2>';
         groups[category].forEach(function(s) {
           html += '<div class="setting-row" id="row-setting-' + s.key + '">' +
-            '<label class="setting-name" for="setting-' + s.key + '">' + escapeHtml(s.name) + '</label>' +
+            '<span class="setting-name"><label for="setting-' + s.key + '">' + escapeHtml(s.name) + '</label>' +
+              (s.availabilityHint ? '<small class="mode-hint">' + escapeHtml(s.availabilityHint) + '</small>' : '') +
+              (s.disabledHint ? '<small class="mode-hint" id="mode-hint-' + s.key + '"></small>' : '') +
+            '</span>' +
             '<span class="setting-control">' + renderControl(s) + '</span>' +
             '</div>';
         });
@@ -274,6 +303,7 @@
       }
 
       container.innerHTML = html;
+      syncDisplayMode(false);
       updateSettingsVisibility();
       document.getElementById('save-container').style.display = '';
       document.getElementById('saveBtn').disabled = true;
@@ -483,6 +513,11 @@
   function renderOpdsServer(srv, idx) {
     const isNew = idx === -1;
     const id = isNew ? 'new' : idx;
+    const format = Number.isInteger(srv.filenameFormat) ? srv.filenameFormat : 255;
+    const formatOptions = [[255, 'Default'], [0, 'Author - Title'], [1, 'Title - Author'], [2, 'Title']]
+      .map(function([value, label]) {
+        return '<option value="' + value + '"' + (format === value ? ' selected' : '') + '>' + label + '</option>';
+      }).join('');
     return '<div class="item-box" id="opds-' + id + '" oninput="enableItemSave(this)">' +
       '<div class="setting-row">' +
         '<span class="setting-name">Server Name</span>' +
@@ -499,6 +534,10 @@
       '<div class="setting-row">' +
         '<span class="setting-name">Password</span>' +
         '<span class="setting-control"><input type="password" id="opds-pass-' + id + '" placeholder="' + (srv.hasPassword ? '(unchanged)' : '') + '"></span>' +
+      '</div>' +
+      '<div class="setting-row">' +
+        '<label class="setting-name" for="opds-format-' + id + '">Filename format</label>' +
+        '<span class="setting-control"><select id="opds-format-' + id + '">' + formatOptions + '</select></span>' +
       '</div>' +
       renderOpdsHeaderRows(srv, id) +
       '<div class="item-actions">' +
@@ -552,6 +591,7 @@
       name: document.getElementById('opds-name-' + id).value,
       url: document.getElementById('opds-url-' + id).value,
       username: document.getElementById('opds-user-' + id).value,
+      filenameFormat: Number(document.getElementById('opds-format-' + id).value),
     };
     // Only include password in payload when the user actually typed something;
     // omitting it tells the server to keep the existing password.

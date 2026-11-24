@@ -4,23 +4,64 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/PageLink.h>
 #include <Epub/Section.h>
+#include <ReferencePageParser.h>
+#include "ProgressCheckpoint.h"
 
 #include <atomic>
 #include <memory>
 #include <optional>
 #include <vector>
 
+#include "BookReaderSettings.h"
 #include "BookmarkEntry.h"
 #include "ChapterPosition.h"
 #include "ClipSelectionActivity.h"
 #include "EpubReaderMenuActivity.h"
 #include "LinkNoteTitle.h"
 #include "ProgressMapper.h"
+#include "ReaderAction.h"
 #include "ReaderActivity.h"
 #include "ReaderToolbarUi.h"
+#include "ReadingSession.h"
 #include "components/OptionPopup.h"
 
 class EpubReaderActivity final : public ReaderActivity {
+  ReaderAction pendingReaderAction = ReaderAction::Upstream;
+  bool reinforcementRequested = false;  // Protected by RenderLock.
+  void executeReaderAction(ReaderAction action);
+  uint8_t readerPowerAction(bool longPress) const override;
+  void queueReaderAction(uint8_t action) override {
+    if (supportedReaderAction(static_cast<ReaderAction>(action)))
+      pendingReaderAction = static_cast<ReaderAction>(action);
+  }
+  BookReaderSettings bookProfile;
+  ReferencePageInfo referencePages;
+  int referenceSpine = -1;
+  size_t referenceManifestBytes = 0;
+  bool referenceManifestChecked = false;
+  void loadReferencePages();
+  void onEnter() override;
+  std::unique_ptr<ReadingSession> readingSession;
+  std::atomic<uint32_t> readingPageShownAt{0};
+  std::atomic<bool> readingPagePending{false};
+  bool readingCovered = false;
+  void acceptReadingPage();
+  void pauseReadingSession();
+  void ensureReadingSession();
+  void publishTimeLeftInputs();
+  uint32_t timeLeftSeconds(bool wholeBook) const;
+  std::atomic<uint16_t> readingPaceSeconds{0};
+  std::atomic<uint32_t> readingElapsedSeconds{0};
+  void recordBookCompletion();
+  void goReaderHome() override;
+  bool handleHomeGesture() override {
+    goReaderHome();
+    return true;
+  }
+  void onCovered() override;
+  void onUncovered() override;
+  void onExit() override;
+  void prepareForSleep() override;
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;
@@ -107,8 +148,9 @@ class EpubReaderActivity final : public ReaderActivity {
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
   std::vector<PageLink> currentPageLinks;
-  int currentPageLinkMarginLeft = 0;
-  int currentPageLinkMarginTop = 0;
+  // Origin of the last rendered page, shared by link hits and word selection.
+  int currentPageMarginLeft = 0;
+  int currentPageMarginTop = 0;
   struct SavedPosition {
     int spineIndex;
     int pageNumber;
@@ -125,6 +167,7 @@ class EpubReaderActivity final : public ReaderActivity {
   uint16_t buildViewportHeight = 0;
   bool partialRebuildStartFailed = false;
 
+  ProgressCheckpoint progressCheckpoint;
   int lastSavedSpineIndex = -1;
   int lastSavedPage = -1;
   int lastSavedPageCount = -1;
@@ -164,7 +207,7 @@ class EpubReaderActivity final : public ReaderActivity {
   bool applyDeferredReposition();
   void clearDeferredReposition();
   void rememberCurrentContentOffset();
-  bool saveProgress(int spineIndex, int currentPage, int pageCount);
+  bool saveProgress(int spineIndex, int currentPage, int pageCount, bool defer = false);
   void jumpToPercent(int percent);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
   int currentTocIndex() const;
@@ -185,6 +228,10 @@ class EpubReaderActivity final : public ReaderActivity {
   std::string textRowName(int row) const;
   std::string textRowValue(int row) const;
   void showTextRowPopup(int row);
+  void openLineHeightPicker();
+  bool lineHeightPickerRequested = false;
+  void openAutoTurnIntervalPicker();
+  bool autoTurnIntervalRequested = false;
   // Persist + re-paginate + re-render under the open panel (live preview).
   void applyTextSettingLive();
   void paintOverlayPopup();
@@ -197,7 +244,7 @@ class EpubReaderActivity final : public ReaderActivity {
   std::string moreRowValue(int row) const;
   void activateMoreRow(int row);
   void openFootnoteSelect(bool reopenMenuOnCancel);
-  void openDictionaryWordSelect();
+  void openDictionaryWordSelect(int touchX = -1, int touchY = -1);
   void startClipSelection(int initialX = -1, int initialY = -1,
                           ClipSelectionActivity::Mode mode = ClipSelectionActivity::Mode::Clip);
   int clippingAtPoint(const Page& page, int x, int y) const;
@@ -216,8 +263,8 @@ class EpubReaderActivity final : public ReaderActivity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
-  void renderStatusBar() const;
   void applyOrientation(uint8_t orientation);
+  void stepReaderFontSize(bool larger);
   void applyInitialOrientation() override;
   // The orientation the current layout was built for. The control center's
   // orientation tile can move SETTINGS.orientation while this reader sits on
@@ -253,6 +300,9 @@ class EpubReaderActivity final : public ReaderActivity {
 
   void loop() override;
   void render(RenderLock&& lock) override;
+  bool renderFrontlightIndicator(RenderLock&& lock) override;
+  // Paint the reader chrome into the current framebuffer while holding the render lock.
+  void renderStatusBar() const;
 
   bool pageTurn(bool isForward) override;
   bool skipPages(int amount) override;

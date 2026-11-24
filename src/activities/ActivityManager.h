@@ -18,7 +18,17 @@
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
-enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
+enum class HomeMenuItem {
+  NONE,
+  FILE_BROWSER,
+  LIBRARY,
+  OPDS_BROWSER,
+  FILE_TRANSFER,
+  SETTINGS_MENU,
+  READING_STATS,
+  POWER_STATS,
+  DICTIONARY_HISTORY
+};
 
 /**
  * ActivityManager
@@ -42,6 +52,7 @@ class ActivityManager {
   MappedInputManager& mappedInput;
   std::vector<std::unique_ptr<Activity>> stackActivities;
   std::unique_ptr<Activity> currentActivity;
+  bool readerSleepRequested = false;  // Main-loop only; consumed outside Activity::loop().
 
   void exitActivity(const RenderLock& lock);
 
@@ -66,6 +77,7 @@ class ActivityManager {
   // Whether to trigger a render after the current loop()
   // This variable must only be set by the main loop, to avoid race conditions
   std::atomic<bool> requestedUpdate{false};
+  std::atomic<bool> frontlightIndicatorUpdate{false};
 
   // Counts screen changes, so the Bluetooth page turner can tell one visit of a book from the next.
   // Written by the main loop under RenderLock; the render task captures it under that lock.
@@ -122,6 +134,14 @@ class ActivityManager {
   // A remote button mapped to the reader menu (true) or to a new clipping (false).
   bool remoteShortcut(bool readerMenu);
   bool handleForcedRefresh();
+  uint8_t readerPowerAction(bool longPress) const;
+  void queueReaderAction(uint8_t action);
+  void requestReaderSleep() { readerSleepRequested = true; }
+  bool takeReaderSleepRequest() {
+    const bool value = readerSleepRequested;
+    readerSleepRequested = false;
+    return value;
+  }
   bool skipLoopDelay() const;
   ScreenshotInfo getScreenshotInfo() const;
   void prepareForSleep();
@@ -133,6 +153,10 @@ class ActivityManager {
   // Trigger a render and block until it completes.
   // Must NOT be called from the render task or while holding a RenderLock.
   void requestUpdateAndWait();
+
+  // Notify the active reader that the frontlight changed without forcing a
+  // full EPUB render.
+  void notifyFrontlightChanged();
 };
 
 extern ActivityManager activityManager;  // singleton, to be defined in main.cpp

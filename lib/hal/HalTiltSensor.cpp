@@ -18,19 +18,18 @@ void HalTiltSensor::begin() {
     LOG_ERR("GYR", "SDK IMU not found");
     return;
   }
-  // begin() leaves the sensors sampling; stand them by until tilt page turn
-  // actually wakes them, so a disabled IMU doesn't drain the battery.
-  if (!_sdkImu.sleep()) {
-    LOG_ERR("GYR", "IMU standby failed");
-  }
-  // Tilt detection reads the gyro; accelerometer-only parts (SC7A20H) can't drive it.
+  // Accelerometer-only parts cannot drive the tilt gesture.
   _available = _sdkImu.hasGyroscope();
   if (!_available) {
+    if (!_sdkImu.sleep()) LOG_ERR("GYR", "IMU standby failed");
     LOG_INF("GYR", "IMU has no gyroscope");
     return;
   }
   _initMs = millis();
-  _lastPollMs = millis();
+  _lastPollMs = _initMs;
+  // begin() starts sampling. Stand by until the reader requests tilt input.
+  _isAwake = true;
+  deepSleep();
   LOG_INF("GYR", "SDK IMU initialized");
 }
 
@@ -39,7 +38,9 @@ bool HalTiltSensor::wake() {
     return false;
   }
 
+  _lastPowerAttemptMs = millis();
   if (!_sdkImu.wake()) {
+    _powerStateUncertain = true;  // The SDK can have written only part of the register sequence.
     LOG_ERR("GYR", "IMU wake failed");
     return false;
   }
@@ -48,6 +49,9 @@ bool HalTiltSensor::wake() {
   _lastTiltMs = millis();
   _wakeMs = millis();
   _isAwake = true;
+  _powerStateUncertain = false;
+  clearPendingEvents();
+  _inTilt = false;
   return true;
 }
 
@@ -56,7 +60,9 @@ bool HalTiltSensor::deepSleep() {
     return false;
   }
 
+  _lastPowerAttemptMs = millis();
   if (!_sdkImu.sleep()) {
+    _powerStateUncertain = true;
     LOG_ERR("GYR", "IMU sleep failed");
     return false;
   }
@@ -64,6 +70,7 @@ bool HalTiltSensor::deepSleep() {
   clearPendingEvents();
   _inTilt = false;
   _isAwake = false;
+  _powerStateUncertain = false;
   return true;
 }
 
@@ -72,21 +79,22 @@ void HalTiltSensor::update(const uint8_t mode, const uint8_t orientation, const 
     return;
   }
 
-  // State machine: wake up or sleep based on the enabled flag
-  if ((mode != CrossPointTiltPageTurn::TILT_OFF) && !_isAwake) {
-    _isAwake = wake();
-    return;
-  } else if ((mode == CrossPointTiltPageTurn::TILT_OFF) && _isAwake) {
-    _isAwake = !deepSleep();
-    return;
-  }
-
-  // If disabled, skip the rest of the polling logic and avoid unnecessary I2C traffic in non-reader activities
-  if ((mode == CrossPointTiltPageTurn::TILT_OFF) || !inReader) {
-    return;
-  }
-
   const unsigned long now = millis();
+  const bool shouldBeAwake = mode >= CrossPointTiltPageTurn::TILT_NORMAL &&
+                            mode <= CrossPointTiltPageTurn::TILT_FORWARD_BACK_INVERTED && inReader;
+  if (!shouldBeAwake) {
+    clearPendingEvents();
+    _inTilt = false;
+  }
+  // A failed SDK sequence leaves the hardware state unknown. Retry at most
+  // once per second, and never poll a sensor whose wake was not confirmed.
+  if (_powerStateUncertain && (now - _lastPowerAttemptMs) < POWER_RETRY_MS) return;
+  if (shouldBeAwake != _isAwake || _powerStateUncertain) {
+    if (shouldBeAwake) wake();
+    else deepSleep();
+    return;
+  }
+  if (!shouldBeAwake) return;
   // Stabilization: discard readings during gyro startup transient
   if ((now - _wakeMs) < WAKE_STABILIZE_MS) {
     return;
@@ -105,23 +113,27 @@ void HalTiltSensor::update(const uint8_t mode, const uint8_t orientation, const 
   // Map the gyro axis to left/right tilt based on reader orientation.
   // On the X3 PCB: X axis = left/right in portrait, Y axis = left/right in landscape.
   float tiltAxis;
+  const bool forwardBack = mode == CrossPointTiltPageTurn::TILT_FORWARD_BACK ||
+                           mode == CrossPointTiltPageTurn::TILT_FORWARD_BACK_INVERTED;
   switch (orientation) {
     case CrossPointOrientation::PORTRAIT:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? -gx : gx;
+      tiltAxis = forwardBack ? gy : gx;
       break;
     case CrossPointOrientation::INVERTED:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? gx : -gx;
+      tiltAxis = forwardBack ? -gy : -gx;
       break;
     case CrossPointOrientation::LANDSCAPE_CW:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? gy : -gy;
+      tiltAxis = forwardBack ? gx : -gy;
       break;
     case CrossPointOrientation::LANDSCAPE_CCW:
-      tiltAxis = mode == CrossPointTiltPageTurn::TILT_INVERTED ? -gy : gy;
+      tiltAxis = forwardBack ? -gx : gy;
       break;
     default:
       tiltAxis = gx;
       break;
   }
+  if (mode == CrossPointTiltPageTurn::TILT_INVERTED ||
+      mode == CrossPointTiltPageTurn::TILT_FORWARD_BACK_INVERTED) tiltAxis = -tiltAxis;
 
   if (_inTilt) {
     // Wait for device to return to neutral before allowing next trigger

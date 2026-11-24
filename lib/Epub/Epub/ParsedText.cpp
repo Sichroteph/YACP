@@ -760,7 +760,9 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
   if (firstLineConsumed || !isFirstLine || !isNaturalAlign) {
     return 0;
   }
-  if (blockStyle.textIndentDefined && blockStyle.textIndent < 0) return blockStyle.textIndent;
+  if (blockStyle.textIndentDefined && (blockStyle.textIndent < 0 || forceParagraphIndents)) {
+    return blockStyle.textIndent;
+  }
   if (paragraphIndentSpaces == 0) return 0;
   return scaleSpace(renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR), wordSpacingPercent) * paragraphIndentSpaces;
 }
@@ -828,8 +830,12 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     // pointer tables (~8 B per live chunk) instead of per-word iteration.
     std::vector<const char*> segments;
     std::vector<size_t> segmentLens;
-    segments.reserve(wordStore.chunkCount());
-    segmentLens.reserve(wordStore.chunkCount());
+    segments.reserve(wordStore.chunkCount() + (guideReadingEnabled ? 1 : 0));
+    segmentLens.reserve(wordStore.chunkCount() + (guideReadingEnabled ? 1 : 0));
+    if (guideReadingEnabled) {
+      segments.push_back("\xc2\xb7");
+      segmentLens.push_back(2);
+    }
     for (size_t i = 0; i < wordStore.chunkCount(); ++i) {
       const char* data = wordStore.chunkData(i);
       if (!data) continue;  // retired chunk
@@ -1478,6 +1484,9 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   }
   const size_t lineWordCount = lineBreak - lastBreakAt;
   const uint32_t lineVisibleOffset = visibleOffsetAt(lastBreakAt);
+  const uint32_t sourceEnd = publisherPageNumbers && lineWordCount
+      ? (lineBreak < words.size() ? visibleOffsetAt(lineBreak)
+                                 : visibleOffsetAt(lineBreak - 1) + countCodepoints(wordAt(lineBreak - 1))) : 0;
 
   const int firstLineIndent = resolveFirstLineIndent(breakIndex == 0, renderer, fontId);
 
@@ -1790,6 +1799,36 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     }
   }
 
+  // Guide dots decorate existing gaps only. Keep upstream word positions,
+  // line breaks and visible offsets identical in both modes.
+  std::unique_ptr<int16_t[]> guideDots;
+  bool hasGuideDot = false;
+  if (guideReadingEnabled && lineWordCount > 1) {
+    // One bounded line of scratch, freed after TextBlock copies it into its arena.
+    // Paragraph length is unbounded, so stack storage is not suitable here.
+    guideDots = makeUniqueNoThrow<int16_t[]>(lineWordCount);
+    if (!guideDots) {
+      LOG_ERR("PTX", "Cannot allocate guide-dot positions");
+      droppedWords = true;
+      return;
+    }
+    std::fill_n(guideDots.get(), lineWordCount, INT16_MIN);
+    for (size_t i = 0; i + 1 < lineWordCount; ++i) {
+      const bool attached = willReorder ? reorderedContinuesScratch[i + 1] : continuesVec[lastBreakAt + i + 1];
+      const bool noSpace = willReorder ? reorderedNoSpaceBeforeScratch[i + 1] : noSpaceBeforeVec[lastBreakAt + i + 1];
+      if (attached || noSpace || lineWords[i] == " " || lineWords[i + 1] == " ") continue;
+      const int width = willReorder ? reorderedWidthsScratch[i] : wordWidths[lastBreakAt + i];
+      const int nextWidth = willReorder ? reorderedWidthsScratch[i + 1] : wordWidths[lastBreakAt + i + 1];
+      const bool reverse = lineXPos[i + 1] < lineXPos[i];
+      const int end = reverse ? lineXPos[i + 1] + nextWidth : lineXPos[i] + width;
+      const int gap = (reverse ? lineXPos[i] : lineXPos[i + 1]) - end;
+      const int dotWidth = renderer.getTextAdvanceX(fontId, "\xc2\xb7", lineWordStyles[i]);
+      if (dotWidth <= 0 || gap < dotWidth + 2) continue;
+      guideDots[i] = static_cast<int16_t>(end + (gap - dotWidth) / 2);
+      hasGuideDot = true;
+    }
+  }
+
   const auto focusBoundaryAt = [&](const size_t idx) {
     return willReorder ? reorderedFocusBoundaryScratch[idx] : wordFocusBoundary[lastBreakAt + idx];
   };
@@ -1883,7 +1922,8 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     // TextBlock flattens the vectors into its arena; they stay owned here and die at return.
     auto block = makeUniqueNoThrow<TextBlock>(lineWords, lineXPos, lineWordStyles, std::vector<uint8_t>{},
                                               std::vector<uint16_t>{}, blockStyle, std::move(lineRubyTexts),
-                                              std::move(lineLinks), sourceRanges, paragraphStartWord);
+                                              std::move(lineLinks), sourceRanges, paragraphStartWord,
+                                              hasGuideDot ? guideDots.get() : nullptr);
     if (!block || !block->valid() || !attachWordFonts(*block)) {
       LOG_ERR("PTX", "Dropping line: TextBlock or arena allocation failed");
       // Latch through the same flag as addWord() OOM: the caller releases the
@@ -1892,6 +1932,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
       droppedWords = true;
       return;
     }
+    block->sourceEndOffset = sourceEnd;
     processLine(std::move(block), lineVisibleOffset);
     return;
   }
@@ -1917,11 +1958,13 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
 
   auto block =
       makeUniqueNoThrow<TextBlock>(lineWords, lineXPos, lineWordStyles, outBoundaries, outSplitX, blockStyle,
-                                   std::move(lineRubyTexts), std::move(lineLinks), sourceRanges, paragraphStartWord);
+                                   std::move(lineRubyTexts), std::move(lineLinks), sourceRanges, paragraphStartWord,
+                                              hasGuideDot ? guideDots.get() : nullptr);
   if (!block || !block->valid() || !attachWordFonts(*block)) {
     LOG_ERR("PTX", "Dropping line: TextBlock or arena allocation failed");
     droppedWords = true;  // see the non-focus branch above
     return;
   }
+  block->sourceEndOffset = sourceEnd;
   processLine(std::move(block), lineVisibleOffset);
 }

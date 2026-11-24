@@ -1,6 +1,8 @@
 #include "CrossPointSettings.h"
 
 #include <BlePageTurnerJson.h>
+#include <BoardConfig.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
@@ -15,9 +17,11 @@
 #include "ReaderFontSizes.h"
 #include "ReaderLineSpacing.h"
 #include "SettingsList.h"
+#include "YacpFonts.h"
+#include "activities/reader/BookReaderSettings.h"
 #include "fontIds.h"
 #include "util/ParagraphIndentMigration.h"
-#include "util/PluginLocations.h"
+#include "util/YacpLegacyLineHeight.h"
 
 namespace {
 
@@ -32,6 +36,25 @@ void copyToField(char* dest, const char* src, const size_t maxLen) {
 }
 
 }  // namespace
+
+bool CrossPointSettings::isValidDeviceName(const std::string_view name) {
+  if (name.empty()) return true;
+  if (name.size() < MIN_DEVICE_NAME_LENGTH || name.size() > MAX_DEVICE_NAME_LENGTH) return false;
+  for (const unsigned char byte : name) {
+    if (byte < 32 || byte == 127) return false;
+  }
+  return true;
+}
+
+const char* CrossPointSettings::getDefaultDeviceName() {
+  if (BoardConfig::isX4Pro()) return "YACP X4 Pro";
+  if (BoardConfig::isX4Classic()) return "YACP X4 Classic";
+  return gpio.deviceIsX3() ? "YACP X3" : "YACP X4";
+}
+
+const char* CrossPointSettings::getEffectiveDeviceName() const {
+  return deviceName[0] && isValidDeviceName(deviceName) ? deviceName : getDefaultDeviceName();
+}
 
 void CrossPointSettings::validateFrontButtonMapping(CrossPointSettings& settings) {
   const uint8_t mapping[] = {settings.frontButtonBack, settings.frontButtonConfirm, settings.frontButtonLeft,
@@ -65,6 +88,39 @@ uint8_t CrossPointSettings::sleepTimeoutEnumToMinutes(const uint8_t legacyValue)
   }
 }
 
+bool CrossPointSettings::saveToFile() const {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  const bool bookSaved = !bookProfile || bookProfile->save(*this);
+  JsonDocument doc;
+  toJson(doc);
+  return writeDocToFile(getFilePath(), doc) && bookSaved;
+}
+
+void CrossPointSettings::beginBookProfile(BookReaderSettings& profile, const char* cachePath) {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (bookProfile) {
+    LOG_ERR("CPS", "Book profile already active");
+    return;
+  }
+  profile.begin(*this, cachePath);
+  bookProfile = &profile;
+}
+
+void CrossPointSettings::endBookProfile(BookReaderSettings& profile) {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (bookProfile != &profile) return;
+  if (!profile.save(*this)) LOG_ERR("CPS", "Book profile not saved on exit");
+  profile.restore(*this);
+  bookProfile = nullptr;
+}
+
+void CrossPointSettings::setAutoPageTurnSeconds(const uint8_t seconds) {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (seconds < 5 || seconds > 120) { LOG_ERR("CPS", "Invalid automatic-turn interval"); return; }
+  autoPageTurnSeconds = seconds;
+  if (bookProfile) bookProfile->retainInterval();
+}
+
 void CrossPointSettings::toJson(JsonDocument& doc) const {
   const CrossPointSettings& s = *this;
 
@@ -93,10 +149,31 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["frontButtonConfirm"] = frontButtonConfirm;
   doc["frontButtonLeft"] = frontButtonLeft;
   doc["frontButtonRight"] = frontButtonRight;
+  doc["readerFrontButtonsEnabled"] = readerFrontButtonsEnabled;
+  doc["sideButtonLongPress"] = sideButtonLongPress;
+  doc["longPressBackAction"] = longPressBackAction;
+  doc["longPressMenuAction"] = longPressMenuAction;
+  doc["longPwrBtn"] = longPwrBtn;
+  doc["readerShortPowerAction"] = readerShortPowerAction;
+  doc["frontButtonOrientationAware"] = frontButtonOrientationAware;
+  doc["sideButtonOrientationAware"] = sideButtonOrientationAware;
+  doc["tiltPageTurn"] = tiltPageTurn;
+  // The Pro UI hides this C3 preference; retain it across device migrations.
+  doc["fadingFix"] = fadingFix;
+  doc["tiltPageTurnLastMode"] = tiltPageTurn != TILT_OFF ? tiltPageTurn : tiltPageTurnLastMode;
+  doc["readerFrontButtonBack"] = readerFrontButtonBack;
+  doc["readerFrontButtonConfirm"] = readerFrontButtonConfirm;
+  doc["readerFrontButtonLeft"] = readerFrontButtonLeft;
+  doc["readerFrontButtonRight"] = readerFrontButtonRight;
   // Font family and size — both use dynamic getter/setters in SettingsList (the
   // option lists depend on the SD font registry), so the generic loop skips them.
-  doc["fontFamily"] = STORED_NOTOSANS;
+  doc["fontFamily"] = fontFamily;
+  doc["yacpReaderFontInitialized"] = true;
   doc["fontSize"] = fontPointSize;
+  doc["lineHeightPercent"] = lineHeightPercent;
+  doc["autoPageTurnSeconds"] = autoPageTurnSeconds;
+  doc["uiTheme"] = uiTheme;
+  doc["clockDateHasBeenSynced"] = clockDateHasBeenSynced;
   // SD card font family name — not in SettingsList, save manually
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
@@ -119,6 +196,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (keyboardLayouts != 0) {
     doc["keyboardLayouts"] = keyboardLayouts;
   }
+  if (bookProfile) bookProfile->writeGlobalJson(doc);
 
   bleturner::writeJson(ble, doc);
 }
@@ -126,6 +204,22 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
 bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   CrossPointSettings& s = *this;
   bool needsResave = false;
+  // A missing mode defaults to Magic Flash only on X3. Retain an explicitly
+  // saved Classic choice, and recognize both historical reinforcement IDs.
+  refreshAction = gpio.deviceIsX3() ? REFRESH_BW_REINFORCEMENT_2X : REFRESH_FULL;
+  const int storedDateSynced = doc["clockDateHasBeenSynced"] | 0;
+  clockDateHasBeenSynced = storedDateSynced == 1 ? 1 : 0;
+  const int storedLineHeight = doc["lineHeightPercent"] | 0;
+  lineHeightPercent = storedLineHeight >= LINE_HEIGHT_MIN && storedLineHeight <= LINE_HEIGHT_MAX
+                          ? static_cast<uint8_t>(storedLineHeight)
+                          : 0;
+  if (storedLineHeight != lineHeightPercent) needsResave = true;
+  const auto interval = doc["autoPageTurnSeconds"];
+  autoPageTurnSeconds = interval.is<int>() && interval.as<int>() >= 5 && interval.as<int>() <= 120
+                            ? static_cast<uint8_t>(interval.as<int>()) : 30;
+  if (!interval.isNull() && (!interval.is<int>() || interval.as<int>() != autoPageTurnSeconds)) needsResave = true;
+  const uint8_t storedTheme = doc["uiTheme"] | static_cast<uint8_t>(YACP);
+  uiTheme = storedTheme <= YACP ? storedTheme : static_cast<uint8_t>(YACP);
 
   auto clamp = [](uint8_t val, uint8_t maxVal, uint8_t def) -> uint8_t { return val < maxVal ? val : def; };
 
@@ -170,7 +264,14 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
         if (raw) {
           // Obfuscated field recovered from a legacy plaintext value -> resave.
           if (info.obfuscated && strcmp(raw, destPtr) != 0) needsResave = true;
-          copyToField(destPtr, raw, info.stringMaxLen);
+          const JsonString stored = doc[info.key].as<JsonString>();
+          if (strcmp(info.key, "deviceName") == 0 &&
+              !isValidDeviceName(std::string_view(stored.c_str(), stored.size()))) {
+            LOG_ERR("CPS", "Invalid device name; keeping previous value");
+            needsResave = true;
+          } else {
+            copyToField(destPtr, raw, info.stringMaxLen);
+          }
         }
       }
     } else {
@@ -191,11 +292,10 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   };
   forEachBaseSetting(visit);
 
-  // Plugin System did not exist in older settings files. Preserve the behavior
-  // of users who already have SD plugins installed, while keeping the new
-  // default disabled on clean installs.
-  if (doc["pluginsEnabled"].isNull()) {
-    pluginsEnabled = PluginLocations::anyPluginInstalledOnDisk() ? 1 : 0;
+  const auto legacyBrowserLayout = doc["fileBrowserPreview"];
+  if (doc["fileBrowserDisplay"].isNull() && legacyBrowserLayout.is<uint8_t>() &&
+      legacyBrowserLayout.as<uint8_t>() <= 1) {
+    fileBrowserDisplay = legacyBrowserLayout.as<uint8_t>();
     needsResave = true;
   }
 
@@ -203,7 +303,12 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   const bool hasSavedWidth = indentSpaces.is<int>();
   const int savedWidth = hasSavedWidth ? indentSpaces.as<int>() : 0;
   paragraphIndentSpaces = migrateParagraphIndentSpaces(hasSavedWidth, savedWidth, extraParagraphSpacing != 0);
-  if (!hasSavedWidth || savedWidth < 0 || savedWidth > 5) needsResave = true;
+  const auto legacyForcedIndent = doc["forceParagraphIndents"];
+  if (!hasSavedWidth && (legacyForcedIndent.is<int>() || legacyForcedIndent.is<bool>())) {
+    const bool enabled = legacyForcedIndent.is<bool>() ? legacyForcedIndent.as<bool>() : legacyForcedIndent.as<int>() == 1;
+    paragraphIndentSpaces = enabled ? FORCE_PARAGRAPH_INDENTS : 0;
+  }
+  if (!hasSavedWidth || savedWidth < 0 || savedWidth > FORCE_PARAGRAPH_INDENTS) needsResave = true;
 
   // Older files stored one combined touch mode under "touchReaderControls":
   // 0=off, 1=tap, 2=swipe, 3=inverted tap. Split it into the master toggle
@@ -241,6 +346,68 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       clamp(doc["frontButtonRight"] | (uint8_t)FRONT_HW_RIGHT, FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_RIGHT);
   validateFrontButtonMapping(s);
 
+  readerFrontButtonsEnabled = (doc["readerFrontButtonsEnabled"] | 0) == 1 ? 1 : 0;
+  const auto sideLongPress = doc["sideButtonLongPress"];
+  sideButtonLongPress =
+      sideLongPress.is<int>() && sideLongPress.as<int>() >= 0 &&
+              sideLongPress.as<int>() <= SIDE_LONG_INHERIT
+          ? static_cast<uint8_t>(sideLongPress.as<int>())
+          : SIDE_LONG_INHERIT;
+  if (!sideLongPress.isNull() && (!sideLongPress.is<int>() || sideLongPress.as<int>() != sideButtonLongPress))
+    needsResave = true;
+  const auto readOrientationProfile = [&](const char* key, const uint8_t fallback, const uint8_t maximum) -> uint8_t {
+    const auto value = doc[key];
+    if (value.is<int>() && value.as<int>() >= 0 && value.as<int>() <= maximum)
+      return static_cast<uint8_t>(value.as<int>());
+    if (!value.isNull()) needsResave = true;
+    return fallback;
+  };
+  longPressBackAction = readOrientationProfile("longPressBackAction", 22, 22);
+  longPressMenuAction = readOrientationProfile("longPressMenuAction", 22, 23);
+  longPwrBtn = readOrientationProfile("longPwrBtn", 23, 23);
+  readerShortPowerAction = readOrientationProfile("readerShortPowerAction", 23, 23);
+  frontButtonOrientationAware = readOrientationProfile("frontButtonOrientationAware", 3, 3);
+  sideButtonOrientationAware = readOrientationProfile("sideButtonOrientationAware", 2, 2);
+  const auto fading = doc["fadingFix"];
+  fadingFix = fading.is<bool>() ? static_cast<uint8_t>(fading.as<bool>())
+                              : fading.is<int>() && fading.as<int>() == 1 ? 1 : 0;
+  if (!fading.isNull() && !fading.is<bool>() &&
+      (!fading.is<int>() || fading.as<int>() < 0 || fading.as<int>() > 1)) needsResave = true;
+  const auto tiltMode = doc["tiltPageTurn"];
+  tiltPageTurn = tiltMode.is<int>() && tiltMode.as<int>() >= 0 && tiltMode.as<int>() < TILT_PAGE_TURN_COUNT
+                     ? static_cast<uint8_t>(tiltMode.as<int>()) : TILT_OFF;
+  if (!tiltMode.isNull() && (!tiltMode.is<int>() || tiltMode.as<int>() != tiltPageTurn)) needsResave = true;
+  const auto tiltLastMode = doc["tiltPageTurnLastMode"];
+  tiltPageTurnLastMode = tiltLastMode.is<int>() && tiltLastMode.as<int>() > 0 &&
+                                tiltLastMode.as<int>() < TILT_PAGE_TURN_COUNT
+                            ? static_cast<uint8_t>(tiltLastMode.as<int>()) : TILT_NORMAL;
+  if (!tiltLastMode.isNull() && (!tiltLastMode.is<int>() || tiltLastMode.as<int>() != tiltPageTurnLastMode))
+    needsResave = true;
+  if (tiltPageTurn != TILT_OFF) tiltPageTurnLastMode = tiltPageTurn;
+  const char* const readerKeys[] = {"readerFrontButtonBack", "readerFrontButtonConfirm",
+                                    "readerFrontButtonLeft", "readerFrontButtonRight"};
+  uint8_t readerMap[4] = {0, 1, 2, 3};
+  uint8_t seen = 0;
+  bool validReaderMap = true;
+  for (uint8_t i = 0; i < 4; ++i) {
+    const auto value = doc[readerKeys[i]];
+    const int button = value.is<int>() ? value.as<int>() : -1;
+    if (button < 0 || button >= 4 || (seen & (1u << button))) {
+      validReaderMap = false;
+      break;
+    }
+    readerMap[i] = static_cast<uint8_t>(button);
+    seen |= 1u << button;
+  }
+  if (!validReaderMap) {
+    readerFrontButtonsEnabled = 0;
+    for (uint8_t i = 0; i < 4; ++i) readerMap[i] = i;
+  }
+  readerFrontButtonBack = readerMap[0];
+  readerFrontButtonConfirm = readerMap[1];
+  readerFrontButtonLeft = readerMap[2];
+  readerFrontButtonRight = readerMap[3];
+
   // Reader font size — an actual point size since 1.5. Files written by 1.4 and
   // earlier hold the old SMALL/MEDIUM/LARGE/EXTRA_LARGE slot in 0..3; no font is
   // renderable at those sizes, so the range is unambiguous and folds to the
@@ -252,20 +419,35 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   }
   fontPointSize = storedFontSize;
 
-  // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
-  const uint8_t storedFontFamily = doc["fontFamily"] | STORED_NOTOSANS;
-  fontFamily = NOTOSANS;
-  // These controls use board-specific display-index mappings and are skipped by
-  // the generic settings loop. Persisted action IDs remain stable across boards.
-  longPressMenuFunction = clamp(doc["longPressMenuFunction"] | (uint8_t)LP_MENU_DISABLED,
-                                (uint8_t)LONG_PRESS_MENU_FUNCTION_COUNT, (uint8_t)LP_MENU_DISABLED);
-  shortPwrBtn = clamp(doc["shortPwrBtn"] | (uint8_t)IGNORE, (uint8_t)SHORT_PWRBTN_COUNT, (uint8_t)IGNORE);
+  const bool existingYacp = (doc["yacpReaderFontInitialized"] | false) ||
+                            !doc["clockDateHasBeenSynced"].isNull() || Storage.exists("/.yacp-migration-v1/complete");
+  if (!existingYacp && BoardConfig::hasHomeKey()) {
+    // CrossPoint 2.0 used value 11 for clipping. In YACP it means Sleep.
+    constexpr uint8_t CROSSPOINT_HOME_CLIPPING = 11;
+    for (const auto field : home_button::FIELDS) {
+      if (s.*field == CROSSPOINT_HOME_CLIPPING) {
+        s.*field = static_cast<uint8_t>(HomeButtonAction::CreateClipping);
+        needsResave = true;
+      }
+    }
+  }
+
+  // Font family is a dynamic setting and is persisted separately.
+  const uint8_t storedFontFamily = doc["fontFamily"] | DEFAULT_FONT_FAMILY;
+  fontFamily = clamp(storedFontFamily, BUILTIN_FONT_COUNT, DEFAULT_FONT_FAMILY);
+  // The UI maps these commands to different option indices on each model.
+  longPressMenuFunction = clamp(doc["longPressMenuFunction"] | static_cast<uint8_t>(LP_MENU_DISABLED),
+                                LONG_PRESS_MENU_FUNCTION_COUNT, LP_MENU_DISABLED);
+  shortPwrBtn = clamp(doc["shortPwrBtn"] | static_cast<uint8_t>(IGNORE), SHORT_PWRBTN_COUNT, IGNORE);
   if (BoardConfig::hasHomeKey() && doc["homeButtonLongPressAction"].isNull() &&
       !doc["longPressMenuFunction"].isNull()) {
     static constexpr HomeButtonAction LEGACY[] = {HomeButtonAction::Sync,       HomeButtonAction::Ignore,
                                                   HomeButtonAction::Bookmark,   HomeButtonAction::Dictionary,
-                                                  HomeButtonAction::ReaderMenu, HomeButtonAction::CreateClipping};
-    if (s.longPressMenuFunction < sizeof(LEGACY) / sizeof(LEGACY[0])) {
+                                                  HomeButtonAction::ReaderMenu};
+    if (s.longPressMenuFunction == LP_MENU_CREATE_CLIPPING) {
+      s.homeButtonLongPressAction = static_cast<uint8_t>(HomeButtonAction::CreateClipping);
+      needsResave = true;
+    } else if (s.longPressMenuFunction < std::size(LEGACY)) {
       s.homeButtonLongPressAction = static_cast<uint8_t>(LEGACY[s.longPressMenuFunction]);
       needsResave = true;
     }
@@ -275,18 +457,28 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   const char* sfn = doc["sdFontFamilyName"] | "";
   strncpy(sdFontFamilyName, sfn, sizeof(sdFontFamilyName) - 1);
   sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
-  if (sdFontFamilyName[0] == '\0') {
-    switch (storedFontFamily) {
-      case LEGACY_NOTOSERIF:
-        copyToField(sdFontFamilyName, "NotoSerif", sizeof(sdFontFamilyName));
-        break;
-      case LEGACY_OPENDYSLEXIC:
-        copyToField(sdFontFamilyName, "OpenDyslexic", sizeof(sdFontFamilyName));
-        break;
-    }
+  if (storedFontFamily == LEGACY_OPENDYSLEXIC && sdFontFamilyName[0] == '\0') {
+    fontFamily = LEXENDDECA;
+    strncpy(sdFontFamilyName, "OpenDyslexic", sizeof(sdFontFamilyName) - 1);
+    sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
+    needsResave = true;
+  } else if (storedFontFamily >= BUILTIN_FONT_COUNT) {
+    needsResave = true;
   }
-  if (storedFontFamily != STORED_NOTOSANS) needsResave = true;
-  // Dictionary folder name — uses dynamic getter/setter in SettingsList, load manually
+  if (!(doc["yacpReaderFontInitialized"] | false)) {
+    if (!existingYacp) {
+      fontFamily = DEFAULT_FONT_FAMILY;
+      sdFontFamilyName[0] = '\0';
+      LOG_INF("CPS", "Selected Atkinson for the first CrossPoint import");
+    }
+    needsResave = true;
+  }
+  if (existingYacp && lineHeightPercent == 0 && doc["lineHeight"].isNull() &&
+      doc["lineSpacing"].is<uint8_t>()) {
+    lineHeightPercent = legacyYacpLineHeightPercent(doc["lineSpacing"].as<uint8_t>(), fontFamily,
+                                                  sdFontFamilyName[0] != '\0');
+  }
+  // Dictionary folder name uses a dynamic setting and is loaded by name.
   copyToField(dictionaryName, doc["dictionaryName"] | "", sizeof(dictionaryName));
   // Language -- stored as code string for stability across enum reorders.
   if (doc["language"].is<const char*>()) {
@@ -318,10 +510,13 @@ CrossPointSettings::StatusBarSpec CrossPointSettings::statusBarSpec() const {
   spec.showBookProgressPercent = statusBarBookProgressPercentage != 0;
   spec.titleMode = statusBarTitle;
   spec.showBattery = statusBarBattery != 0;
+  spec.showBatteryCurrent = statusBarBatteryCurrent != 0 && gpio.deviceIsX3();
   spec.showBatteryPercent = hideBatteryPercentage == HIDE_NEVER;
   spec.clockMode = statusBarClock;
   spec.clock12h = clockFormat == 1;
+  spec.timeLeftMode = statusBarTimeLeft;
   spec.progressBarMode = statusBarProgressBar;
+  spec.progressBarAtTop = statusBarProgressBarPosition == PROGRESS_BAR_TOP;
   spec.progressBarHeightPx =
       statusBarProgressBar != HIDE_PROGRESS ? static_cast<uint8_t>((statusBarProgressBarThickness + 1) * 2) : 0;
   spec.xtcMode = xtcStatusBarMode;
@@ -336,7 +531,8 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   spec.characterSpacing = getCharacterSpacing();
   spec.wordSpacingPercent = wordSpacing;
   spec.extraParagraphSpacing = extraParagraphSpacing != 0;
-  spec.paragraphIndentSpaces = paragraphIndentSpaces;
+  spec.paragraphIndentSpaces = paragraphIndentWidth(paragraphIndentSpaces, spec.extraParagraphSpacing);
+  spec.forceParagraphIndents = paragraphIndentSpaces == FORCE_PARAGRAPH_INDENTS;
   spec.paragraphAlignment = paragraphAlignment;
   spec.viewportWidth = viewportWidth;
   spec.viewportHeight = viewportHeight;
@@ -345,10 +541,15 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   // Same layout as Display, so switching between them keeps the section cache.
   spec.imageRendering = imageRendering == IMAGES_DISPLAY_BW ? static_cast<uint8_t>(IMAGES_DISPLAY) : imageRendering;
   spec.focusReadingEnabled = focusReadingEnabled != 0;
+  spec.guideReadingEnabled = guideReadingEnabled != 0;
+  spec.publisherPageNumbers = publisherPageNumbers != 0;
   return spec;
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
+  if (lineHeightPercent != 0) {
+    return std::clamp<int>(lineHeightPercent, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX) / 100.0f;
+  }
   return LINE_SPACING_MULTIPLIERS[lineSpacing < LINE_COMPRESSION_COUNT ? lineSpacing : LINE_SPACING_120];
 }
 
@@ -360,7 +561,7 @@ unsigned long CrossPointSettings::getSleepTimeoutMs() const {
 }
 
 int CrossPointSettings::getRefreshFrequency() const {
-  switch (refreshFrequency) {
+  switch (getRefreshFrequencySetting()) {
     case REFRESH_1:
       return 1;
     case REFRESH_5:
@@ -372,12 +573,31 @@ int CrossPointSettings::getRefreshFrequency() const {
       return 15;
     case REFRESH_30:
       return 30;
+    case REFRESH_60:
+      return 60;
     case REFRESH_NEVER:
       // Effectively disables the periodic full refresh; the page counter
       // counts down from here and never reaches the threshold in practice.
       return std::numeric_limits<int>::max();
   }
 }
+
+bool CrossPointSettings::supportsUc8279MagicFlash() const {
+  return (BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4 || BoardConfig::isX4Pro()) &&
+         BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8279 &&
+         BoardConfig::ACTIVE.displayControllerVariant == 0x68;
+}
+
+bool CrossPointSettings::supportsMagicFlash() const { return gpio.deviceIsX3() || supportsUc8279MagicFlash(); }
+
+bool CrossPointSettings::isMagicFlash() const {
+  return supportsMagicFlash() &&
+         (refreshAction == REFRESH_BW_REINFORCEMENT || refreshAction == REFRESH_BW_REINFORCEMENT_2X);
+}
+
+bool CrossPointSettings::isTextAntiAliasingEnabled() const { return !isMagicFlash() && textAntiAliasing; }
+
+uint8_t CrossPointSettings::getRefreshFrequencySetting() const { return isMagicFlash() ? REFRESH_1 : refreshFrequency; }
 
 void CrossPointSettings::clearSdFontFamily() {
   sdFontFamilyName[0] = '\0';
@@ -400,15 +620,5 @@ int CrossPointSettings::getReaderFontId() const {
   // in the page render loop) so rendering is correct even before it has run.
   const uint8_t pt =
       snapToNearestPointSize(BUILTIN_READER_POINT_SIZES, std::size(BUILTIN_READER_POINT_SIZES), fontPointSize);
-  switch (pt) {
-    case 12:
-      return NOTOSANS_12_FONT_ID;
-    case 16:
-      return NOTOSANS_16_FONT_ID;
-    case 18:
-      return NOTOSANS_18_FONT_ID;
-    case 14:
-    default:
-      return NOTOSANS_14_FONT_ID;
-  }
+  return yacpReaderFontId(fontFamily, pt);
 }

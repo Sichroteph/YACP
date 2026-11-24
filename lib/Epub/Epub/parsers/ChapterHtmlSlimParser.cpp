@@ -813,13 +813,15 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle, cons
   if (stopRequested) return;
   dropCap.firstLetterPending = false;
   inlineSize = InlineSizeState{};
-  currentTextBlock =
-      makeUniqueNoThrow<ParsedText>(hyphenationEnabled, focusReadingEnabled, blockStyle, paragraphIndentSpaces);
+  currentTextBlock = makeUniqueNoThrow<ParsedText>(hyphenationEnabled, focusReadingEnabled, blockStyle,
+                                                   paragraphIndentSpaces, guideReadingEnabled, publisherPageNumbers,
+                                                   forceParagraphIndents);
   if (!currentTextBlock) {
     // Evict rebuildable caches and retry once before failing the build.
     freeink::MemoryManager::instance().ensureFree(4 * 1024);
-    currentTextBlock =
-        makeUniqueNoThrow<ParsedText>(hyphenationEnabled, focusReadingEnabled, blockStyle, paragraphIndentSpaces);
+    currentTextBlock = makeUniqueNoThrow<ParsedText>(hyphenationEnabled, focusReadingEnabled, blockStyle,
+                                                     paragraphIndentSpaces, guideReadingEnabled, publisherPageNumbers,
+                                                     forceParagraphIndents);
   }
   if (!currentTextBlock) {
     LOG_ERR("EHP", "OOM: ParsedText");
@@ -1611,7 +1613,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     }
 
     self->currentTextBlock = makeUniqueNoThrow<ParsedText>(self->hyphenationEnabled, self->focusReadingEnabled,
-                                                           tableCellBlockStyle, self->paragraphIndentSpaces);
+                                                           tableCellBlockStyle, self->paragraphIndentSpaces,
+                                                           self->guideReadingEnabled, self->publisherPageNumbers,
+                                                           self->forceParagraphIndents);
     if (!self->currentTextBlock) {
       LOG_ERR("EHP", "OOM: table cell");
       self->skipUntilDepth = self->depth;
@@ -1913,6 +1917,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   LOG_ERR("EHP", "Failed to create PageImage");
                   return;
                 }
+                self->attachPublisherMarkers(self->visibleTextOffset + 1, self->currentPageNextY);
                 self->currentPage->elements.push_back(std::move(pageImage));
                 self->setCurrentPageVisibleOffset(self->visibleTextOffset);
                 self->noteContent(self->currentPageNextY, self->currentPageNextY + displayHeight);
@@ -1997,11 +2002,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
-  // Skip blocks with role="doc-pagebreak" and epub:type="pagebreak"
+  // Retain optional margin labels while keeping CrossPoint's hidden text and token boundaries.
   if (atts != nullptr) {
     for (int i = 0; atts[i]; i += 2) {
       if (strcmp(atts[i], "role") == 0 && strcmp(atts[i + 1], "doc-pagebreak") == 0 ||
           strcmp(atts[i], "epub:type") == 0 && strcmp(atts[i + 1], "pagebreak") == 0) {
+        const char* label = getAttribute(atts, "title");
+        if (!label || !label[0]) label = getAttribute(atts, "aria-label");
+        self->addPublisherMarker(label);
         self->skipUntilDepth = self->depth;
         self->depth += 1;
         return;
@@ -2062,8 +2070,16 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-  const auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(
+  auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(
       cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), self->viewportWidth);
+  if (self->forceParagraphIndents && strcmp(name, "p") == 0 &&
+      (userAlignmentBlockStyle.alignment == CssTextAlign::Left ||
+       userAlignmentBlockStyle.alignment == CssTextAlign::Justify ||
+       userAlignmentBlockStyle.alignment == CssTextAlign::None) &&
+      (!userAlignmentBlockStyle.textIndentDefined || userAlignmentBlockStyle.textIndent == 0)) {
+    userAlignmentBlockStyle.textIndentDefined = true;
+    userAlignmentBlockStyle.textIndent = static_cast<int16_t>(emSize);
+  }
 
   if (strcmp(name, "hr") == 0) {
     auto hrBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, CssTextAlign::Left, self->viewportWidth);
@@ -2355,7 +2371,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     const BlockStyle flowStyle =
         self->blockStyleStack.empty() ? BlockStyle() : self->blockStyleStack.back().withoutBottom();
     self->currentTextBlock = makeUniqueNoThrow<ParsedText>(self->hyphenationEnabled, self->focusReadingEnabled,
-                                                           flowStyle, self->paragraphIndentSpaces);
+                                                           flowStyle, self->paragraphIndentSpaces, self->guideReadingEnabled,
+                                                           self->publisherPageNumbers, self->forceParagraphIndents);
     if (!self->currentTextBlock) {
       LOG_ERR("EHP", "OOM: text block for character data");
       return;
@@ -2757,7 +2774,8 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     const BlockStyle flowStyle =
         self->blockStyleStack.empty() ? BlockStyle() : self->blockStyleStack.back().withoutBottom();
     self->currentTextBlock = makeUniqueNoThrow<ParsedText>(self->hyphenationEnabled, self->focusReadingEnabled,
-                                                           flowStyle, self->paragraphIndentSpaces);
+                                                           flowStyle, self->paragraphIndentSpaces, self->guideReadingEnabled,
+                                                           self->publisherPageNumbers, self->forceParagraphIndents);
     if (!self->currentTextBlock) {
       LOG_ERR("EHP", "OOM: text block after table");
     }
@@ -3150,6 +3168,39 @@ void ChapterHtmlSlimParser::breakPageCarryingLines(const size_t carry, const siz
   paragraphLinesOnPage = static_cast<uint8_t>(paragraphLines);
 }
 
+void ChapterHtmlSlimParser::addPublisherMarker(const char* label) {
+  if (!publisherPageNumbers || tableDepth > 0 || !label || !label[0]) return;
+  if (pendingPublisherMarkerCount == MAX_PENDING_PUBLISHER_MARKERS) {
+    LOG_ERR("EHP", "Publisher annotation look-ahead full; skipped label");
+    return;
+  }
+  if (!pendingPublisherMarkers) {
+    // 1,280 bytes on the heap, only for marked chapters. Avoid a large permanent or stack buffer.
+    pendingPublisherMarkers = makeUniqueNoThrow<PendingPublisherMarker[]>(MAX_PENDING_PUBLISHER_MARKERS);
+    if (!pendingPublisherMarkers) { LOG_ERR("EHP", "OOM: publisher look-ahead"); return; }
+  }
+  auto& marker = pendingPublisherMarkers[pendingPublisherMarkerCount++];
+  marker.offset = visibleTextOffset;
+  size_t length = strnlen(label, sizeof(marker.label));
+  if (length == sizeof(marker.label)) {
+    length = sizeof(marker.label) - 1;
+    while (length && (static_cast<uint8_t>(label[length]) & 0xC0) == 0x80) --length;
+  }
+  memcpy(marker.label, label, length);
+  marker.label[length] = '\0';
+}
+
+void ChapterHtmlSlimParser::attachPublisherMarkers(const uint32_t endOffset, const int16_t y) {
+  if (!currentPage || !pendingPublisherMarkerCount) return;
+  unsigned retained = 0;
+  for (unsigned i = 0; i < pendingPublisherMarkerCount; ++i) {
+    const auto& marker = pendingPublisherMarkers[i];
+    if (marker.offset < endOffset) currentPage->addPublisherMarker(marker.label, y);
+    else pendingPublisherMarkers[retained++] = marker;
+  }
+  pendingPublisherMarkerCount = retained;
+}
+
 void ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line, const uint32_t visibleOffset) {
   if (stopRequested) return;
   const int lineFontId = line->blockFontId(fontId);
@@ -3176,6 +3227,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line, const
   setCurrentPageVisibleOffset(visibleOffset);
 
   // Track cumulative words to assign footnotes to the page containing their anchor
+  attachPublisherMarkers(line->sourceEndOffset, currentPageNextY);
   wordsExtractedInBlock += line->wordCount();
   auto footnoteIt = pendingFootnotes.begin();
   while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {

@@ -114,6 +114,10 @@ void ClipSelectionActivity::onEnter() {
       return;
     }
     selected = rangeStart = hit;
+    if (mode == Mode::Lookup) {
+      confirmSelection(ClippingResult::Action::Lookup);
+      return;
+    }
     ignoreInitialTouch = true;
   }
   requestUpdate();
@@ -122,7 +126,8 @@ void ClipSelectionActivity::onEnter() {
 bool ClipSelectionActivity::extractWords() {
   wordCount = 0;
   size_t capacity = MAX_SELECTABLE_WORDS;
-  if (mode == Mode::DefinitionLookup) {
+  const bool exactCapacity = mode == Mode::DefinitionLookup || (mode == Mode::Lookup && initialX >= 0);
+  if (exactCapacity) {
     capacity = 0;
     for (size_t i = 0; i < pageCount(); ++i) {
       for (const auto& element : pageAt(i).elements) {
@@ -229,7 +234,7 @@ bool ClipSelectionActivity::extractWords() {
       }
       if (wordCount != lineStart) ++rowCount;
       if (wordCount == capacity) {
-        if (mode != Mode::DefinitionLookup) {
+        if (!exactCapacity) {
           LOG_ERR("CLIP", "Selectable word cap hit (%u); multi-page selection was truncated",
                   static_cast<unsigned>(capacity));
         }

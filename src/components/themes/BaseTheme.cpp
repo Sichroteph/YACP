@@ -4,6 +4,7 @@
 #include <FreeInkUIGfxRenderer.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
+#include <HalFrontlight.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
@@ -41,6 +42,43 @@ constexpr int bookmarkStatusIconWidth = 16;
 constexpr int bookmarkStatusIconHeight = 14;
 constexpr int bookmarkStatusIconGap = 4;
 constexpr int bookmarkStatusIconTopCrop = 2;
+constexpr int frontlightStatusIconWidth = 17;
+constexpr int frontlightStatusIconHeight = 16;
+constexpr int frontlightStatusIconGap = 4;
+
+void drawFrontlightStatusIcon(const GfxRenderer& renderer, const int x, const int y, const bool lit) {
+  // A bold 17x16 sun drawn into the existing framebuffer, with no bitmap or
+  // allocation. The lit state has a filled centre and eight rays; the off
+  // state has a hollow centre and only the four cardinal rays.
+  // Clear first so a transition from on to off cannot leave the old filled
+  // centre in the framebuffer.
+  renderer.fillRect(x, y, frontlightStatusIconWidth, frontlightStatusIconHeight, false);
+
+  // Cardinal rays.
+  renderer.fillRect(x + 8, y, 2, 3, true);
+  renderer.fillRect(x + 8, y + 13, 2, 3, true);
+  renderer.fillRect(x, y + 7, 2, 2, true);
+  renderer.fillRect(x + 15, y + 7, 2, 2, true);
+
+  // Diagonal rays. Their two-pixel blocks remain visible on a fast refresh
+  // without merging into the centre of the icon.
+  if (lit) {
+    renderer.fillRect(x + 2, y + 1, 2, 2, true);
+    renderer.fillRect(x + 14, y + 1, 2, 2, true);
+    renderer.fillRect(x + 2, y + 12, 2, 2, true);
+    renderer.fillRect(x + 14, y + 12, 2, 2, true);
+  }
+
+  // A seven-pixel round centre, approximated with horizontal bands to avoid a
+  // bitmap in the status bar. Clear its inner three-pixel area when the light
+  // is off.
+  renderer.fillRect(x + 7, y + 4, 3, 1, true);
+  renderer.fillRect(x + 6, y + 5, 5, 1, true);
+  renderer.fillRect(x + 5, y + 6, 7, 3, true);
+  renderer.fillRect(x + 6, y + 9, 5, 1, true);
+  renderer.fillRect(x + 7, y + 10, 3, 1, true);
+  if (!lit) renderer.fillRect(x + 7, y + 6, 3, 3, false);
+}
 
 void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int y) {
   constexpr int bytesPerRow = bookmarkStatusIconWidth / 8;
@@ -807,9 +845,45 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
+Rect BaseTheme::readerTopClockBounds(const GfxRenderer& renderer, const int topY) {
+  const int height = UITheme::getReaderTopClockHeight(renderer);
+  if (height == 0) return Rect{0, 0, 0, 0};
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const int width = renderer.getTextWidth(UI_10_FONT_ID, SETTINGS.clockFormat == 1 ? "00:00 AM" : "00:00") + 8;
+  const int topChromeY = UITheme::pinReaderTopProgressBarToScreenEdge() ? 0 : top;
+  const int y = topY >= 0 ? topY : topChromeY + UITheme::getReaderTopClockOffset();
+  return Rect{left + (renderer.getScreenWidth() - left - right - width) / 2, y, width, height};
+}
+
+void BaseTheme::drawReaderTopClock(const GfxRenderer& renderer, const int topY, const char* previewTime,
+                                   const bool clearBackground) {
+  const auto bounds = readerTopClockBounds(renderer, topY);
+  if (bounds.height == 0) return;
+  char time[10];
+  if (!previewTime && !halClock.formatTime(time, sizeof(time), SETTINGS.clockFormat == 1)) return;
+  const char* text = previewTime ? previewTime : time;
+  if (clearBackground) renderer.fillRect(bounds.x, bounds.y, bounds.width, bounds.height, false);
+  const int textX = bounds.x + (bounds.width - renderer.getTextWidth(UI_10_FONT_ID, text)) / 2;
+  // drawText positions a font line box. Remove its built-in leading so the
+  // actual digits, rather than the empty line box, touch the usable top edge.
+  int inkAboveBaseline = 0;
+  const auto font = renderer.getFontMap().find(UI_10_FONT_ID);
+  if (font != renderer.getFontMap().end()) {
+    for (const char* character = text; *character; ++character) {
+      const auto* glyph = font->second.getGlyph(static_cast<unsigned char>(*character));
+      if (glyph) inkAboveBaseline = std::max(inkAboveBaseline, static_cast<int>(glyph->top));
+    }
+  }
+  const int leading = std::max(0, renderer.getFontAscenderSize(UI_10_FONT_ID) - inkAboveBaseline);
+  renderer.drawText(UI_10_FONT_ID, textX, bounds.y - leading, text);
+}
+
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated) {
+                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated,
+                              const char* timeLeft, const int progressBarTopY, const uint32_t referencePage,
+                              const uint32_t referencePageCount) {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -836,14 +910,18 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     char progressStr[32];
 
     // Draw the estimate marker separately so it can use the next UI font size.
-    const bool showEstimate = pageCountEstimated && sb.showChapterPageCount;
+    const bool showEstimate = pageCountEstimated && sb.showChapterPageCount && !referencePageCount;
+    const uint32_t shownPage = referencePageCount ? referencePage : static_cast<uint32_t>(currentPage);
+    const uint32_t shownCount = referencePageCount ? referencePageCount : static_cast<uint32_t>(pageCount);
 
     if (sb.showBookProgressPercent && sb.showChapterPageCount) {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", currentPage, pageCount, bookProgress);
+      snprintf(progressStr, sizeof(progressStr), "%lu/%lu  %.0f%%", static_cast<unsigned long>(shownPage),
+               static_cast<unsigned long>(shownCount), bookProgress);
     } else if (sb.showBookProgressPercent) {
       snprintf(progressStr, sizeof(progressStr), "%.0f%%", bookProgress);
     } else {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage, pageCount);
+      snprintf(progressStr, sizeof(progressStr), "%lu/%lu", static_cast<unsigned long>(shownPage),
+               static_cast<unsigned long>(shownCount));
     }
 
     int progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressStr);
@@ -862,11 +940,14 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Progress Bar
   if (sb.showsProgressBar()) {
-    const int barMarginLeft = fillMargin ? 0 : orientedMarginLeft;
-    const int barMarginRight = fillMargin ? 0 : orientedMarginRight;
+    const bool fillBarMargin = fillMargin && !sb.progressBarAtTop;
+    const int barMarginLeft = fillBarMargin ? 0 : orientedMarginLeft;
+    const int barMarginRight = fillBarMargin ? 0 : orientedMarginRight;
     const int progressBarMaxWidth = renderer.getScreenWidth() - barMarginLeft - barMarginRight;
-    const int progressBarY = renderer.getScreenHeight() - orientedMarginBottom - sb.progressBarHeightPx -
-                             paddingBottom + (fillMargin ? 1 : 0);
+    const int readerTop = UITheme::pinReaderTopProgressBarToScreenEdge() ? 0 : orientedMarginTop;
+    const int progressBarY = sb.progressBarAtTop ? (progressBarTopY >= 0 ? progressBarTopY : readerTop)
+                                                 : renderer.getScreenHeight() - orientedMarginBottom -
+                                                       sb.progressBarHeightPx - paddingBottom + (fillBarMargin ? 1 : 0);
     size_t progress;
     if (sb.progressBarMode == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
       progress = static_cast<size_t>(bookProgress);
@@ -875,7 +956,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       progress = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) * 100 : 0;
     }
     const int barWidth = progressBarMaxWidth * progress / 100;
-    const int barHeight = sb.progressBarHeightPx + (fillMargin ? orientedMarginBottom - 1 : 0);
+    const int barHeight = sb.progressBarHeightPx + (fillBarMargin ? orientedMarginBottom - 1 : 0);
     renderer.fillRect(barMarginLeft, progressBarY, barWidth, barHeight, true);
   }
 
@@ -896,6 +977,13 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     }
 
     leftClusterWidth += batteryWidth;
+  }
+
+  if (showStatusBarTextLane && Frontlight.present()) {
+    const int gap = leftClusterWidth > 0 ? frontlightStatusIconGap : 0;
+    drawFrontlightStatusIcon(renderer, leftClusterX + leftClusterWidth + gap, textY + 4,
+                             Frontlight.isOn() && Frontlight.brightness() > 0);
+    leftClusterWidth += gap + frontlightStatusIconWidth;
   }
 
   // Draw Clock (any board whose RTC probe succeeded)
@@ -923,6 +1011,35 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     const int bookmarkY = textY + 5;
     drawBookmarkStatusIcon(renderer, bookmarkX, bookmarkY);
     leftClusterWidth += bookmarkStatusIconWidth + bookmarkGap;
+  }
+
+  // Reuse the X3 input task measurement; rendering performs no gauge I/O.
+#ifndef SIMULATOR
+  if (sb.showBatteryCurrent) {
+    int16_t currentMa = 0;
+    if (gpio.getCachedBatteryCurrent(currentMa)) {
+      char currentText[16];
+      snprintf(currentText, sizeof(currentText), "%d mA", static_cast<int>(currentMa));
+      const int gap = leftClusterWidth > 0 ? 10 : 0;
+      const int width = renderer.getTextWidth(SMALL_FONT_ID, currentText);
+      const int available = rightClusterX - rightClusterWidth - leftClusterX - leftClusterWidth - gap - 10;
+      if (width <= available) {
+        renderer.drawText(SMALL_FONT_ID, leftClusterX + leftClusterWidth + gap, textY, currentText);
+        leftClusterWidth += gap + width;
+      }
+    }
+  }
+#endif
+
+  // The optional EPUB estimate uses the remaining width before the title.
+  if (timeLeft && timeLeft[0]) {
+    const int gap = leftClusterWidth > 0 ? 10 : 0;
+    const int width = renderer.getTextWidth(SMALL_FONT_ID, timeLeft);
+    const int available = rightClusterX - rightClusterWidth - leftClusterX - leftClusterWidth - gap - 10;
+    if (width <= available) {
+      renderer.drawText(SMALL_FONT_ID, leftClusterX + leftClusterWidth + gap, textY, timeLeft);
+      leftClusterWidth += gap + width;
+    }
   }
 
   // Draw Title

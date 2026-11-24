@@ -81,25 +81,35 @@ bool RecentBooksStore::removeByPath(const std::string& path) {
   if (it == recentBooks.end()) {
     return false;
   }
+  const size_t index = static_cast<size_t>(it - recentBooks.begin());
+  RecentBook removed = std::move(*it);
   recentBooks.erase(it);
   if (!saveToFile()) {
+    recentBooks.insert(recentBooks.begin() + index, std::move(removed));
     LOG_ERR("RBS", "Failed to persist removal of recent book: %s", path.c_str());
+    return false;
   }
   return true;
 }
 
-void RecentBooksStore::updatePath(const std::string& oldPath, const std::string& newPath,
+bool RecentBooksStore::updatePath(const std::string& oldPath, const std::string& newPath,
                                   const std::string& oldCachePath, const std::string& newCachePath) {
   auto it = std::find_if(recentBooks.begin(), recentBooks.end(),
                          [&](const RecentBook& book) { return book.path == oldPath; });
   if (it == recentBooks.end()) {
-    return;
+    return true;
   }
+  const auto previousCover = it->coverBmpPath;
   it->path = newPath;
-  if (!oldCachePath.empty() && !it->coverBmpPath.empty() && it->coverBmpPath.rfind(oldCachePath, 0) == 0) {
+  if (!oldCachePath.empty() && it->coverBmpPath.size() > oldCachePath.size() &&
+      it->coverBmpPath.rfind(oldCachePath, 0) == 0 && it->coverBmpPath[oldCachePath.size()] == '/') {
     it->coverBmpPath = newCachePath + it->coverBmpPath.substr(oldCachePath.size());
   }
-  saveToFile();
+  if (saveToFile()) return true;
+  it->path = oldPath;
+  it->coverBmpPath = previousCover;
+  LOG_ERR("RBS", "Failed to persist renamed recent-book path");
+  return false;
 }
 
 bool RecentBooksStore::isMissing(const RecentBook& book) { return !Storage.exists(book.path.c_str()); }

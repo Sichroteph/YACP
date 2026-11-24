@@ -22,6 +22,7 @@
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
+#include "home/YacpHomeActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/UsbDriveActivity.h"
@@ -31,6 +32,7 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsListActivity.h"
 #include "util/BmpViewerActivity.h"
+#include "util/BookPathMove.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 
@@ -83,11 +85,15 @@ void ActivityManager::renderTaskLoop() {
     RenderLock lock;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
-      // Night mode is a global output polarity applied to every activity.
-      // The sleep screen forces normal polarity itself (SleepActivity).
-      display.setInverted(SETTINGS.screenInverted != 0);
+      // Child menus retain normal polarity unless global night mode is enabled.
+      // SleepActivity resolves its retained/fresh frame directly in onEnter().
+      display.setInverted(SETTINGS.screenInverted != 0 ||
+                          (SETTINGS.readerDarkMode != 0 && currentActivity->usesReaderColors()));
       const uint32_t renderingVisit = screenVisit;
-      currentActivity->render(std::move(lock));
+      const bool lightOnly = frontlightIndicatorUpdate.exchange(false, std::memory_order_acquire);
+      if (!lightOnly || !currentActivity->renderFrontlightIndicator(std::move(lock))) {
+        currentActivity->render(std::move(lock));
+      }
       paintedVisit.store(renderingVisit, std::memory_order_release);
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
@@ -103,6 +109,27 @@ void ActivityManager::renderTaskLoop() {
 }
 
 void ActivityManager::loop() {
+  if (BookPathMove::blocked()) {
+    if (!currentActivity || currentActivity->name != "FullScreenMessage") {
+      RenderLock lock;
+      exitActivity(lock);
+      while (!stackActivities.empty()) {
+        stackActivities.back()->onExit();
+        stackActivities.pop_back();
+      }
+      pendingActivity.reset();
+      pendingAction = PendingAction::None;
+      currentActivity =
+          makeUniqueNoThrow<FullScreenMessageActivity>(renderer, mappedInput, tr(STR_ERROR_GENERAL_FAILURE));
+      lock.unlock();
+      if (currentActivity)
+        currentActivity->onEnter();
+      else
+        LOG_ERR("ACT", "OOM: storage recovery error screen");
+    }
+    return;
+  }
+
   if (mappedInput.consumeSuppressedRelease()) return;
 
   if (currentActivity && currentActivity->requiresExclusiveStorageLoop()) {
@@ -130,9 +157,9 @@ void ActivityManager::loop() {
     // panels' etched glass makes unreliable). The reader keeps its clean page
     // (no status bar there to tap). Touch boards only, like the swipe itself.
     bool statusBarTap = false;
-    if (mappedInput.hasTouch() && (currentActivity->name == "Home" || currentActivity->name == "FileBrowser" ||
-                                   currentActivity->name == "Settings" || currentActivity->name == "SettingsList" ||
-                                   currentActivity->name == "NetworkModeSelection")) {
+    if (mappedInput.hasTouch() &&
+        (currentActivity->isHomeActivity() || currentActivity->name == "FileBrowser" ||
+         currentActivity->name == "Settings" || currentActivity->name == "NetworkModeSelection")) {
       int tx = 0;
       int ty = 0;
       // The header back button shares this band; its taps stay Back.
@@ -172,6 +199,7 @@ void ActivityManager::loop() {
       // Destroy the current activity
       exitActivity(lock);
       pendingAction = PendingAction::None;
+      if (BookPathMove::blocked()) return;
 
       if (stackActivities.empty()) {
         LOG_DBG("ACT", "No more activities on stack, going home");
@@ -182,6 +210,7 @@ void ActivityManager::loop() {
       } else {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
+        currentActivity->onUncovered();
         LOG_DBG("ACT", "Popped from activity stack, new size = %zu", stackActivities.size());
         // Handle result if necessary
         if (currentActivity->resultHandler) {
@@ -217,6 +246,7 @@ void ActivityManager::loop() {
         }
       } else if (pendingAction == PendingAction::Push) {
         // Move current activity to stack
+        if (currentActivity) currentActivity->onCovered();
         stackActivities.push_back(std::move(currentActivity));
         // The parent's header back rect must not route taps on the pushed
         // screen (which may draw no header of its own).
@@ -225,6 +255,10 @@ void ActivityManager::loop() {
       }
       ++screenVisit;
       pendingAction = PendingAction::None;
+      if (BookPathMove::blocked()) {
+        pendingActivity.reset();
+        return;
+      }
       currentActivity = std::move(pendingActivity);
 
       lock.unlock();  // onEnter may acquire its own lock
@@ -347,7 +381,7 @@ void ActivityManager::goToReader(std::string path, const bool allowFastInitialRe
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, fromTimeout));
+  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, fromTimeout, SETTINGS.orientation));
   if (pendingAction == PendingAction::Replace) pendingAction = PendingAction::ReplaceForSleep;
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
@@ -359,6 +393,15 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 }
 
 void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefresh) {
+  if (SETTINGS.uiTheme == CrossPointSettings::YACP) {
+    auto home = makeUniqueNoThrow<YacpHomeActivity>(renderer, mappedInput, cleanInitialRefresh);
+    if (!home) {
+      LOG_ERR("ACT", "OOM: YACP home activity");
+      return;
+    }
+    replaceActivity(std::move(home));
+    return;
+  }
   if (initialMenuItem == HomeMenuItem::NONE && currentActivity) {
     const auto& activityName = currentActivity->name;
     if (activityName == "FileBrowser") {
@@ -454,6 +497,12 @@ bool ActivityManager::remoteTurn(const bool forward, const bool chapter) {
 }
 
 bool ActivityManager::handleForcedRefresh() { return currentActivity && currentActivity->handleForcedRefresh(); }
+uint8_t ActivityManager::readerPowerAction(bool longPress) const {
+  return currentActivity ? currentActivity->readerPowerAction(longPress) : 23;
+}
+void ActivityManager::queueReaderAction(uint8_t action) {
+  if (currentActivity) currentActivity->queueReaderAction(action);
+}
 
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
 
@@ -509,6 +558,14 @@ void ActivityManager::requestUpdateAndWait() {
 
   xTaskNotify(renderTaskHandle, 1, eIncrement);
   ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
+
+void ActivityManager::notifyFrontlightChanged() {
+  // Keep the lightweight reader indicator notification in the manager TU so
+  // all board variants link the same frontlight update path.
+  if (!currentActivity || !currentActivity->isReaderActivity()) return;
+  frontlightIndicatorUpdate.store(true, std::memory_order_release);
+  if (renderTaskHandle) xTaskNotify(renderTaskHandle, 1, eIncrement);
 }
 
 // RenderLock

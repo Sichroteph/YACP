@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -75,11 +76,16 @@ class ClippingStore {
   bool readClippingText(size_t index, std::string& out) const;
   bool readClippingText(const Clipping& clipping, std::string& out) const;
 
+  static constexpr std::array<const char*, 5> FILE_SUFFIXES = {"", ".bak", ".tmp", ".deleted", ".migrate.bak"};
+  static std::string filePathForBook(const std::string& filePath, const std::string& bookType) {
+    return std::string(DIRECTORY) + "/" + bookType + "_" + std::to_string(std::hash<std::string>{}(filePath)) + ".bin";
+  }
   static bool deleteForFilePath(const std::string& filePath, const std::string& bookType);
   // Move a book or folder together with its clipping stores and deletion journals.
   static bool moveBook(const std::string& from, const std::string& to);
 
  private:
+  static constexpr char DIRECTORY[] = "/.crosspoint/clippings";
   static ClippingStore instance;
 
   // Allocate only populated blocks; growing the index never duplicates existing records.

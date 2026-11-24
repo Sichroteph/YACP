@@ -284,5 +284,9 @@ HalFile HalFile::openNextFile() {
   assert(impl != nullptr);
   return HalFile(std::make_unique<Impl>(impl->file.openNextFile()));
 }
+bool HalFile::hasError() const {
+  HalStorage::StorageLock lock;
+  return !impl || impl->file.getError();
+}
 bool HalFile::isOpen() const { return impl != nullptr && impl->file.isOpen(); }  // already thread-safe, no need to wrap
 HalFile::operator bool() const { return isOpen(); }

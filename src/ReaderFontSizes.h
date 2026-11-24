@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SdCardFontRegistry.h>
+#include <builtinFonts/yacp/ids.generated.h>
 
 #include <algorithm>
 #include <cmath>
@@ -16,14 +17,23 @@
 // therefore come from whichever family is active: the built-in or vector set
 // below, or the .cpfont files a user installed for an SD family.
 
-// The built-in Noto Sans family is compiled in at exactly these
-// point sizes (see the global font objects in main.cpp).
-inline constexpr uint8_t BUILTIN_READER_POINT_SIZES[] = {12, 14, 16, 18};
+// The selected YACP variant embeds these Lexend Deca and Atkinson Hyperlegible Next sizes.
+#ifdef YACP_XLARGE
+inline constexpr uint8_t BUILTIN_READER_POINT_SIZES[] = {16, 18, 20};
+#else
+inline constexpr uint8_t BUILTIN_READER_POINT_SIZES[] = {12, 14, 16};
+#endif
 
 // Selects a built-in size without loading it; returns 0 for other font families.
 inline int builtinReaderFontVariant(const int fontId, const float scale) {
   static constexpr int FAMILIES[][std::size(BUILTIN_READER_POINT_SIZES)] = {
-      {NOTOSANS_12_FONT_ID, NOTOSANS_14_FONT_ID, NOTOSANS_16_FONT_ID, NOTOSANS_18_FONT_ID},
+#ifdef YACP_XLARGE
+      {YACP_LEXENDDECA_16_FONT_ID, YACP_LEXENDDECA_18_FONT_ID, YACP_LEXENDDECA_20_FONT_ID},
+      {YACP_ATKINSONNEXT_16_FONT_ID, YACP_ATKINSONNEXT_18_FONT_ID, YACP_ATKINSONNEXT_20_FONT_ID},
+#else
+      {YACP_LEXENDDECA_12_FONT_ID, YACP_LEXENDDECA_14_FONT_ID, YACP_LEXENDDECA_16_FONT_ID},
+      {YACP_ATKINSONNEXT_12_FONT_ID, YACP_ATKINSONNEXT_14_FONT_ID, YACP_ATKINSONNEXT_16_FONT_ID},
+#endif
   };
   for (const int* family : FAMILIES) {
     const int* end = family + std::size(BUILTIN_READER_POINT_SIZES);

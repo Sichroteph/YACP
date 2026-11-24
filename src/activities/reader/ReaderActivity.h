@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "EndOfBookOptions.h"
+#include "ReaderRefreshPolicy.h"
 #include "ReaderSession.h"
 #include "activities/Activity.h"
 
@@ -14,8 +15,12 @@ class ReaderActivity : public Activity {
 
  protected:
   std::string bookPath;
-  int pagesUntilFullRefresh = 0;
+  int pagesUntilFullRefresh = 0;  // 0: required cleanup; 1: periodic maintenance due.
   bool forcedRefreshPending = false;
+  bool proMagicWakePending = false;
+  reader_refresh::ReinforcementInterrupt reinforcementInterrupt;
+  int pendingReinforcementTurn = 0;  // Main-loop only: signed page/chapter step.
+  bool handlePendingReinforcementTurn();
 
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
   std::atomic<bool> endOfBookOptionsReady{false};
@@ -48,6 +53,9 @@ class ReaderActivity : public Activity {
   virtual int getProgressBasisPoints() const { return getProgressPercent() * 100; }
 
   virtual bool handleFormatInput() { return false; }
+  virtual bool hasInterruptibleTextRefresh() const { return false; }
+  // Fixed bitmap formats consume unsupported font/rotation shortcuts.
+  virtual void handleTextShortcut(bool fontSize, bool forward) {}
   virtual bool pageTurn(bool isForward) = 0;
   virtual bool skipPages(int amount) { return pageTurn(amount > 0); }
   // A Bluetooth remote asks for the reader menu (true) or a new clipping (false).
@@ -59,6 +67,7 @@ class ReaderActivity : public Activity {
   virtual void applyInitialOrientation();
   virtual void onEndOfBookRendered() {}
 
+  virtual void goReaderHome() { onGoHome(); }
   bool handleBackNavigation();
   /** True while the end-of-book suggestion menu is on screen and owning input. */
   bool endOfBookMenuActive() const;
@@ -84,6 +93,7 @@ class ReaderActivity : public Activity {
   void render(RenderLock&& lock) override;
 
   bool isReaderActivity() const final { return true; }
+  bool usesReaderColors() const final { return true; }
   bool acceptsRemoteInput() const final { return pageRendered.load(std::memory_order_acquire); }
   bool handleForcedRefresh() final;
 };

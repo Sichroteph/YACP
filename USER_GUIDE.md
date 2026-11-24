@@ -206,7 +206,9 @@ Books cannot be removed from your device through Calibre. Use the web interface 
 
 ### 3.6 Settings
 
-Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **Library**, and **Connectivity**. System contains language, keyboard layouts, hidden-file visibility, Clock (where available), firmware updates, and About. Library contains Use Book Metadata, Clear Read Books from Recent List, and Move Finished Books to Read Folder. Time to Sleep is under Display; Clear Reading Cache is under Reader. Connectivity contains Wi-Fi, Bluetooth Page Turner, CrossPoint Sync, OPDS, and the Plugins toggle. The options below describe these settings.
+Each tab opens short subpages. See the [settings menu map](docs/settings-menu-review.md#navigation) for the complete layout. Display separates Sleep Screen, Appearance and Screen refresh; System separates Library, Reading Stats, Connections, Maintenance and Device. Back returns from a subpage to its parent tab.
+
+The Settings screen allows you to configure the device's behavior. There are a few settings you can adjust:
 
 #### 3.6.1 Display
 
@@ -232,7 +234,9 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "Contrast" - The image will be displayed as a black & white image without grayscale conversion
   - "Inverted" - The image will be inverted as in white & black and will be displayed without grayscale conversion
 
-- **Quick Resume on Timeout**: Whether to enable the "Quick Resume" sleep screen when the device goes to sleep due to inactivity (Display > Time to Sleep). This is useful for quickly resuming reading without waiting for the device to fully wake up and load the book. This overwrites the Sleep Screen Cover Mode when enabled.
+- **Quick Resume on Timeout**: Whether to enable the "Quick Resume" sleep screen when the device goes to sleep due to inactivity (System > Device > Time to Sleep). This is useful for quickly resuming reading without waiting for the device to fully wake up and load the book. This overwrites the Sleep Screen Cover Mode when enabled.
+
+- **Reading clock**: In Settings > Reader > Customise Status Bar, open the status bar settings and choose Clock > Top, centered to display a slightly larger clock above the page. Hide, Left and Right remain available. EPUB and TXT reserve space above the text and rebuild pagination when needed. XTC pages are fixed images, so the clock replaces only a small centered rectangle. When an XTC status bar is drawn at the top, it appears below the clock. The clock updates with page redraws and requires a detected RTC. Its position is independent of System > Device > Clock > Show in header.
 
 - **Status Bar**: Configure the status bar displayed while reading:
   
@@ -249,7 +253,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "In Reader" - Show battery percentage everywhere except in reading mode
   - "Always" - Always hide battery percentage
 
-- **Refresh Frequency**: Set how often the screen does a full refresh while reading to reduce ghosting; options are every 1, 5, 10, 15, or 30 pages.
+- **Screen refresh**: On X3, choose **Display mode > Magic Flash** for two no-flash passes on each ordinary text page with text smoothing off. The one-page interval and disabled smoothing remain visible but locked. **Classic (CrossPoint)** restores your own cleanup interval and smoothing preferences. Magic Flash is the default for new X3 configurations and is not offered on other readers. Image pages and required full refreshes retain their specific cleanup paths. See [X3 display modes](docs/magic-flash-mode.md) for details.
 
 - **UI Theme**: Set which UI theme to use:
   
@@ -258,10 +262,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "RoundedRaff" - A rounded theme with additional visual styling
 
-- **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
-  
-  - "OFF" (default) - Disable the fix
-  - "ON" - Enable the fix
+- **Display Power Saving**: Available under Display > Screen refresh on supported readers. Powers down the display after an update. This can affect the appearance of the panel as well as its power handling; compare the setting on the reader if you notice fading or traces. The former Sunlight Fading Fix preference is retained.
 
 #### 3.6.2 Reader
 
@@ -294,7 +295,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "ON" - Vertical space will be added between paragraphs in Reading Mode
   - "OFF" - Paragraphs will not have vertical space added, but will have first-line indentation
 
-- **Dictionary**: Select the StarDict dictionary used for word lookups while reading, or "None" to disable lookups. *(Only shown when at least one dictionary folder exists under `/dictionaries/` on the SD card — see [docs/dictionary.md](docs/dictionary.md) for setup and usage.)*
+- **Dictionary**: Select the StarDict dictionary used for word lookups while reading, or "None" to disable lookups. This entry stays visible without an installed dictionary and shows the expected SD folder and files when opened. See [docs/dictionary.md](docs/dictionary.md) for setup and usage.
 
 - **Text Anti-Aliasing**: Whether to show smooth grey edges (anti-aliasing) on text in reading mode. Note this slows down page turns slightly.
 
@@ -311,6 +312,8 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
 - **Remap Front Buttons**: A menu for customising the function of each bottom edge button.
 
 - **Side Button Layout (reader)**: Swap the order of the up and down side buttons from "Prev/Next" (default) to "Next/Prev". You can also disable them entirely. This change is only in effect when reading.
+- **Side-button short presses (X4 Pro)**: In Settings > Controls > Side buttons, choose Next/Sleep, Sleep/Next or Sleep/Sleep for the side-button layout. The first action belongs to the upper button and the second to the lower button. A brief press on a Sleep button saves your reading position and enters sleep in EPUB, TXT and XTC books. Long presses keep their separate setting. Wake with the Power button.
+- **Independent side-button holds**: Previous Page works on either side button, including buttons whose short action is Sleep or disabled. Chapter-skip and inherited directional holds keep the assigned page direction where one exists; otherwise Up means previous and Down means next. Explicit font-size and orientation holds use the physical side keys in EPUB and TXT. Fixed-layout XTC consumes those two text-layout shortcuts without changing the page.
 
 - **Long-press Chapter Skip**: Set whether long-pressing page turn buttons skips to the next/previous chapter:
   
@@ -584,7 +587,15 @@ To use custom sleep images, set the sleep screen mode to **Custom** or **Cover +
 - **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. One will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
 - **Single Image:** Place a file named `sleep.bmp` in the root directory. This takes priority over the `.sleep`/`sleep` directories.
 
-Like book covers, custom images are scaled to the screen using **Sleep Screen Cover Mode**. The first sleep with a new image takes longer while it is converted.
+#### Find covers for a book
+
+In **File Transfer**, scan the reader's QR code and open **Sleep images**. Select **Current book** or **Choose a book**, then use **Search Open Library**. The title and author are prefilled for recent books; other books use the filename as a starting title. Both search fields can be edited.
+
+Only suggestions with a successfully loaded cover appear in the grid. Suggestions without a cover, broken thumbnails and empty placeholder images are filtered out.
+
+Select several covers in the grid, or use **Other editions** to find different covers of the same work. Choose **Prepare selected covers** to preview them. Each image defaults to **Fill screen and crop**, filling the reader's screen without added white margins. Adjust the crop to keep the desired part of the cover, or select **Whole image with white margins** to preserve the entire image. Grayscale adjustments are available per image. Use **Upload all pending images** to convert and send the selection sequentially to that book's existing gallery. Successfully uploaded images are skipped when retrying the batch, and existing files are preserved with numbered names.
+
+Search and image downloads need Internet access on the phone or computer. Hotspot mode may leave the phone without Internet; use a shared Wi-Fi network or import local images instead. Conversion runs in the browser at the connected reader's image dimensions. No Open Library account or API key is required. Set the reader's sleep screen to **Custom** or **Cover + Custom** to use the book's gallery when sleeping from that book.
 
 #### Transparent overlay images
 
@@ -668,7 +679,9 @@ If the device sleeps or you close the book after following a link, the book reop
 
 ### Dictionary Lookup
 
-Words on the current page can be looked up in an offline StarDict dictionary stored on the SD card. Copy a dictionary to the `/dictionaries/` folder, select it in **Settings → Reader → Dictionary**, then start a lookup by choosing **Look Up** in the **[Reader Menu](#5-reader-menu)** (or by holding **Confirm**, if the **Long-press Menu** setting in **[Controls Settings](#363-controls)** is set to "Dictionary"). Use **Left/Right** to highlight a word and press **Confirm** to show its definition.
+On a touch reader with touch controls enabled and a dictionary selected, hold a word in an EPUB to open its definition in a popup over the book. Swipe vertically inside the popup to browse long definitions in blocks. Tap outside to close it and return to the same book page. The popup preserves the reading colors, including dark mode. Menu-initiated lookups also use the popup on touch readers; readers with physical buttons retain the full-screen definition viewer.
+
+Words on the current page can be looked up in an offline StarDict dictionary stored on the SD card. Copy a dictionary to the `/dictionaries/` folder, select it in **Settings → Reader → Dictionary**, then start a lookup by choosing **Look Up** in the **[Reader Menu](#5-reader-menu)**. On X3 and original X4, choose **Hold Menu (EPUB) → Dictionary** in **[Controls Settings](#363-controls)** to open the word selector by holding **Confirm**. The **Long-Press Menu → Dictionary** shortcut also works when **Hold Menu (EPUB)** is set to **Default** or is unavailable. Use **Left/Right** to highlight a word and press **Confirm** to show its definition.
 
 See [docs/dictionary.md](docs/dictionary.md) for supported formats, setup, and where to find dictionaries.
 

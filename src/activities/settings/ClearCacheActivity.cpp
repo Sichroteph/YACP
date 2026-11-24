@@ -110,11 +110,12 @@ void ClearCacheActivity::clearCache() {
 
       file.close();  // Close before attempting to delete
 
-      if (Storage.removeDir(fullPath.c_str())) {
+      if (clearBookCacheDirectoryPreservingUserState(fullPath.c_str())) {
         clearedCount++;
       } else {
         LOG_ERR("CLEAR_CACHE", "Failed to remove: %s", fullPath.c_str());
         failedCount++;
+        break;
       }
     } else {
       file.close();
@@ -124,7 +125,7 @@ void ClearCacheActivity::clearCache() {
 
   LOG_DBG("CLEAR_CACHE", "Cache cleared: %d removed, %d failed", clearedCount, failedCount);
 
-  state = SUCCESS;
+  state = failedCount ? FAILED : SUCCESS;
   requestUpdate();
 }
 

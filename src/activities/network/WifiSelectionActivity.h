@@ -125,6 +125,14 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
 
   void startWifiScan(bool autoScan = false);
   void processWifiScanResults();
+#if FREEINK_DEVICE_X4PRO
+  uint8_t scanAttempt = 0;
+  unsigned long scanRetryAt = 0;
+  bool autoReconnectBeforeSelection = true;
+  bool autoReconnectStateCaptured = false;
+  void resetX4ProStationBeforeScan();
+  void startX4ProScanAttempt();
+#endif
   void appendHiddenNetworkEntry();
   void selectNetwork(int index);
   void promptHiddenSsid();

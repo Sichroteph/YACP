@@ -1,5 +1,11 @@
 #include "XtcReaderActivity.h"
 
+#include "power/PowerHistory.h"
+
+#if defined(YACP_PERSONAL_GO)
+#include <GoPersonal.h>
+#endif
+
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -107,7 +113,7 @@ void XtcReaderActivity::renderStatusBarOverlay(GfxRenderer& renderer, const Stat
     return;
   }
 
-  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  const int statusBarHeight = UITheme::getStatusBarHeight() + UITheme::getTopProgressBarHeight();
   if (statusBarHeight <= 0) {
     return;
   }
@@ -117,6 +123,7 @@ void XtcReaderActivity::renderStatusBarOverlay(GfxRenderer& renderer, const Stat
                                    &orientedMarginLeft);
 
   int clearY;
+  int topClockLaneHeight = 0;
   int paddingBottom = 0;
   if (position == StatusBarOverlayPosition::Bottom) {
     clearY = renderer.getScreenHeight() - orientedMarginBottom - statusBarHeight - 4;
@@ -124,12 +131,18 @@ void XtcReaderActivity::renderStatusBarOverlay(GfxRenderer& renderer, const Stat
       clearY = 0;
     }
   } else {
-    clearY = orientedMarginTop;
-    paddingBottom = renderer.getScreenHeight() - statusBarHeight - orientedMarginBottom - orientedMarginTop - 4;
+    const int clockHeight = UITheme::getReaderTopClockHeight(renderer);
+    const bool pinBar = UITheme::pinReaderTopProgressBarToScreenEdge();
+    clearY = pinBar ? 0 : orientedMarginTop + clockHeight;
+    if (pinBar && clockHeight > 0) {
+      // The overlay already reserves the bar height.
+      topClockLaneHeight = UITheme::getReaderTopClockOffset() + clockHeight - UITheme::getTopProgressBarHeight();
+    }
+    paddingBottom = renderer.getScreenHeight() - statusBarHeight - orientedMarginBottom - clearY - topClockLaneHeight - 4;
   }
   const int clearHeight = position == StatusBarOverlayPosition::Bottom
                               ? renderer.getScreenHeight() - orientedMarginBottom - clearY
-                              : statusBarHeight + 4;
+                              : statusBarHeight + topClockLaneHeight + 4;
   if (clearHeight > 0) {
     renderer.fillRect(0, clearY, renderer.getScreenWidth(), clearHeight, false);
   }
@@ -138,7 +151,8 @@ void XtcReaderActivity::renderStatusBarOverlay(GfxRenderer& renderer, const Stat
   const int displayPage = static_cast<int>(currentPage) + 1;
   const float progress = pageCount > 0 ? (static_cast<float>(displayPage) * 100.0f) / pageCount : 0.0f;
   const auto pageInfo = getStatusBarInfo();
-  GUI.drawStatusBar(renderer, progress, pageInfo.currentPage, pageInfo.pageCount, pageInfo.title, paddingBottom);
+  GUI.drawStatusBar(renderer, progress, pageInfo.currentPage, pageInfo.pageCount, pageInfo.title, paddingBottom, 0,
+                    true, false, false, nullptr, clearY);
 }
 
 void XtcReaderActivity::renderPage() {
@@ -176,6 +190,12 @@ void XtcReaderActivity::renderPage() {
   renderer.clearScreen();
 
   const uint16_t maxSrcY = pageHeight;
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const bool pinBar = bitDepth == 1 && SETTINGS.statusBarSpec().xtcMode == CrossPointSettings::XTC_STATUS_BAR_TOP &&
+                      UITheme::pinReaderTopProgressBarToScreenEdge();
+  const int clockY = pinBar ? UITheme::getReaderTopClockOffset() : top;
+  const auto clockBounds = GUI.readerTopClockBounds(renderer, clockY);
 
   if (bitDepth == 2) {
     const size_t planeSize = static_cast<size_t>(pageWidth) * ((static_cast<size_t>(pageHeight) + 7) / 8);
@@ -200,6 +220,8 @@ void XtcReaderActivity::renderPage() {
         }
       }
     }
+
+    GUI.drawReaderTopClock(renderer, clockY, nullptr, true);
 
     if (pagesUntilFullRefresh <= 1) {
       // Periodic ghost cleanup: scrub via the normal path, then run the
@@ -227,6 +249,10 @@ void XtcReaderActivity::renderPage() {
         }
       }
     }
+    // Keep the clock's black-and-white patch out of the image's grayscale planes.
+    if (clockBounds.height > 0) {
+      renderer.fillRect(clockBounds.x, clockBounds.y, clockBounds.width, clockBounds.height, true);
+    }
     renderer.copyGrayscaleLsbBuffers();
 
     renderer.clearScreen(0x00);
@@ -237,6 +263,9 @@ void XtcReaderActivity::renderPage() {
           renderer.drawPixel(x, y, false);
         }
       }
+    }
+    if (clockBounds.height > 0) {
+      renderer.fillRect(clockBounds.x, clockBounds.y, clockBounds.width, clockBounds.height, true);
     }
     renderer.copyGrayscaleMsbBuffers();
 
@@ -251,12 +280,14 @@ void XtcReaderActivity::renderPage() {
       }
     }
 
+    GUI.drawReaderTopClock(renderer, clockY, nullptr, true);
     renderer.cleanupGrayscaleWithFrameBuffer();
 
     free(pageBuffer);
 
     LOG_DBG("XTR", "Rendered page %lu/%lu (2-bit grayscale)", currentPage + 1, xtc->getPageCount());
     markPageRendered();
+    PowerHistory::recordReaderPageDisplay();
     return;
   } else {
     const size_t srcRowBytes = (pageWidth + 7) / 8;
@@ -283,11 +314,13 @@ void XtcReaderActivity::renderPage() {
   } else {
     renderStatusBarOverlay(renderer, StatusBarOverlayPosition::Bottom);
   }
+  GUI.drawReaderTopClock(renderer, clockY, nullptr, true);
 
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, /*async=*/false, /*textPage=*/false);
 
   LOG_DBG("XTR", "Rendered page %lu/%lu (%u-bit)", currentPage + 1, xtc->getPageCount(), bitDepth);
   markPageRendered();
+  PowerHistory::recordReaderPageDisplay();
 }
 
 bool XtcReaderActivity::pageTurn(bool isForward) {
@@ -295,6 +328,9 @@ bool XtcReaderActivity::pageTurn(bool isForward) {
   if (isForward) {
     if (currentPage < xtc->getPageCount()) {
       currentPage++;
+#if defined(YACP_PERSONAL_GO)
+      GoDgs::recordReadPage();
+#endif
       return true;
     }
   } else {
@@ -328,14 +364,14 @@ void XtcReaderActivity::onReturnFromEndOfBook() {
   }
 }
 
-void XtcReaderActivity::saveProgress() const {
+void XtcReaderActivity::saveProgress() {
   if (!xtc) return;
   uint8_t data[4];
   data[0] = currentPage & 0xFF;
   data[1] = (currentPage >> 8) & 0xFF;
   data[2] = (currentPage >> 16) & 0xFF;
   data[3] = (currentPage >> 24) & 0xFF;
-  if (!ProgressFile::writeAtomic(xtc->getCachePath(), data, sizeof(data))) {
+  if (!progressCheckpoint.observe(xtc->getCachePath(), data, sizeof(data), static_cast<uint32_t>(currentPage))) {
     LOG_ERR("XTC", "Failed to save progress: page %lu", currentPage);
   }
 }
@@ -372,4 +408,18 @@ ScreenshotInfo XtcReaderActivity::getScreenshotInfo() const {
     info.currentPage = currentPage + 1;
   }
   return info;
+}
+
+void XtcReaderActivity::prepareForSleep() {
+  if (xtc && !progressCheckpoint.flush(xtc->getCachePath())) {
+    LOG_ERR("PRG", "Could not flush XTC progress before sleep");
+  }
+  ReaderActivity::prepareForSleep();
+}
+
+void XtcReaderActivity::onExit() {
+  if (xtc && !progressCheckpoint.flush(xtc->getCachePath())) {
+    LOG_ERR("PRG", "Could not flush XTC progress on exit");
+  }
+  ReaderActivity::onExit();
 }

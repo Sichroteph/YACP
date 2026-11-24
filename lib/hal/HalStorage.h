@@ -121,6 +121,9 @@ class HalFile : public Print {
   void rewindDirectory();
   bool close();
   HalFile openNextFile();
+#ifndef SIMULATOR
+  bool hasError() const;
+#endif
   bool isOpen() const;
   operator bool() const;
 };

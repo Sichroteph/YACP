@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <vector>
 
 #include "CrossPointSettings.h"
@@ -23,11 +24,15 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/power/PowerStatsActivity.h"
+#include "activities/reader/BookStatsActivity.h"
+#include "activities/reader/DictionaryHistoryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BookProgress.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Library, File transfer, Settings
+  int count = 7;  // Browser, Library, transfer, statistics, autonomy, dictionary history, settings
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -35,6 +40,17 @@ int HomeActivity::getMenuItemCount() const {
     count++;
   }
   return count;
+}
+
+HomeMenuLayout HomeActivity::getHomeMenuLayout() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const int bookRows = metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size());
+  const int leading = SETTINGS.uiTheme == CrossPointSettings::CLASSIC ? metrics.verticalSpacing : 0;
+  return homeMenuLayout(renderer.getScreenHeight(), std::max(bottom, metrics.buttonHintsHeight), metrics.homeTopPadding,
+                        metrics.homeCoverTileHeight, metrics.homeMenuTopOffset, GUI.getMenuRowHeight(renderer),
+                        metrics.menuSpacing, getMenuItemCount() - bookRows, selectorIndex - bookRows, leading);
 }
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
@@ -324,8 +340,19 @@ void HomeActivity::loop() {
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
         break;
+      case HomeMenuItem::DICTIONARY_HISTORY:
+        if (auto activity = createDictionaryHistoryActivity(renderer, mappedInput)) {
+          startActivityForResult(std::move(activity), nullptr);
+        }
+        break;
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
+        break;
+      case HomeMenuItem::READING_STATS:
+        onReadingStatsOpen();
+        break;
+      case HomeMenuItem::POWER_STATS:
+        onPowerStatsOpen();
         break;
       default:
         break;
@@ -413,12 +440,13 @@ void HomeActivity::loop() {
   // targets from the drawn covers by content.x on bezel-inset panels (EEGO A4).
   const Rect content = UITheme::getInstance().getContentArea(renderer);
   const int coverColumnCount = std::max(1, metrics.homeRecentBooksCount);
+  const auto layout = getHomeMenuLayout();
   const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
   const int coverColumnWidth = (content.width - 2 * metrics.contentSidePadding) / coverColumnCount;
   int touchedBook = -1;
-  const auto coverTouch = mappedInput.colTouch(touchedBook, content.x + metrics.contentSidePadding, coverColumnWidth,
-                                               recentCount, metrics.homeTopPadding,
-                                               metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth);
+  const auto coverTouch =
+      mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
+                           metrics.homeTopPadding, metrics.homeTopPadding + layout.coverHeight, coverColumnWidth);
   if (coverTouch != MappedInputManager::RowTouch::None) {
     if (coverTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedBook) {
@@ -433,18 +461,17 @@ void HomeActivity::loop() {
     return;
   }
 
-  const int menuTop = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
-  const int renderedMenuCount =
-      menuCount - (metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size()));
+  const int menuTop = layout.top + layout.leading;
   int menuRow = -1;
   // Row height from the theme, not the metrics table: RoundedRaff draws
   // font-derived rows and the touch grid must match the visuals exactly.
   const int menuRowHeight = GUI.getMenuRowHeight(renderer);
-  const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + metrics.menuSpacing, renderedMenuCount,
-                                              0, INT32_MAX, menuRowHeight);
+  const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + metrics.menuSpacing, layout.visibleRows,
+                                              metrics.contentSidePadding,
+                                              renderer.getScreenWidth() - metrics.contentSidePadding, menuRowHeight);
   if (menuTouch != MappedInputManager::RowTouch::None) {
     const int touchedIndex =
-        metrics.homeContinueReadingInMenu ? menuRow : menuRow + static_cast<int>(recentBooks.size());
+        layout.firstRow + menuRow + (metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size()));
     if (menuTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedIndex) {
         selectorIndex = touchedIndex;
@@ -516,17 +543,20 @@ void HomeActivity::render(RenderLock&&) {
   // instead of the 48 KB full framebuffer the previous bind captured.
   coverRectX = content.x;
   coverRectY = metrics.homeTopPadding;
-  coverRectW = content.width;
-  coverRectH = metrics.homeCoverTileHeight;
+  coverRectW = pageWidth;
+  const auto layout = getHomeMenuLayout();
+  coverRectH = layout.coverHeight;
 
-  GUI.drawRecentBookCover(renderer, Rect{content.x, metrics.homeTopPadding, content.width, metrics.homeCoverTileHeight},
-                          recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
-                          std::bind(&HomeActivity::storeCoverBuffer, this));
+  if (layout.coverHeight > 0)
+    GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, layout.coverHeight}, recentBooks,
+                            selectorIndex, coverRendered, coverBufferStored, bufferRestored,
+                            std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
+  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES),  tr(STR_LIBRARY),           tr(STR_FILE_TRANSFER),
+                                        tr(STR_READING_STATS), tr(STR_POWER_STATS_TITLE), tr(STR_DICT_HISTORY),
                                         tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
+  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Recent, Book, Book, Settings};
 
   if (hasLibrarySlot()) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
@@ -540,14 +570,11 @@ void HomeActivity::render(RenderLock&&) {
   }
 
   GUI.drawButtonMenu(
-      renderer,
-      Rect{content.x, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset, content.width,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing +
-                         metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
-      static_cast<int>(menuItems.size()),
-      metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
-      [&menuItems](int index) { return std::string(menuItems[index]); },
-      [&menuIcons](int index) { return menuIcons[index]; });
+      renderer, Rect{0, layout.top, pageWidth, layout.height}, layout.visibleRows,
+      (metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - static_cast<int>(recentBooks.size())) -
+          layout.firstRow,
+      [&menuItems, &layout](int index) { return std::string(menuItems[index + layout.firstRow]); },
+      [&menuIcons, &layout](int index) { return menuIcons[index + layout.firstRow]; });
 
   const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RESUME), tr(STR_SELECT), tr(STR_DIR_UP),
                                             tr(STR_DIR_DOWN));
@@ -570,6 +597,32 @@ void HomeActivity::onRecentBookSelected(const std::string& path) { activityManag
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 
 void HomeActivity::onLibraryOpen() { activityManager.goToLibrary(); }
+
+void HomeActivity::onReadingStatsOpen() {
+  const RecentBook* book = recentBooks.empty() ? nullptr : &recentBooks[0];
+  const bool hasBook = book && FsHelpers::hasEpubExtension(book->path);
+  const std::string cache = hasBook ? "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book->path)) : "";
+  const auto stats = hasBook ? BookReadingStats::load(cache) : BookReadingStats{};
+  const uint32_t timeLeft = stats.isCompleted ? 0 : stats.estimatedTimeLeftSeconds;
+  auto activity = makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, hasBook ? book->title : std::string{},
+                                                       cache, stats, hasBook ? loadBookProgress(book->path, true) : -1,
+                                                       timeLeft > 0, timeLeft, GlobalReadingStats::load());
+  if (!activity) {
+    LOG_ERR("HOME", "OOM: statistics activity");
+    return;
+  }
+  if (hasBook) activity->setBookIdentity(book->path, book->author);
+  startActivityForResult(std::move(activity), nullptr);
+}
+
+void HomeActivity::onPowerStatsOpen() {
+  auto activity = makeUniqueNoThrow<PowerStatsActivity>(renderer, mappedInput);
+  if (!activity) {
+    LOG_ERR("HOME", "OOM: autonomy activity");
+    return;
+  }
+  startActivityForResult(std::move(activity), nullptr);
+}
 
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 

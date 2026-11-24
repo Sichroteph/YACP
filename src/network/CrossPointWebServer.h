@@ -99,6 +99,10 @@ class CrossPointWebServer {
   // Request handlers
   void handleRoot() const;
   void handleJszip() const;
+  void handleSleepImagesPage() const;
+  void handleLogo() const;
+  void handleSleepImagePrepScript() const;
+  void handleSleepImagesPrepare(bool bookSpecific) const;
   void handleNotFound() const;
   void handleStatus() const;
   void handleFileList() const;
@@ -111,6 +115,7 @@ class CrossPointWebServer {
   void streamFileToClient(HalFile& file) const;
   void handleUpload(UploadState& state) const;
   void handleUploadPost(UploadState& state) const;
+  void handleFirmwareInstall() const;
   void handleCreateFolder() const;
   void handleRename() const;
   void handleMove() const;

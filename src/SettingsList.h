@@ -18,6 +18,8 @@
 #include "KOReaderCredentialStore.h"
 #include "ReaderFontSizes.h"
 #include "ReaderLineSpacing.h"
+#include "ReaderParagraphIndent.h"
+#include "activities/reader/ReaderAction.h"
 #include "activities/settings/SettingsActivity.h"
 #include "components/UITheme.h"
 #include "util/DictionaryRegistry.h"
@@ -27,7 +29,7 @@
 // are appended after the built-in fonts. Otherwise only built-in fonts are listed.
 inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   // Built-in font labels (StrId)
-  std::vector<StrId> enumValues = {StrId::STR_NOTO_SANS};
+  std::vector<StrId> enumValues = {StrId::STR_LEXEND_DECA, StrId::STR_ATKINSON_HYPERLEGIBLE_NEXT};
   // Runtime string labels for SD card fonts
   std::vector<std::string> enumStringValues;
 
@@ -48,7 +50,8 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   // with all options when SD fonts are present.
   std::vector<std::string> allStringValues;
   if (sdFontCount > 0) {
-    allStringValues.push_back(I18N.get(StrId::STR_NOTO_SANS));
+    allStringValues.push_back(I18N.get(StrId::STR_LEXEND_DECA));
+    allStringValues.push_back(I18N.get(StrId::STR_ATKINSON_HYPERLEGIBLE_NEXT));
     allStringValues.insert(allStringValues.end(), enumStringValues.begin(), enumStringValues.end());
   }
 
@@ -156,7 +159,7 @@ inline SettingInfo buildDictionarySetting(const std::vector<DictionaryEntry>& di
   s.key = "dictionaryName";  // web settings API; persisted by name, not by the generic loop
   s.type = SettingType::ENUM;
   s.enumStringValues.reserve(folderNames.size() + 1);
-  s.enumStringValues.push_back(I18N.get(StrId::STR_NONE_OPT));
+  s.enumStringValues.push_back(I18N.get(dictionaries.empty() ? StrId::STR_DICT_NO_DICT_SET : StrId::STR_NONE_OPT));
   s.enumStringValues.insert(s.enumStringValues.end(), folderNames.begin(), folderNames.end());
   s.category = StrId::STR_CAT_READER;
 
@@ -188,26 +191,33 @@ inline std::vector<StrId> buildLongPressMenuValues() {
                                StrId::STR_DICTIONARY};
   values.reserve(CrossPointSettings::LONG_PRESS_MENU_FUNCTION_COUNT);
   if (BoardConfig::hasHomeKey()) values.push_back(StrId::STR_READER_MENU);
-  values.push_back(StrId::STR_SAVE_CLIPPING);
   values.push_back(StrId::STR_FOOTNOTES);
+  values.push_back(StrId::STR_SAVE_CLIPPING);
   return values;
 }
 
 inline uint8_t longPressMenuDisplayValue() {
   const uint8_t raw = SETTINGS.longPressMenuFunction;
   if (raw <= CrossPointSettings::LP_MENU_DICTIONARY) return raw;
-  if (raw == CrossPointSettings::LP_MENU_READER_MENU) {
-    return BoardConfig::hasHomeKey() ? CrossPointSettings::LP_MENU_READER_MENU : CrossPointSettings::LP_MENU_DISABLED;
-  }
-  if (raw < CrossPointSettings::LONG_PRESS_MENU_FUNCTION_COUNT) return BoardConfig::hasHomeKey() ? raw : raw - 1;
+  const bool hasHomeKey = BoardConfig::hasHomeKey();
+  if (hasHomeKey && raw == CrossPointSettings::LP_MENU_READER_MENU) return 4;
+  if (raw == CrossPointSettings::LP_MENU_FOOTNOTES) return hasHomeKey ? 5 : 4;
+  if (raw == CrossPointSettings::LP_MENU_CREATE_CLIPPING) return hasHomeKey ? 6 : 5;
   return CrossPointSettings::LP_MENU_DISABLED;
 }
 
 inline void setLongPressMenuFromDisplayValue(const uint8_t displayValue) {
+  const bool hasHomeKey = BoardConfig::hasHomeKey();
   if (displayValue <= CrossPointSettings::LP_MENU_DICTIONARY) {
     SETTINGS.longPressMenuFunction = displayValue;
+  } else if (hasHomeKey && displayValue == 4) {
+    SETTINGS.longPressMenuFunction = CrossPointSettings::LP_MENU_READER_MENU;
+  } else if (displayValue == (hasHomeKey ? 5 : 4)) {
+    SETTINGS.longPressMenuFunction = CrossPointSettings::LP_MENU_FOOTNOTES;
+  } else if (displayValue == (hasHomeKey ? 6 : 5)) {
+    SETTINGS.longPressMenuFunction = CrossPointSettings::LP_MENU_CREATE_CLIPPING;
   } else {
-    SETTINGS.longPressMenuFunction = BoardConfig::hasHomeKey() ? displayValue : displayValue + 1;
+    SETTINGS.longPressMenuFunction = CrossPointSettings::LP_MENU_DISABLED;
   }
 }
 
@@ -268,12 +278,133 @@ inline SettingInfo buildShortPowerButtonSetting() {
 }
 
 inline std::vector<StrId> homeThemeValues() {
-  static constexpr StrId VALUES[] = {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
-                                     StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_THEME_COVER_GRID};
+  static constexpr StrId VALUES[] = {
+      StrId::STR_THEME_CLASSIC,     StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
+      StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_YACP,       StrId::STR_THEME_COVER_GRID};
   const size_t count = UITheme::supportsCoverGrid() ? std::size(VALUES) : std::size(VALUES) - 1;
   return {VALUES, VALUES + count};
 }
 
+inline SettingInfo readerCommandSetting(StrId label, uint8_t CrossPointSettings::* field, const char* key,
+                                        bool menuValues) {
+  // Shared flash tables avoid four copied option vectors. IDs are the stored commands.
+  static constexpr StrId LABELS[] = {StrId::STR_DEFAULT_VALUE,
+                                     StrId::STR_IGNORE,
+                                     StrId::STR_SLEEP,
+                                     StrId::STR_PAGE_TURN,
+                                     StrId::STR_FORCE_REFRESH,
+                                     StrId::STR_FONT_FAMILY,
+                                     StrId::STR_GUIDE_READING,
+                                     StrId::STR_FOCUS_READING,
+                                     StrId::STR_BOOKMARK_OPTION,
+                                     StrId::STR_KOSYNC,
+                                     StrId::STR_MARK_FINISHED_PROMPT_TITLE,
+                                     StrId::STR_READING_STATS,
+                                     StrId::STR_SCREENSHOT_BUTTON,
+                                     StrId::STR_AUTO_TURN_INTERVAL_SECONDS,
+                                     StrId::STR_FILE_TRANSFER,
+                                     StrId::STR_TILT_PAGE_TURN,
+                                     StrId::STR_READER_DARK_MODE,
+                                     StrId::STR_FOOTNOTES,
+                                     StrId::STR_BROWSE_FILES,
+                                     StrId::STR_CALIBRE_WIRELESS,
+                                     StrId::STR_JOIN_NETWORK,
+                                     StrId::STR_CREATE_HOTSPOT,
+                                     StrId::STR_REFRESH_ACTION_BW_REINFORCEMENT,
+                                     StrId::STR_SAVE_CLIPPING};
+  static constexpr StrId MENU_LABELS[] = {StrId::STR_DEFAULT_VALUE,
+                                          StrId::STR_IGNORE,
+                                          StrId::STR_SLEEP,
+                                          StrId::STR_FORCE_REFRESH,
+                                          StrId::STR_FONT_FAMILY,
+                                          StrId::STR_GUIDE_READING,
+                                          StrId::STR_FOCUS_READING,
+                                          StrId::STR_BOOKMARK_OPTION,
+                                          StrId::STR_KOSYNC,
+                                          StrId::STR_MARK_FINISHED_PROMPT_TITLE,
+                                          StrId::STR_READING_STATS,
+                                          StrId::STR_SCREENSHOT_BUTTON,
+                                          StrId::STR_AUTO_TURN_INTERVAL_SECONDS,
+                                          StrId::STR_FILE_TRANSFER,
+                                          StrId::STR_TILT_PAGE_TURN,
+                                          StrId::STR_READER_DARK_MODE,
+                                          StrId::STR_FOOTNOTES,
+                                          StrId::STR_BROWSE_FILES,
+                                          StrId::STR_CALIBRE_WIRELESS,
+                                          StrId::STR_JOIN_NETWORK,
+                                          StrId::STR_CREATE_HOTSPOT,
+                                          StrId::STR_REFRESH_ACTION_BW_REINFORCEMENT,
+                                          StrId::STR_SAVE_CLIPPING,
+                                          StrId::STR_DICTIONARY};
+  static constexpr uint8_t MENU_IDS[] = {22, 0, 1, 6, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 20, 23};
+  static constexpr uint8_t POWER_IDS[] = {23, 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10,
+                                          11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 21};
+  static_assert(std::size(MENU_IDS) == std::size(MENU_LABELS));
+  static_assert(std::size(POWER_IDS) == std::size(LABELS));
+  const auto menuCount = std::size(MENU_IDS) - (label == StrId::STR_EPUB_HOLD_BACK ? 1 : 0);
+  auto setting = SettingInfo::StaticEnum(
+      label, nullptr, menuValues ? std::span<const StrId>(MENU_LABELS, menuCount) : std::span<const StrId>(LABELS), key,
+      StrId::STR_CAT_CONTROLS);
+  setting.valueGetter = [field, menuValues, menuCount]() -> uint8_t {
+    const auto* ids = menuValues ? MENU_IDS : POWER_IDS;
+    for (uint8_t i = 0; i < (menuValues ? menuCount : std::size(POWER_IDS)); ++i)
+      if (ids[i] == SETTINGS.*field) return i;
+    return 0;
+  };
+  setting.valueSetter = [field, menuValues, menuCount](uint8_t value) {
+    if (value < (menuValues ? menuCount : std::size(POWER_IDS)))
+      SETTINGS.*field = (menuValues ? MENU_IDS : POWER_IDS)[value];
+  };
+  return setting;
+}
+
+inline SettingInfo tiltPageTurnSetting() {
+  static constexpr StrId VALUES[] = {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED,
+                                     StrId::STR_TILT_DIRECTION_FORWARD_BACK,
+                                     StrId::STR_TILT_DIRECTION_FORWARD_BACK_INVERTED};
+  auto setting =
+      SettingInfo::StaticEnum(StrId::STR_TILT_PAGE_TURN, nullptr, VALUES, "tiltPageTurn", StrId::STR_CAT_CONTROLS);
+  setting.valueGetter = []() { return SETTINGS.tiltPageTurn; };
+  setting.valueSetter = [](uint8_t value) {
+    if (value >= CrossPointSettings::TILT_PAGE_TURN_COUNT) return;
+    SETTINGS.tiltPageTurn = value;
+    if (value != CrossPointSettings::TILT_OFF) SETTINGS.tiltPageTurnLastMode = value;
+  };
+  return setting;
+}
+
+inline SettingInfo displayModeSetting() {
+  static constexpr StrId VALUES[] = {StrId::STR_REFRESH_ACTION_BW_REINFORCEMENT, StrId::STR_DISPLAY_MODE_CLASSIC};
+  auto setting =
+      SettingInfo::StaticEnum(StrId::STR_DISPLAY_MODE, nullptr, VALUES, "displayMode", StrId::STR_CAT_DISPLAY);
+  setting.valueGetter = []() -> uint8_t { return SETTINGS.isMagicFlash() ? 0 : 1; };
+  setting.valueSetter = [](uint8_t value) {
+    if (value < 2 && (value == 1 || SETTINGS.supportsMagicFlash()))
+      SETTINGS.refreshAction =
+          value == 0 ? CrossPointSettings::REFRESH_BW_REINFORCEMENT_2X : CrossPointSettings::REFRESH_FULL;
+  };
+  return setting;
+}
+
+inline SettingInfo homeThemeSetting() {
+  auto setting = SettingInfo::Enum(StrId::STR_UI_THEME, nullptr, homeThemeValues(), "uiTheme", StrId::STR_CAT_DISPLAY);
+  // YACP is presented before the PSRAM-only cover grid without renumbering the
+  // persisted CrossPoint theme IDs. Serialization stores the raw field itself.
+  setting.valueGetter = []() -> uint8_t {
+    if (SETTINGS.uiTheme == CrossPointSettings::YACP) return 4;
+    if (SETTINGS.uiTheme == CrossPointSettings::COVER_GRID) return UITheme::supportsCoverGrid() ? 5 : 1;
+    return SETTINGS.uiTheme;
+  };
+  setting.valueSetter = [](uint8_t value) {
+    SETTINGS.uiTheme = value == 4 ? CrossPointSettings::YACP : value == 5 ? CrossPointSettings::COVER_GRID : value;
+  };
+  return setting;
+}
+
+// Shared settings list used by both the device settings UI and the web settings API.
+// Each entry has a key (for JSON API) and category (for grouping).
+// ACTION-type entries and entries without a key are device-only.
+//
 using SettingVisitor = void (*)(void* context, SettingInfo& info);
 
 // Visits synchronously in list order. Borrowed references are valid only during
@@ -292,7 +423,7 @@ std::vector<SettingInfo> getBaseSettingsList(size_t extraCapacity = 0);
 // UI callers own the list for runtime filtering and font/dictionary options.
 inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr,
                                                 const std::vector<DictionaryEntry>* dictionaries = nullptr) {
-  auto v = getBaseSettingsList(dictionaries && !dictionaries->empty() ? 1 : 0);
+  auto v = getBaseSettingsList(dictionaries ? 1 : 0);
   // Frontlit and lightless variants of a board share one binary (EEGO A4);
   // presence is the I2C probe result from Frontlight.begin(). UI-only: the probe
   // has not run at load time, so the base list must keep the persisted key.
@@ -314,6 +445,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
           v.end());
   // Tilt page turn needs an IMU with a gyroscope. UI-only, like the frontlight
   // entry: a failed probe on one boot must not drop the saved value.
+  if (BoardConfig::ACTIVE.input.up < 0 || BoardConfig::ACTIVE.input.down < 0) {
+    v.erase(std::remove_if(v.begin(), v.end(), [](const SettingInfo& s) {
+              return s.nameId == StrId::STR_SIDE_BTN_LONG_PRESS;
+            }), v.end());
+  }
   if (!halTiltSensor.isAvailable()) {
     v.erase(
         std::remove_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_TILT_PAGE_TURN; }),
@@ -325,6 +461,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            [](const SettingInfo& s) {
                              switch (s.nameId) {
                                case StrId::STR_CLOCK:
+                               case StrId::STR_CLOCK_POSITION:
                                case StrId::STR_CLOCK_FORMAT:
                                case StrId::STR_TIMEZONE:
                                case StrId::STR_CLOCK_DST:
@@ -358,7 +495,16 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       *it = buildFontSizeSetting(registry);
     }
   }
-  if (dictionaries && !dictionaries->empty()) {
+  {
+    auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) {
+      return s.valuePtr == &CrossPointSettings::paragraphIndentSpaces;
+    });
+    if (it != v.end()) {
+      it->type = SettingType::ENUM;
+      it->enumStringValues = paragraphIndentLabels();
+    }
+  }
+  if (dictionaries) {
     // Insert at the end of the Reader category (just before the first Controls entry).
     auto it =
         std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.category == StrId::STR_CAT_CONTROLS; });

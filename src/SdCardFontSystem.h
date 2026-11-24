@@ -30,7 +30,8 @@ class SdCardFontSystem {
   ~SdCardFontSystem();
   SdCardFontSystem(const SdCardFontSystem&) = delete;
   SdCardFontSystem& operator=(const SdCardFontSystem&) = delete;
-  /// Discover SD card fonts and load user's saved selection. Call once during setup.
+  /// Register the resolver and load an explicit saved SD selection. Built-in
+  /// fonts defer discovery until catalogue access. Call once during setup.
   void begin(GfxRenderer& renderer);
 
   /// Ensure the correct SD font family is loaded for the current settings.
@@ -41,12 +42,18 @@ class SdCardFontSystem {
   /// Resolve an SD card font ID from family name + reader point size.
   /// Returns 0 if not found. Used by CrossPointSettings::getReaderFontId().
   int resolveFontId(const char* familyName, uint8_t pointSize) const;
+  /// Change only the selected size by one available step. The caller reloads
+  /// the family and reflows its format while preserving its content position.
+  bool changeReaderFontSize(bool larger);
 
   /// Access the registry (e.g. for settings UI to enumerate available fonts).
   const SdCardFontRegistry& registry() const { return registry_; }
 
-  /// Non-const access to the registry (for FontInstaller).
-  SdCardFontRegistry& registry() { return registry_; }
+  /// Explicit catalogue access discovers on demand (settings, installer, web).
+  SdCardFontRegistry& registry() {
+    ensureRegistry();
+    return registry_;
+  }
 
   /// Mark the registry as needing re-discovery.
   /// Thread-safe: can be called from the web server task.
@@ -55,17 +62,14 @@ class SdCardFontSystem {
   /// If the registry is dirty, re-scan the SD card now and clear the flag.
   /// Used by the web UI so uploaded/deleted fonts appear in the list
   /// without waiting for the reader activity to run ensureLoaded().
-  void refreshIfDirty() {
-    if (registryDirty_.exchange(false, std::memory_order_acquire)) {
-      registry_.discover();
-    }
-  }
+  void refreshIfDirty() { ensureRegistry(); }
 
  private:
+  void ensureRegistry();
   // Load the active SD family at the built-in UI point sizes and register each
-  // as a size-matched script fallback for the corresponding UI font, so book
+  // as a script fallback for the corresponding UI font, so book
   // titles/list rows in scripts the built-ins lack (CJK, Greek, Cyrillic, ...)
-  // render at the same size as the surrounding Latin UI text. No-op when no SD
+  // render with the nearest available size, capped at 16 pt. No-op when no SD
   // family is loaded. Safe to call repeatedly (sizes already loaded are
   // reused).
   void setupUiFallbacks(GfxRenderer& renderer);
@@ -115,6 +119,8 @@ class SdCardFontSystem {
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
   std::atomic<bool> registryDirty_{false};
+  std::atomic<bool> fontReloadRequired_{false};
+  bool registryLoaded_ = false;
 
 #if CROSSPOINT_VECTOR_FONTS
   // One style source file. SMALL files are read fully into `bytes` (resident,

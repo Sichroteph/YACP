@@ -1,4 +1,12 @@
 #include "CrossPointWebServer.h"
+#include "ProtectedPaths.h"
+#include "html/assets/crosspoint_iconSvg.generated.h"
+#include "html/assets/iconsSvg.generated.h"
+#include "html/assets/webCss.generated.h"
+#include "html/js/epub_optimizerJs.generated.h"
+#include "util/FirmwareIdentity.h"
+#include "util/PluginHttp.h"
+#include "util/PluginLocations.h"
 
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
@@ -6,6 +14,7 @@
 #include <Crypto.h>
 #include <DeviceSecret.h>
 #include <FsHelpers.h>
+#include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalMemory.h>
 #include <HalStorage.h>
@@ -30,15 +39,15 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <cstdlib>
-#include <cstring>
 #include <string_view>
 
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
+#include "FirmwareFlasher.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
-#include "ProtectedPaths.h"
+#include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
@@ -50,17 +59,14 @@
 #include "html/PluginsPageHtml.generated.h"
 #include "html/RunnerPageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
-#include "html/assets/crosspoint_iconSvg.generated.h"
-#include "html/assets/iconsSvg.generated.h"
-#include "html/assets/webCss.generated.h"
-#include "html/js/epub_optimizerJs.generated.h"
+#include "html/SleepImagesPageHtml.generated.h"
+#include "html/YacpLogoSvg.generated.h"
+#include "html/js/SleepImagePrepJs.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 #include "html/js/plugin_hostJs.generated.h"
 #include "util/BookCacheUtils.h"
-#include "util/DictionaryRegistry.h"
-#include "util/FirmwareIdentity.h"
-#include "util/PluginHttp.h"
-#include "util/PluginLocations.h"
+#include "util/BookGallery.h"
+#include "util/BookPathMove.h"
 #include "util/TaskWatchdog.h"
 #include "util/UrlUtils.h"
 
@@ -221,6 +227,11 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Setting up routes...");
   server->on("/", HTTP_GET, [this] { handleRoot(); });
   server->on("/files", HTTP_GET, [this] { handleFileList(); });
+  server->on("/sleep-images", HTTP_GET, [this] { handleSleepImagesPage(); });
+  server->on("/logo.svg", HTTP_GET, [this] { handleLogo(); });
+  server->on("/js/sleep-image-prep.js", HTTP_GET, [this] { handleSleepImagePrepScript(); });
+  server->on("/api/sleep-images/prepare", HTTP_POST, [this] { handleSleepImagesPrepare(false); });
+  server->on("/api/book-gallery/prepare", HTTP_POST, [this] { handleSleepImagesPrepare(true); });
   server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
   server->on("/js/epub-optimizer.js", HTTP_GET, [this] {
     sendStaticContent(server.get(), epub_optimizerJs, sizeof(epub_optimizerJs), epub_optimizerJsETag,
@@ -245,6 +256,7 @@ void CrossPointWebServer::begin() {
 
   // Upload endpoint with special handling for multipart form data
   server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
+  server->on("/api/firmware/install", HTTP_POST, [this] { handleFirmwareInstall(); });
 
   // Create folder endpoint
   server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
@@ -435,6 +447,7 @@ void CrossPointWebServer::stop() {
 }
 
 void CrossPointWebServer::handleClient() {
+  if (BookPathMove::blocked()) return;
   static unsigned long lastDebugPrint = 0;
 
   // Check running flag FIRST before accessing server
@@ -455,10 +468,7 @@ void CrossPointWebServer::handleClient() {
   }
 
   server->handleClient();
-  // WebServer otherwise keeps the last request's argument strings allocated
-  // until another request arrives. They are no longer observable once its
-  // handler returns, so release them now instead of retaining a JSON body.
-  releaseRequestArguments(server.get());
+  if (BookPathMove::blocked()) return;
 
   // Handle WebSocket events
   if (wsServer) {
@@ -535,6 +545,92 @@ void CrossPointWebServer::handleJszip() const {
   LOG_DBG("WEB", "Served jszip.min.js");
 }
 
+void CrossPointWebServer::handleSleepImagesPage() const {
+  sendStaticContent(server.get(), SleepImagesPageHtml, sizeof(SleepImagesPageHtml), SleepImagesPageHtmlETag,
+                    "text/html");
+}
+
+void CrossPointWebServer::handleLogo() const {
+  sendStaticContent(server.get(), YacpLogoSvg, sizeof(YacpLogoSvg), YacpLogoSvgETag, "image/svg+xml");
+}
+
+void CrossPointWebServer::handleSleepImagePrepScript() const {
+  sendStaticContent(server.get(), SleepImagePrepJs, sizeof(SleepImagePrepJs), SleepImagePrepJsETag,
+                    "application/javascript");
+}
+
+void CrossPointWebServer::handleSleepImagesPrepare(const bool bookSpecific) const {
+  if (wsUploadInProgress || upload.file || fontUpload.file) {
+    server->send(409, "text/plain", "An upload is still in progress");
+    return;
+  }
+  char folder[BookGallery::FOLDER_CAPACITY] = "/.sleep";
+  if (bookSpecific) {
+    const String book = server->arg("bookPath");
+    const std::string_view path(book.c_str(), book.length());
+    bool valid =
+        path.size() > 1 && path.size() < BookGallery::IMAGE_PATH_CAPACITY && path.front() == '/' && path.back() != '/';
+    for (const unsigned char c : path) {
+      if (c < 32 || c == 127 || c == ':' || c == '?' || c == '*' || c == '\\') valid = false;
+    }
+    for (size_t start = 1; valid && start < path.size();) {
+      const size_t slash = path.find('/', start);
+      const auto part = path.substr(start, slash == std::string_view::npos ? path.size() - start : slash - start);
+      if (!FsHelpers::isSafePathComponent(part) || part.front() == '.') valid = false;
+      if (slash == std::string_view::npos) break;
+      start = slash + 1;
+    }
+    if (!valid || !BookGallery::folderForBook(path, folder)) {
+      server->send(400, "text/plain", "Invalid book path");
+      return;
+    }
+    if (!Storage.exists(book.c_str())) {
+      server->send(404, "text/plain", "Book not found");
+      return;
+    }
+    HalFile file;
+    if (!Storage.openFileForRead("GALLERY", book.c_str(), file)) {
+      server->send(500, "text/plain", "Cannot read book");
+      return;
+    }
+    const bool directory = file.isDirectory();
+    file.close();
+    if (directory) {
+      server->send(400, "text/plain", "Book path is a directory");
+      return;
+    }
+  }
+  const auto ensureDirectory = [](const char* path) {
+    if (!Storage.exists(path) && !Storage.mkdir(path)) return false;
+    auto file = Storage.open(path);
+    if (!file) return false;
+    const bool directory = file.isDirectory();
+    file.close();
+    return directory;
+  };
+  if ((bookSpecific && !ensureDirectory(BookGallery::ROOT)) || !ensureDirectory(folder)) {
+    LOG_ERR("GALLERY", "Cannot prepare image directory");
+    server->send(500, "text/plain", "Cannot prepare image directory");
+    return;
+  }
+  JsonDocument doc;
+  doc["path"] = folder;
+  if (bookSpecific) {
+    const String path = server->arg("bookPath");
+    // Reuse already loaded metadata, without parsing an EPUB or building covers.
+    for (const auto& book : RECENT_BOOKS.getBooks()) {
+      if (book.path == path.c_str()) {
+        doc["title"] = book.title;
+        doc["author"] = book.author;
+        break;
+      }
+    }
+  }
+  String response;
+  serializeJson(doc, response);
+  server->send(200, "application/json", response);
+}
+
 void CrossPointWebServer::handleNotFound() const {
   // CORS preflight: routes are registered per-method, so OPTIONS requests land
   // here. The Access-Control-Allow-* headers are added by enableCORS().
@@ -562,22 +658,10 @@ void CrossPointWebServer::handleStatus() const {
   doc["rssi"] = apMode ? 0 : WiFi.RSSI();
   doc["freeHeap"] = ESP.getFreeHeap();
   doc["uptime"] = millis() / 1000;
-  // ?plugin=<name> adds a stable device ID for that plugin: sha256(secret ||
-  // name). Not reversible to any hardware ID, and different per plugin.
-  String plugin = server->arg("plugin");
-  plugin.toLowerCase();  // FAT folder names ignore case
-  uint8_t secret[32];
-  if (!plugin.isEmpty() && plugin.length() <= 64 && deviceSecret(secret)) {
-    uint8_t input[32 + 64];
-    memcpy(input, secret, sizeof(secret));
-    memcpy(input + sizeof(secret), plugin.c_str(), plugin.length());
-    uint8_t hash[32];
-    if (wc_Sha256Hash(input, sizeof(secret) + plugin.length(), hash) == 0) {
-      char hex[65];
-      for (size_t i = 0; i < sizeof(hash); i++) snprintf(hex + 2 * i, 3, "%02x", hash[i]);
-      doc["deviceId"] = hex;
-    }
-  }
+  doc["deviceName"] = SETTINGS.getEffectiveDeviceName();
+  doc["currentBookPath"] = APP_STATE.openEpubPath;
+  doc["imageWidth"] = std::min(display.getDisplayWidth(), display.getDisplayHeight());
+  doc["imageHeight"] = std::max(display.getDisplayWidth(), display.getDisplayHeight());
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   doc["device"] = gpio.deviceIsX3() ? "X3" : "X4";
 #else
@@ -1048,6 +1132,106 @@ void CrossPointWebServer::handleUploadPost(UploadState& state) const {
   }
 }
 
+void CrossPointWebServer::handleFirmwareInstall() const {
+  // This explicit maintenance API retains YACP's wire contract. Ordinary
+  // uploads never install anything, and an active transfer keeps its file.
+  if (wsUploadInProgress || upload.file || fontUpload.file) {
+    server->send(409, "text/plain", "An upload is still in progress");
+    return;
+  }
+  String path = server->hasArg("path") ? server->arg("path") : String();
+  String confirm = server->hasArg("confirm") ? server->arg("confirm") : String();
+  if ((path.isEmpty() || confirm.isEmpty()) && server->hasArg("plain")) {
+    const String body = server->arg("plain");
+    if (body.length() > 1024) {
+      server->send(413, "text/plain", "Firmware request is too large");
+      return;
+    }
+    // Bounded maintenance-only JSON, using the same parser as other API routes.
+    JsonDocument doc;
+    if (deserializeJson(doc, body)) {
+      server->send(400, "text/plain", "Invalid JSON");
+      return;
+    }
+    for (const char* key : {"path", "confirm"}) {
+      if (doc[key].is<const char*>()) {
+        const JsonString value = doc[key].as<JsonString>();
+        if (std::strlen(value.c_str()) != value.size()) {
+          server->send(400, "text/plain", "Invalid firmware request");
+          return;
+        }
+      }
+    }
+    if (path.isEmpty() && doc["path"].is<const char*>()) path = doc["path"].as<const char*>();
+    if (confirm.isEmpty() && doc["confirm"].is<const char*>()) confirm = doc["confirm"].as<const char*>();
+  }
+  if (path.isEmpty() || confirm != "install") {
+    server->send(400, "text/plain", "Missing path or confirm=install");
+    return;
+  }
+  if (path.length() > 512 || path[0] != '/' || path == "/" || path.endsWith("/")) {
+    server->send(400, "text/plain", "Invalid firmware path");
+    return;
+  }
+  // Validate each original component before any normalization. A view avoids
+  // per-component String allocations and rejects traversal rather than erasing it.
+  const std::string_view full(path.c_str(), path.length());
+  for (const unsigned char c : full) {
+    if (c < 32 || c == 127 || c == ':' || c == '?' || c == '*') {
+      server->send(400, "text/plain", "Invalid firmware path");
+      return;
+    }
+  }
+  for (size_t start = 1; start < full.size();) {
+    const size_t slash = full.find('/', start);
+    const auto part = full.substr(start, slash == std::string_view::npos ? full.size() - start : slash - start);
+    if (!FsHelpers::isSafePathComponent(part)) {
+      server->send(400, "text/plain", "Invalid firmware path");
+      return;
+    }
+    if (part.front() == '.' || part == "System Volume Information" || part == "XTCache") {
+      server->send(403, "text/plain", "Access denied to protected path");
+      return;
+    }
+    if (slash == std::string_view::npos) break;
+    start = slash + 1;
+  }
+  if (!FsHelpers::checkFileExtension(path, ".bin")) {
+    server->send(400, "text/plain", "Firmware path must end in .bin");
+    return;
+  }
+  if (!Storage.exists(path.c_str())) {
+    server->send(404, "text/plain", "Firmware file not found");
+    return;
+  }
+  HalFile file;
+  if (!Storage.openFileForRead("WEB", path.c_str(), file)) {
+    server->send(500, "text/plain", "Failed to open firmware file");
+    return;
+  }
+  const bool directory = file.isDirectory();
+  file.close();
+  if (directory) {
+    server->send(400, "text/plain", "Firmware path is a directory");
+    return;
+  }
+#ifdef SIMULATOR
+  server->send(503, "text/plain", "Firmware installation is disabled in the simulator");
+#else
+  resetTaskWatchdogIfSubscribed();
+  const auto result = firmware_flash::flashFromSdPath(
+      path.c_str(), [](size_t, size_t, void*) { resetTaskWatchdogIfSubscribed(); }, nullptr);
+  if (result != firmware_flash::Result::OK) {
+    LOG_ERR("WEB", "Remote firmware install failed: %s", firmware_flash::resultName(result));
+    server->send(500, "text/plain", String("Firmware install failed: ") + firmware_flash::resultName(result));
+    return;
+  }
+  server->send(200, "text/plain", "Firmware installed, restarting");
+  delay(500);
+  ESP.restart();
+#endif
+}
+
 void CrossPointWebServer::handleCreateFolder() const {
   // Get folder name from form data
   if (!server->hasArg("name")) {
@@ -1176,9 +1360,8 @@ void CrossPointWebServer::handleRename() const {
     return;
   }
 
-  clearBookCache(itemPath.c_str());
   file.close();
-  const bool success = ClippingStore::moveBook(itemPath.c_str(), newPath.c_str());
+  const bool success = BookPathMove::move(itemPath.c_str(), newPath.c_str());
 
   if (success) {
     LOG_DBG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
@@ -1274,9 +1457,8 @@ void CrossPointWebServer::handleMove() const {
     return;
   }
 
-  clearBookCache(itemPath.c_str());
   file.close();
-  const bool success = ClippingStore::moveBook(itemPath.c_str(), newPath.c_str());
+  const bool success = BookPathMove::move(itemPath.c_str(), newPath.c_str());
 
   if (success) {
     LOG_DBG("WEB", "Moved file: %s -> %s", itemPath.c_str(), newPath.c_str());
@@ -1410,8 +1592,7 @@ void CrossPointWebServer::handleSettingsPage() const {
 
 void CrossPointWebServer::handleGetSettings() const {
   // Pass the SD font registry so the fontFamily setting's enumStringValues
-  // includes SD-resident families — otherwise the web API only exposes the
-  // three built-in fonts.
+  // includes both the built-in and SD-resident families.
   std::vector<DictionaryEntry> dictionaries;
   DictionaryRegistry::discover(dictionaries);
   const auto& settings = getSettingsList(&sdFontSystem.registry(), &dictionaries);
@@ -1426,7 +1607,7 @@ void CrossPointWebServer::handleGetSettings() const {
   JsonDocument doc;
 
   for (const auto& s : settings) {
-    if (!s.key || s.webHidden) continue;  // Skip ACTION-only entries
+    if (!s.key || s.webHidden) continue;
 
     doc.clear();
     doc["key"] = s.key;
@@ -1494,13 +1675,29 @@ void CrossPointWebServer::handleGetSettings() const {
         continue;
     }
 
+    if (s.nameId == StrId::STR_DISPLAY_MODE) {
+      doc["magicFlashAvailable"] = SETTINGS.supportsMagicFlash();
+      if (!SETTINGS.supportsMagicFlash()) {
+        doc["disabledOptions"].to<JsonArray>().add(0);
+        doc["availabilityHint"] = I18N.get(StrId::STR_MAGIC_FLASH_UNAVAILABLE);
+      }
+    }
+    if (SETTINGS.supportsMagicFlash() && (s.nameId == StrId::STR_REFRESH_FREQ || s.nameId == StrId::STR_TEXT_AA)) {
+      doc["classicValue"] = static_cast<int>(SETTINGS.*(s.valuePtr));
+      doc["disabled"] = SETTINGS.isMagicFlash();
+      doc["disabledHint"] =
+          I18N.get(s.nameId == StrId::STR_TEXT_AA ? StrId::STR_AA_MAGIC_HINT : StrId::STR_REFRESH_LOCK_HINT);
+      doc["value"] = s.nameId == StrId::STR_TEXT_AA ? static_cast<int>(SETTINGS.isTextAntiAliasingEnabled())
+                                                    : static_cast<int>(SETTINGS.getRefreshFrequencySetting());
+    }
+
     const char* json = output;
-    // Only entries over the stack buffer use the heap, e.g. fontFamily with many SD families.
+    // A font catalogue can exceed the stack buffer. Allocate only for that response row.
     std::unique_ptr<char[]> large;
     size_t len = serializeJson(doc, output, outputSize);
     if (len >= outputSize) {
       len = measureJson(doc);
-      large.reset(new (std::nothrow) char[len + 1]);
+      large = makeUniqueNoThrow<char[]>(len + 1);
       if (!large) {
         LOG_ERR("WEB", "OOM: setting JSON for %s (%zu bytes)", s.key, len);
         continue;
@@ -1538,14 +1735,50 @@ void CrossPointWebServer::handlePostSettings() {
     return;
   }
 
+  // Validate before mutating any member, including other fields in this request.
+  if (doc.as<JsonObjectConst>().containsKey("deviceName")) {
+    const JsonString name = doc["deviceName"].as<JsonString>();
+    if (!doc["deviceName"].is<const char*>() ||
+        !CrossPointSettings::isValidDeviceName(std::string_view(name.c_str(), name.size()))) {
+      server->send(400, "text/plain", "Invalid deviceName: use 2 to 20 UTF-8 bytes, or empty for default");
+      return;
+    }
+  }
   std::vector<DictionaryEntry> dictionaries;
   DictionaryRegistry::discover(dictionaries);
   const auto& settings = getSettingsList(&sdFontSystem.registry(), &dictionaries);
   int applied = 0;
 
+  // Resolve the mode first so a batch request cannot overwrite the preserved
+  // Classic choices with Magic Flash's displayed Off / one-page values.
+  if (!doc["displayMode"].isNull()) {
+    if (!doc["displayMode"].is<int>() || doc["displayMode"].as<int>() < 0 || doc["displayMode"].as<int>() > 1) {
+      server->send(400, "text/plain", "Invalid displayMode");
+      return;
+    }
+    if (doc["displayMode"].as<int>() == 0 && !SETTINGS.supportsMagicFlash()) {
+      server->send(400, "text/plain", tr(STR_MAGIC_FLASH_UNAVAILABLE));
+      return;
+    }
+    SETTINGS.refreshAction = doc["displayMode"].as<int>() == 0 ? CrossPointSettings::REFRESH_BW_REINFORCEMENT_2X
+                                                               : CrossPointSettings::REFRESH_FULL;
+    applied++;
+  } else if (SETTINGS.supportsMagicFlash() && doc["refreshAction"].is<int>()) {
+    const int legacyMode = doc["refreshAction"].as<int>();
+    if (legacyMode >= 0 && legacyMode <= 2) {
+      SETTINGS.refreshAction =
+          legacyMode == 0 ? CrossPointSettings::REFRESH_FULL : CrossPointSettings::REFRESH_BW_REINFORCEMENT_2X;
+      applied++;
+    }
+  }
+
   for (const auto& s : settings) {
     if (!s.key || s.webHidden) continue;
     if (!doc[s.key].is<JsonVariant>()) continue;
+    if (strcmp(s.key, "displayMode") == 0 || strcmp(s.key, "refreshAction") == 0) continue;
+    if (SETTINGS.isMagicFlash() &&
+        (s.valuePtr == &CrossPointSettings::refreshFrequency || s.valuePtr == &CrossPointSettings::textAntiAliasing))
+      continue;
 
     switch (s.type) {
       case SettingType::TOGGLE: {
@@ -1563,6 +1796,7 @@ void CrossPointWebServer::handlePostSettings() {
         if (val >= 0 && val < maxVal) {
           if (s.valuePtr) {
             SETTINGS.*(s.valuePtr) = static_cast<uint8_t>(val);
+            if (s.valuePtr == &CrossPointSettings::lineSpacing) SETTINGS.lineHeightPercent = 0;
           } else if (s.valueSetter) {
             s.valueSetter(static_cast<uint8_t>(val));
           }
@@ -1625,13 +1859,7 @@ void CrossPointWebServer::handleGetOpdsServers() const {
     doc["username"] = servers[i].username;
     // Never expose passwords over the API — only indicate whether one is set
     doc["hasPassword"] = !servers[i].password.empty();
-    // Header values may hold secrets (e.g. an auth proxy token) — same treatment as passwords
-    JsonArray headersArr = doc["headers"].to<JsonArray>();
-    for (const auto& header : servers[i].customHeaders) {
-      JsonObject h = headersArr.add<JsonObject>();
-      h["name"] = header.name;
-      h["hasValue"] = !header.value.empty();
-    }
+    doc["filenameFormat"] = servers[i].filenameFormat;
 
     const size_t written = serializeJson(doc, output, outputSize);
     if (written >= outputSize) continue;
@@ -1662,6 +1890,15 @@ void CrossPointWebServer::handlePostOpdsServer() {
   }
 
   OpdsServer opdsServer;
+  const bool hasFilenameFormat = doc.as<JsonObjectConst>().containsKey("filenameFormat");
+  if (hasFilenameFormat) {
+    const auto value = doc["filenameFormat"];
+    if (!value.is<unsigned>() || (value.as<unsigned>() >= 3 && value.as<unsigned>() != OpdsServer::INHERIT_FILENAME)) {
+      server->send(400, "text/plain", "Invalid filename format");
+      return;
+    }
+    opdsServer.filenameFormat = static_cast<uint8_t>(value.as<unsigned>());
+  }
   opdsServer.name = doc["name"] | std::string("");
   opdsServer.url = doc["url"] | std::string("");
   opdsServer.username = doc["username"] | std::string("");
@@ -1697,26 +1934,19 @@ void CrossPointWebServer::handlePostOpdsServer() {
     }
     const auto* existing = OPDS_STORE.getServer(static_cast<size_t>(idx));
     // Preserve existing password if not explicitly provided
-    if (!hasPasswordField && existing) password = existing->password;
-    opdsServer.password = password;
-
-    for (size_t i = 0; i < OpdsServer::MAX_CUSTOM_HEADERS; i++) {
-      if (hasHeadersField) {
-        opdsServer.customHeaders[i].name = headerNames[i];
-        if (headerNames[i].empty()) {
-          // An empty name clears the slot outright — never leave a stale value
-          // paired with no name, even if the payload omitted "value".
-          opdsServer.customHeaders[i].value.clear();
-        } else {
-          opdsServer.customHeaders[i].value =
-              headerValueProvided[i] ? headerValues[i] : (existing ? existing->customHeaders[i].value : std::string());
-        }
-      } else if (existing) {
-        opdsServer.customHeaders[i] = existing->customHeaders[i];
-      }
+    if (!hasFilenameFormat) {
+      const auto* existing = OPDS_STORE.getServer(static_cast<size_t>(idx));
+      if (existing) opdsServer.filenameFormat = existing->filenameFormat;
     }
-
-    OPDS_STORE.updateServer(static_cast<size_t>(idx), opdsServer);
+    if (!hasPasswordField) {
+      const auto* existing = OPDS_STORE.getServer(static_cast<size_t>(idx));
+      if (existing) password = existing->password;
+    }
+    opdsServer.password = password;
+    if (!OPDS_STORE.updateServer(static_cast<size_t>(idx), opdsServer)) {
+      server->send(500, "text/plain", "Could not save server");
+      return;
+    }
     LOG_DBG("WEB", "Updated OPDS server at index %d", idx);
   } else {
     opdsServer.password = password;

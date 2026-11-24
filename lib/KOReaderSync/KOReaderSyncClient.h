@@ -111,7 +111,7 @@ class KOReaderSyncClient {
    * @param progress The progress data to upload
    * @return OK on success, error code on failure
    */
-  static Error updateProgress(const KOReaderProgress& progress);
+  static Error updateProgress(const KOReaderProgress& progress, const char* deviceName = nullptr);
 
   /**
    * Get human-readable error message.

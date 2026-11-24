@@ -98,6 +98,7 @@ class HalDisplay {
   // displayBuffer(HALF); FAST fallback keeps the OEM differential base waveform
   // ("AA-pre-BW(mid)"). Other panels display normally with `fallback` mode.
   void displayGrayscaleBase(RefreshMode fallback = HALF_REFRESH, bool turnOffScreen = false);
+  void displayMonochromeReinforcement(bool turnOffScreen = false);
   bool displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback = HALF_REFRESH, bool turnOffScreen = false);
 
   void copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer);

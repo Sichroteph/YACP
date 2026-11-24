@@ -38,6 +38,8 @@ void ReleaseJsonParser::reset() {
   currentAssetName[0] = '\0';
   currentAssetUrl[0] = '\0';
   currentAssetSize = 0;
+  selectedAssetName[0] = firmwareDigest[0] = currentAssetDigest[0] = '\0';
+  rootComplete = invalid = false;
 }
 
 void ReleaseJsonParser::feed(const char* data, size_t len) { parser.feed(data, len); }
@@ -49,14 +51,18 @@ const char* ReleaseJsonParser::getFirmwareUrl() const { return firmwareUrl; }
 size_t ReleaseJsonParser::getFirmwareSize() const { return firmwareSize; }
 
 void ReleaseJsonParser::commitAsset() {
-  if (strcmp(currentAssetName, firmwareAssetName) == 0) {
+  if (assetMatcher ? assetMatcher(currentAssetName) : strcmp(currentAssetName, firmwareAssetName) == 0) {
+    if (firmwareFound) invalid = true;
     memcpy(firmwareUrl, currentAssetUrl, sizeof(firmwareUrl));
+    memcpy(selectedAssetName, currentAssetName, sizeof(selectedAssetName));
+    memcpy(firmwareDigest, currentAssetDigest, sizeof(firmwareDigest));
     firmwareSize = currentAssetSize;
     firmwareFound = true;
   }
   currentAssetName[0] = '\0';
   currentAssetUrl[0] = '\0';
   currentAssetSize = 0;
+  currentAssetDigest[0] = '\0';
 }
 
 // -- SAX callbacks (static trampolines) -------------------------------------
@@ -83,6 +89,8 @@ void ReleaseJsonParser::sOnKey(void* ctx, const char* key, size_t len) {
           self->lastKey = LastKey::ASSET_URL;
         else if (len == 4 && memcmp(key, "size", 4) == 0)
           self->lastKey = LastKey::ASSET_SIZE;
+        else if (len == 6 && memcmp(key, "digest", 6) == 0)
+          self->lastKey = LastKey::ASSET_DIGEST;
         else
           self->lastKey = LastKey::NONE;
       }
@@ -98,17 +106,26 @@ void ReleaseJsonParser::sOnString(void* ctx, const char* value, size_t len) {
   switch (self->lastKey) {
     case LastKey::TAG_NAME:
       if (self->position == Position::TOP_LEVEL && self->depth == 1) {
+        if (len >= sizeof(self->tagName) || self->tagFound) self->invalid = true;
         safeCopy(self->tagName, sizeof(self->tagName), value, len);
         self->tagFound = true;
       }
       break;
     case LastKey::ASSET_NAME:
+      if (len >= sizeof(self->currentAssetName)) self->invalid = true;
       if (self->position == Position::IN_ASSET_OBJECT && self->assetDepth == 1)
         safeCopy(self->currentAssetName, sizeof(self->currentAssetName), value, len);
       break;
     case LastKey::ASSET_URL:
+      if (len >= sizeof(self->currentAssetUrl)) self->invalid = true;
       if (self->position == Position::IN_ASSET_OBJECT && self->assetDepth == 1)
         safeCopy(self->currentAssetUrl, sizeof(self->currentAssetUrl), value, len);
+      break;
+    case LastKey::ASSET_DIGEST:
+      if (self->position == Position::IN_ASSET_OBJECT && self->assetDepth == 1) {
+        if (len >= sizeof(self->currentAssetDigest)) self->invalid = true;
+        safeCopy(self->currentAssetDigest, sizeof(self->currentAssetDigest), value, len);
+      }
       break;
     default:
       break;
@@ -116,11 +133,19 @@ void ReleaseJsonParser::sOnString(void* ctx, const char* value, size_t len) {
   self->lastKey = LastKey::NONE;
 }
 
-void ReleaseJsonParser::sOnNumber(void* ctx, const char* value, size_t /*len*/) {
+void ReleaseJsonParser::sOnNumber(void* ctx, const char* value, size_t len) {
   auto* self = static_cast<ReleaseJsonParser*>(ctx);
 
   if (self->lastKey == LastKey::ASSET_SIZE && self->position == Position::IN_ASSET_OBJECT && self->assetDepth == 1) {
-    self->currentAssetSize = static_cast<size_t>(strtoul(value, nullptr, 10));
+    size_t size = 0;
+    for (size_t i = 0; i < len; ++i) {
+      if (value[i] < '0' || value[i] > '9' || size > (SIZE_MAX - (value[i] - '0')) / 10) {
+        self->invalid = true;
+        break;
+      }
+      size = size * 10 + (value[i] - '0');
+    }
+    self->currentAssetSize = size;
   }
   self->lastKey = LastKey::NONE;
 }
@@ -136,6 +161,7 @@ void ReleaseJsonParser::sOnObjectStart(void* ctx) {
 
   switch (self->position) {
     case Position::TOP_LEVEL:
+      if (self->rootComplete) self->invalid = true;
       self->depth++;
       self->lastKey = LastKey::NONE;
       break;
@@ -145,6 +171,7 @@ void ReleaseJsonParser::sOnObjectStart(void* ctx) {
       self->currentAssetName[0] = '\0';
       self->currentAssetUrl[0] = '\0';
       self->currentAssetSize = 0;
+      self->currentAssetDigest[0] = '\0';
       self->lastKey = LastKey::NONE;
       break;
     case Position::IN_ASSET_OBJECT:
@@ -160,6 +187,8 @@ void ReleaseJsonParser::sOnObjectEnd(void* ctx) {
   switch (self->position) {
     case Position::TOP_LEVEL:
       if (self->depth > 0) self->depth--;
+      else self->invalid = true;
+      if (self->depth == 0) self->rootComplete = true;
       break;
     case Position::IN_ASSET_OBJECT:
       self->assetDepth--;

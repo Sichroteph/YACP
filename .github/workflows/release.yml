@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   build-release:
+    if: github.repository == 'crosspoint-reader/crosspoint-reader'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -127,6 +128,7 @@ jobs:
           compression-level: 0
 
   publish-release:
+    if: github.repository == 'crosspoint-reader/crosspoint-reader'
     needs: build-release
     runs-on: ubuntu-latest
     permissions:

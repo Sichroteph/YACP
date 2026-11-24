@@ -131,7 +131,7 @@ class Dictionary {
   // hit. *outResult (if provided) reports the precise outcome so the UI can
   // distinguish a genuine miss from a decompression / low-memory / read failure.
   bool lookup(const char* word, std::string& definitionOut, std::string& matchedHeadwordOut,
-              LookupResult* outResult = nullptr);
+              LookupResult* outResult = nullptr, bool exactHeadword = false);
 
   // Reload the exact entry, including synonym targets with duplicate headwords.
   // With exceedsLimit, enforce the combined-output cap and report a size rejection separately from IO failure.

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "product": "YACP-CrossPoint",
+  "upstream_commit": "42d58daaabcf469a2e5e1ba871714fb9dcf51d29",
+  "sdk_commit": "5e94fe7480f019c89fbf691aef87523eb1b46704",
+  "sdk_patches": [
+    "001-rtc-write-verification.patch",
+    "002-explicit-ca-verification.patch",
+    "003-uc8279-pro-monochrome-reinforcement.patch",
+    "004-bq27220-current.patch"
+  ],
+  "hardware": {
+    "tiny": [
+      "X3",
+      "X4"
+    ],
+    "x4pro": [
+      "X4 Pro"
+    ],
+    "x4c": [
+      "X4 Classic"
+    ]
+  },
+  "product_remote": "https://github.com/Sichroteph/YACP.git",
+  "upstream_remote": "https://github.com/crosspoint-reader/crosspoint-reader.git"
+}

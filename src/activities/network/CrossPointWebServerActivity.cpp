@@ -6,17 +6,20 @@
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <WiFi.h>
 
 #include <cstddef>
 
 #include "MappedInputManager.h"
+#include "NearbyStatsSyncActivity.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BookPathMove.h"
 #include "util/PluginEvents.h"
 #include "util/QrUtils.h"
 #include "util/TaskWatchdog.h"
@@ -25,7 +28,7 @@ namespace {
 // AP Mode configuration
 constexpr const char* AP_SSID = "CrossPoint-Reader";
 constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
-constexpr const char* AP_HOSTNAME = "crosspoint";
+constexpr const char* AP_HOSTNAME = "yacp";
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 4;
 constexpr int QR_CODE_WIDTH = 198;
@@ -87,11 +90,9 @@ void CrossPointWebServerActivity::onEnter() {
   lastHandleClientTime = 0;
   requestUpdate();
 
-  if (startInJoinNetwork) {
-    // Came back from the heap-defrag reboot on a pristine heap: skip the mode
-    // picker and go straight into Join Network (onNetworkModeSelected won't
-    // reboot again while this flag is set).
-    onNetworkModeSelected(NetworkMode::JOIN_NETWORK);
+  if (joinNetworkOnEnter) {
+    joinNetworkOnEnter = false;
+    onNetworkModeSelected(initialNetworkMode);
     return;
   }
 
@@ -129,22 +130,25 @@ void CrossPointWebServerActivity::onExit() {
       WiFi.disconnect(false);
     }
     delay(30);
-    silentRestart();
+    if (!BookPathMove::blocked())
+      silentRestart();
+    else
+      WiFi.mode(WIFI_OFF);
   }
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
-  // Join Network brings up WiFi + the web server + TLS relays, whose working set
-  // needs a large *contiguous* block. After reading/browsing the heap is
-  // fragmented enough that tight boards (X3) abort mid-activation. Reboot once
-  // into a pristine heap and land straight back here; the flag prevents a second
-  // reboot on that return. No-op on touch boards, which fall through.
-  if (mode == NetworkMode::JOIN_NETWORK && !startInJoinNetwork) {
-    silentRestartToJoinNetwork();  // does not return on non-touch boards
+  if (mode == NetworkMode::NEARBY_STATS) {
+    if (auto activity = makeUniqueNoThrow<NearbyStatsSyncActivity>(renderer, mappedInput)) {
+      startActivityForResult(std::move(activity), [](const ActivityResult&) { onGoHome(); });
+    } else {
+      LOG_ERR("WEBACT", "OOM: NearbyStatsSyncActivity");
+      onGoHome();
+    }
+    return;
   }
-
   const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";

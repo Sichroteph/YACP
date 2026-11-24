@@ -863,6 +863,9 @@
     .log-summary-table .increased {
       color: var(--warning-color);
     }
+
+    .brand-logo { width:44px; height:44px; vertical-align:middle; margin-right:10px; }
+    @media (prefers-color-scheme:dark) { .brand-logo { filter:invert(1); } }
   </style>
   <link rel="stylesheet" href="/assets/web.css" />
   <link rel="icon" type="image/svg+xml" href="/assets/crosspoint-icon.svg" />
@@ -1217,7 +1220,7 @@
 
   if (currentPath !== '/') {
     const leaf = currentPath.split('/').filter(Boolean).pop();
-    if (leaf) document.title = leaf + ' - Files - CrossPoint Reader';
+    if (leaf) document.title = leaf + ' - Files - YACP';
   }
 
   // Network status monitoring
@@ -1648,10 +1651,10 @@
     const content = document.getElementById('advancedSettingsContent');
     const arrow = document.getElementById('advancedOptionsArrow');
     const isExpanding = !content.classList.contains('visible');
-    
+
     content.classList.toggle('visible');
     arrow.classList.toggle('expanded');
-    
+
     // When expanding, show image picker if an EPUB is selected
     if (isExpanding) {
       const fileInput = document.getElementById('fileInput');
@@ -1947,11 +1950,11 @@
 
       // Get dimensions
       const dims = await getImageDimensions(data);
-      
+
       // Check if this is the cover image
-      const isCover = (path === coverImagePath) || 
+      const isCover = (path === coverImagePath) ||
                       path.toLowerCase().includes('cover') && images.length === 0;
-      
+
       // Check if this is a separator/ornament (skip cover check)
       const filename = path.split('/').pop();
       let isSeparator = false;
@@ -1962,7 +1965,7 @@
           console.warn('Separator check failed for', filename, e);
         }
       }
-      
+
       // Tiny images (<200x200) are locked like separators
       const isTiny = (dims.width < 200 && dims.height < 200);
       const isLockedImage = isCover || isSeparator || isTiny;
@@ -1974,7 +1977,7 @@
           console.warn('Auto-crop preview failed for', path, e);
         }
       }
-      
+
       // Images that fit screen can only rotate, not split
       const fitsScreen = (dims.width <= MAX_WIDTH && dims.height <= MAX_HEIGHT);
 
@@ -2028,23 +2031,23 @@
   async function isSeparatorImage(dataUrl, width, height, filename) {
     const MAX_DIMENSION = 150;
     const SYMMETRY_THRESHOLD = 0.85;
-    
+
     // First check: must be small in at least one dimension
     const isSmall = (height < MAX_DIMENSION || width < MAX_DIMENSION);
     if (!isSmall) return false;
-    
+
     // Filename hints (instant match if small + named correctly)
     const separatorNames = ['separator', 'divider', 'ornament', 'break', 'flourish', 'scene', 'divid', 'decor'];
     const lowerName = filename.toLowerCase();
     if (separatorNames.some(n => lowerName.includes(n))) return true;
-    
+
     // Extreme aspect ratio check (>10:1 or <1:10) - these are definitely separators/lines
     const aspectRatio = width / height;
     if (aspectRatio > 10 || aspectRatio < 0.1) return true;
-    
+
     // Symmetry check (skip for very thin images - too few pixels)
     if (width < 10 || height < 10) return true; // Very small = separator
-    
+
     try {
       const isSymmetric = await checkHorizontalSymmetry(dataUrl, width, height, SYMMETRY_THRESHOLD);
       return isSymmetric;
@@ -2065,32 +2068,32 @@
         const scale = Math.min(1, 100 / width);
         const w = Math.max(2, Math.floor(width * scale));  // Minimum 2px
         const h = Math.max(1, Math.floor(height * scale)); // Minimum 1px
-        
+
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext('2d');
-        
+
         // Draw scaled image
         ctx.drawImage(img, 0, 0, w, h);
         const imageData = ctx.getImageData(0, 0, w, h);
         const pixels = imageData.data;
-        
+
         // Compare left half with flipped right half
         const halfW = Math.floor(w / 2);
         let matchingPixels = 0;
         let totalPixels = 0;
-        
+
         for (let y = 0; y < h; y++) {
           for (let x = 0; x < halfW; x++) {
             const leftIdx = (y * w + x) * 4;
             const rightIdx = (y * w + (w - 1 - x)) * 4;
-            
+
             // Compare RGB (ignore alpha)
             const rDiff = Math.abs(pixels[leftIdx] - pixels[rightIdx]);
             const gDiff = Math.abs(pixels[leftIdx + 1] - pixels[rightIdx + 1]);
             const bDiff = Math.abs(pixels[leftIdx + 2] - pixels[rightIdx + 2]);
-            
+
             // Allow some tolerance for JPEG artifacts (threshold of 30)
             if (rDiff < 30 && gDiff < 30 && bDiff < 30) {
               matchingPixels++;
@@ -2098,7 +2101,7 @@
             totalPixels++;
           }
         }
-        
+
         const symmetryScore = matchingPixels / totalPixels;
         resolve(symmetryScore >= threshold);
       };
@@ -2154,7 +2157,7 @@
       const separatorCount = images.filter(img => img.isSeparator).length;
       const lockedCount = coverCount + separatorCount;
       const selectableCount = images.length - lockedCount;
-      
+
       if (lockedCount > 0) {
         const lockedParts = [];
         if (coverCount > 0) lockedParts.push(`${coverCount} cover`);
@@ -2218,12 +2221,12 @@
         `;
       } else {
         // All other images are selectable - all modes allowed
-        
+
         // Determine which overlay to show based on state
         const showRotation = (state === 1 || state === 3); // H-Split or Rotate
         const showSplitLines = (state === 1 || state === 2); // H-Split or V-Split
         const rotateClass = showRotation ? (HANDEDNESS === 'right' ? 'rotate-cw' : 'rotate-ccw') : '';
-        
+
         // Calculate actual number of parts for split preview
         let numParts = 1;
         if (showSplitLines) {
@@ -2243,7 +2246,7 @@
             if (numParts < 2) numParts = 2;
           }
         }
-        
+
         // Generate split line elements (numParts - 1 lines at evenly distributed positions)
         let splitLinesHtml = '';
         if (showSplitLines && numParts > 1) {
@@ -2255,14 +2258,14 @@
           }
           splitLinesHtml = `<div class="split-lines">${lines.join('')}</div>`;
         }
-        
+
         // Build tooltip
         const stateText = stateLabels[state] || 'Normal';
         const partsText = numParts > 1 ? ` (${numParts} parts)` : '';
         const showCropPreview = ENABLE_AUTO_CROP && img.autoCropPreview;
         const previewSrc = showCropPreview ? img.autoCropPreview.dataUrl : img.dataUrl;
         const cropText = showCropPreview ? ` | Auto-crop: ${img.autoCropPreview.width}×${img.autoCropPreview.height}` : '';
-        
+
         item.className = `image-item ${stateClasses[state]} ${rotateClass} ${showCropPreview ? 'crop-preview' : ''}`.trim();
         item.onclick = () => cycleImageState(img.path);
         item.title = `${img.width}×${img.height} - ${stateText}${partsText}${cropText}`;
@@ -2301,11 +2304,11 @@
     epubImagesCache.forEach(img => {
       // Skip locked images
       if (img.isCover || img.isSeparator) return;
-      
+
       const canHSplit = img.canHSplit && !img.fitsScreen;
       const canVSplit = img.canVSplit && !img.fitsScreen;
       const isLandscape = img.width > img.height;
-      
+
       if (state === 0) {
         // Normal - applies to all selectable
         imageStates[img.path] = 0;
@@ -2562,7 +2565,7 @@
   (function setupFileInputListener() {
     const fileInput = document.getElementById('fileInput');
     if (!fileInput) return;
-    
+
     fileInput.addEventListener('click', function() {
       // Small delay to allow browser to process click before checking files
       setTimeout(() => {
@@ -3176,7 +3179,7 @@ function exportLogToFile(filename = null, isBatch = false) {
   }
   // Extract text from log entries
   const entries = logContainer.querySelectorAll('.log-entry');
-  let logText = `CrossPoint Reader ${crosspointVersion} - EPUB Conversion Log\n`;
+  let logText = `YACP ${crosspointVersion} - EPUB Conversion Log\n`;
   logText += `Generated: ${new Date().toLocaleString()}\n`;
   logText += `${'='.repeat(60)}\n\n`;
 

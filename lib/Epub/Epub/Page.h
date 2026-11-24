@@ -123,6 +123,14 @@ class PageBorderBox final : public PageElement {
 
 class Page {
  public:
+  struct PublisherMarker { int16_t y = 0; char label[16]{}; };
+  static constexpr uint8_t MAX_PUBLISHER_MARKERS = 8;
+  // Most pages have no publisher annotations. Allocate one fixed, fallible block only when needed.
+  std::unique_ptr<PublisherMarker[]> publisherMarkers;
+  uint8_t publisherMarkerCount = 0;
+  bool addPublisherMarker(const char* label, int16_t y);
+  void renderPublisherMarkers(GfxRenderer& renderer, int fontId, int x, int top, int bottom) const;
+
   // the list of block index and line numbers on this page
   std::vector<std::unique_ptr<PageElement>> elements;
   std::vector<FootnoteEntry> footnotes;

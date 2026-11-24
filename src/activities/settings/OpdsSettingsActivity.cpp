@@ -5,6 +5,8 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include <iterator>
+
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -13,11 +15,16 @@
 namespace fui = freeink::ui;
 
 namespace {
-// Editable fields: Name, URL, Username, Password, Custom Header 1, Custom
-// Header 2. Existing servers also show a Delete option (BASE_ITEMS + 1).
-constexpr int BASE_ITEMS = 6;
 constexpr int CUSTOM_HEADER_1_INDEX = 4;
 constexpr int CUSTOM_HEADER_2_INDEX = 5;
+constexpr int FILENAME_FORMAT_INDEX = 6;
+constexpr int BASE_ITEMS = FILENAME_FORMAT_INDEX + 1;
+constexpr StrId FORMAT_LABELS[] = {StrId::STR_DEFAULT_VALUE, StrId::STR_FMT_AUTHOR_TITLE,
+                                  StrId::STR_FMT_TITLE_AUTHOR, StrId::STR_FMT_TITLE};
+
+int filenameOption(const OpdsServer& server) {
+  return server.filenameFormat < std::size(FORMAT_LABELS) - 1 ? server.filenameFormat + 1 : 0;
+}
 }  // namespace
 
 OpdsSettingsActivity::OpdsSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -27,7 +34,9 @@ OpdsSettingsActivity::OpdsSettingsActivity(GfxRenderer& renderer, MappedInputMan
   // live), so they're set once here rather than every buildScreen() call.
   static constexpr StrId fieldNames[BASE_ITEMS] = {StrId::STR_SERVER_NAME,     StrId::STR_OPDS_SERVER_URL,
                                                    StrId::STR_USERNAME,        StrId::STR_PASSWORD,
-                                                   StrId::STR_CUSTOM_HEADER_1, StrId::STR_CUSTOM_HEADER_2};
+                                                   StrId::STR_CUSTOM_HEADER_1, StrId::STR_CUSTOM_HEADER_2,
+                                                   StrId::STR_OPDS_FILENAME_FORMAT};
+  static_assert(MAX_MENU_ITEMS == BASE_ITEMS + 1);
   for (int i = 0; i < BASE_ITEMS; i++) {
     fieldRowItems[i].label = I18N.get(fieldNames[i]);
     fieldRowItems[i].actionValue = static_cast<int16_t>(i);
@@ -61,6 +70,7 @@ void OpdsSettingsActivity::onEnter() {
 }
 
 void OpdsSettingsActivity::activateIndex(const int index) {
+  if (optionPopup.isActive()) return;
   nav.selected = index;
   // Activation opens a keyboard or leaves the screen; a lingering flash would
   // gray an unrelated row.
@@ -170,6 +180,16 @@ void OpdsSettingsActivity::handleSelection() {
     startActivityForResult(
         std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, I18N.get(label), prefill, 160, InputType::Text),
         handler);
+  } else if (nav.selected == FILENAME_FORMAT_INDEX) {
+    optionPopup.show(StrId::STR_OPDS_FILENAME_FORMAT, FORMAT_LABELS, std::size(FORMAT_LABELS),
+                     filenameOption(editServer), [this](int index) {
+                       const uint8_t previous = editServer.filenameFormat;
+                       editServer.filenameFormat =
+                           index == 0 ? OpdsServer::INHERIT_FILENAME : static_cast<uint8_t>(index - 1);
+                       if (!saveServer()) editServer.filenameFormat = previous;
+                       requestUpdate();
+                     });
+    requestUpdate();
   } else if (nav.selected == BASE_ITEMS && !isNewServer) {
     // Delete flow is only available for existing servers.
     if (!OPDS_STORE.removeServer(static_cast<size_t>(serverIndex))) {
@@ -212,6 +232,8 @@ void OpdsSettingsActivity::buildScreen(UiScreen& screen) {
         headerDisplayBuf[i].empty() ? tr(STR_NOT_SET) : headerDisplayBuf[i].c_str();
   }
 
+  fieldRowItems[FILENAME_FORMAT_INDEX].value = I18N.get(FORMAT_LABELS[filenameOption(editServer)]);
+
   fui::ListProps props;
   props.items = fieldRowItems;
   props.count = static_cast<uint16_t>(getMenuItemCount());
@@ -237,4 +259,13 @@ void OpdsSettingsActivity::drawFooter() {
   if (showSaveError) {
     GUI.drawPopup(renderer, tr(STR_ERROR_GENERAL_FAILURE));
   }
+}
+
+bool OpdsSettingsActivity::handleCustomInput() {
+  return optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+}
+
+void OpdsSettingsActivity::render(RenderLock&& lock) {
+  if (optionPopup.processRender(renderer, mappedInput)) return;
+  UiListActivity::render(std::move(lock));
 }

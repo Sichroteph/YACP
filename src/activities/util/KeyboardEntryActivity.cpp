@@ -1022,6 +1022,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 }
 
 void KeyboardEntryActivity::onComplete(std::string text) {
+  if (text.size() < minLength) return;
   setResult(KeyboardResult{std::move(text)});
   finish();
 }

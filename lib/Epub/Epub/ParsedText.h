@@ -89,6 +89,9 @@ class ParsedText {
   BlockStyle blockStyle;
   uint8_t wordSpacingPercent = 100;
   uint8_t paragraphIndentSpaces;
+  bool guideReadingEnabled;
+  bool publisherPageNumbers;
+  bool forceParagraphIndents;
   bool hyphenationEnabled;
   bool focusReadingEnabled;
   bool isNaturalAlign;
@@ -138,9 +141,14 @@ class ParsedText {
 
  public:
   explicit ParsedText(const bool hyphenationEnabled = false, const bool focusReadingEnabled = false,
-                      const BlockStyle& blockStyle = BlockStyle(), const uint8_t paragraphIndentSpaces = 2)
+                      const BlockStyle& blockStyle = BlockStyle(), const uint8_t paragraphIndentSpaces = 2,
+                      const bool guideReadingEnabled = false, const bool publisherPageNumbers = false,
+                      const bool forceParagraphIndents = false)
       : blockStyle(blockStyle),
         paragraphIndentSpaces(paragraphIndentSpaces),
+        guideReadingEnabled(guideReadingEnabled),
+        publisherPageNumbers(publisherPageNumbers),
+        forceParagraphIndents(forceParagraphIndents),
         hyphenationEnabled(hyphenationEnabled),
         focusReadingEnabled(focusReadingEnabled),
         isNaturalAlign(false),

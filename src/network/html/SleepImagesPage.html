@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sleep images | YACP</title>
+  <style>
+    :root { color-scheme: light; --bg:#f5f5f5; --card:#fff; --ink:#293c35; --line:#ddd; --accent:#527f67; }
+    @media (prefers-color-scheme:dark) { :root { color-scheme:dark; --bg:#292d2b; --card:#373e3a; --ink:#edf3ef; --line:#58625c; --accent:#74ad8c; } }
+    * { box-sizing:border-box; }
+    body { font:16px/1.5 system-ui,sans-serif; max-width:960px; margin:auto; padding:20px; color:var(--ink); background:var(--bg); }
+    h1 { border-bottom:2px solid var(--accent); padding-bottom:12px; } h2 { margin-top:0; font-size:1.3rem; }
+    a { color:var(--accent); } nav,.row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+    nav { margin-bottom:20px; } nav a { padding:8px; }
+    fieldset { border:0; padding:0; margin:0; min-width:0; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin:16px 0; }
+    button,select,input[type=file] { font:inherit; max-width:100%; } button,select { padding:8px 12px; }
+    button { cursor:pointer; border:1px solid var(--line); border-radius:5px; } button:disabled { cursor:wait; }
+    .primary { background:var(--accent); color:var(--bg); font-weight:600; }
+    .path { overflow-wrap:anywhere; font:14px/1.5 ui-monospace,monospace; }
+    .previews { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0; }
+    canvas { display:block; width:100%; height:auto; border:1px solid var(--line); background:#fff; }
+    #crop { touch-action:none; cursor:move; }
+    label { display:block; margin:10px 0; } input[type=range] { vertical-align:middle; width:180px; max-width:100%; }
+    output { font-variant-numeric:tabular-nums; }
+    #notice { min-height:1.5em; } #notice[data-error=true] { color:#c54237; }
+    .list { list-style:none; padding:0; } .list li { padding:10px 0; border-bottom:1px solid var(--line); }
+    .list .row span { flex:1; overflow-wrap:anywhere; }
+    #existingPreview { max-width:280px; margin:16px auto; }
+    .covers { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; margin:16px 0; }
+    .cover { border:1px solid var(--line); border-radius:6px; padding:10px; min-width:0; overflow-wrap:anywhere; }
+    .cover img { display:block; width:100%; height:170px; object-fit:contain; background:#fff; }
+    .cover label { cursor:pointer; } .cover:has(input:checked) { outline:2px solid var(--accent); }
+    .cover button { font-size:14px; } input[type=search] { font:inherit; padding:8px; width:100%; }
+    [hidden] { display:none !important; }
+    @media(max-width:540px) { body { padding:12px; } .card { padding:14px; } .previews { gap:8px; } button { padding:8px; } }
+  
+    .brand-logo { width:44px; height:44px; vertical-align:middle; margin-right:10px; }
+    @media (prefers-color-scheme:dark) { .brand-logo { filter:invert(1); } }
+  </style>
+</head>
+<body>
+  <h1><img class="brand-logo" src="/logo.svg" alt="">YACP: Sleep images</h1>
+  <nav aria-label="Main navigation"><a href="/">Home</a><a href="/files">Files</a><a href="/settings">Settings</a><a href="/sleep-images" aria-current="page">Sleep images</a></nav>
+  <p id="notice" role="status" aria-live="polite">Connecting to your reader...</p>
+  <fieldset id="controls" disabled>
+    <section class="card">
+      <h2>1. Choose a gallery</h2>
+      <div class="row"><button id="global">General sleep images</button><button id="current">Current book</button><button id="browse">Choose a book</button></div>
+      <p id="galleryName">General sleep images</p><p id="destination" class="path"></p>
+      <div id="browser" hidden><p id="browserPath" class="path"></p><button id="parent">Parent folder</button><ul id="books" class="list"></ul></div>
+      <p>Book images take priority over general images. Select a custom sleep screen in the reader settings to use them.</p>
+    </section>
+    <section id="online" class="card" hidden>
+      <h2>Find book covers</h2>
+      <label>Title <input id="searchTitle" type="search" maxlength="200"></label>
+      <label>Author (optional) <input id="searchAuthor" type="search" maxlength="150"></label>
+      <button id="searchCovers">Search Open Library</button>
+      <p>Internet access is required on this phone or computer. Your search is sent to <a href="https://openlibrary.org" target="_blank" rel="noopener noreferrer">Open Library</a>. Local image import remains available offline.</p>
+      <div id="covers" class="covers"></div>
+      <p id="coverCount" role="status" aria-live="polite"></p>
+      <button id="prepareCovers" disabled>Prepare selected covers</button>
+    </section>
+    <section class="card">
+      <h2>2. Prepare images</h2>
+      <p id="dimensions"></p>
+      <p>Choose one or more images to prepare.</p>
+      <button id="choose">Choose images</button><input id="files" type="file" accept="image/*" multiple hidden>
+      <div id="editor" hidden>
+        <label>Image <select id="queue"></select></label>
+        <fieldset id="imageControls">
+        <label>Image layout <select id="fit"><option value="crop">Fill screen and crop</option><option value="contain">Whole image with white margins</option></select></label>
+        <div class="previews"><div><strong>Source image</strong><canvas id="crop" aria-label="Source image and crop selection"></canvas></div><div><strong>Reader preview</strong><canvas id="preview" aria-label="Four-level grayscale preview"></canvas></div></div>
+        <div id="cropControls" hidden>
+        <label>Crop size <input id="zoom" type="range" min="35" max="100" value="100"> <output id="zoomValue">100%</output></label>
+        <div class="row"><button id="left" aria-label="Move crop left">Left</button><button id="right" aria-label="Move crop right">Right</button><button id="up" aria-label="Move crop up">Up</button><button id="down" aria-label="Move crop down">Down</button></div>
+        </div>
+        <label>Black threshold <input id="gray0" type="range" min="0" max="255" value="43"> <output id="grayValue0">43</output></label>
+        <label>Dark gray threshold <input id="gray1" type="range" min="0" max="255" value="128"> <output id="grayValue1">128</output></label>
+        <label>Light gray threshold <input id="gray2" type="range" min="0" max="255" value="213"> <output id="grayValue2">213</output></label>
+        </fieldset>
+        <div class="row"><button id="reset">Reset this image</button><button id="upload" class="primary">Upload this image</button><button id="uploadAll" class="primary">Upload all pending images</button><button id="clear">Clear selection</button></div>
+        <p>Existing images are preserved. A numbered filename is used when a name is already taken.</p>
+      </div>
+    </section>
+    <section class="card"><h2>Gallery images</h2><button id="refresh">Refresh list</button><ul id="images" class="list"></ul><canvas id="existingPreview" hidden aria-label="Selected gallery image"></canvas></section>
+  </fieldset>
+  <script src="/js/sleep-image-prep.js"></script>
+  <script>
+    'use strict';
+    const el = id => document.getElementById(id), prep = YacpSleepPrep;
+    let width = 480, height = 800, currentBook = '', bookPath = '', folder = '', browsePath = '/';
+    let queue = [], selected = 0, source = null, blob = null, drag = null, busy = false, connected = false;
+    const covers = new Map();
+    let nextLibraryRequest = 0;
+    const join = (path, name) => (path === '/' ? '' : path) + '/' + name;
+    function notice(message, error = false) { el('notice').textContent = message; el('notice').dataset.error = error; }
+    async function request(path, options) {
+      const response = await fetch(path, options);
+      if (!response.ok) throw new Error((await response.text()) || 'Reader request failed');
+      return response;
+    }
+    const form = values => ({ method:'POST', body:new URLSearchParams(values) });
+    async function run(action) {
+      if (busy) return;
+      busy = true; el('controls').disabled = true;
+      try { await action(); } catch (error) { notice(error.message, true); }
+      finally { busy = false; el('controls').disabled = !connected; el('current').disabled = !currentBook; updateCoverCount(); }
+    }
+    function button(text, action) { const b = document.createElement('button'); b.textContent = text; b.onclick = () => run(action); return b; }
+    async function prepare() {
+      const endpoint = bookPath ? '/api/book-gallery/prepare' : '/api/sleep-images/prepare';
+      const data = await (await request(endpoint, form({bookPath}))).json();
+      folder = data.path;
+      el('destination').textContent = folder;
+      return data;
+    }
+    async function listing(path) { return (await request('/api/files?path=' + encodeURIComponent(path))).json(); }
+    async function gallery(path) {
+      if (path !== bookPath) clear();
+      folder = ''; bookPath = path; el('destination').textContent = '';
+      el('galleryName').textContent = path || 'General sleep images';
+      el('existingPreview').hidden = true; el('images').replaceChildren();
+      covers.clear(); el('covers').replaceChildren(); el('online').hidden = !path;
+      const data = await prepare();
+      el('searchTitle').value = data.title || path.split('/').pop().replace(/\.[^.]*$/, '').replace(/_/g, ' ');
+      el('searchAuthor').value = data.author || '';
+      await refresh(); el('browser').hidden = true; notice('Gallery ready.');
+    }
+    async function browse(path) {
+      const files = await listing(path); browsePath = path;
+      el('browser').hidden = false; el('browserPath').textContent = path; el('books').replaceChildren();
+      for (const file of files) {
+        if (!file.isDirectory && !/\.(epub|txt|md|xtc)$/i.test(file.name)) continue;
+        const item = document.createElement('li'), full = join(path, file.name);
+        item.append(button((file.isDirectory ? 'Folder: ' : '') + file.name, () => file.isDirectory ? browse(full) : gallery(full)));
+        el('books').append(item);
+      }
+      if (!el('books').children.length) el('books').textContent = 'No books or folders here.';
+    }
+    async function library(url, image = false) {
+      const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 20000);
+      const maximum = image ? 8 * 1024 * 1024 : 512 * 1024;
+      try {
+        const response = await fetch(url, {signal:controller.signal, credentials:'omit', referrerPolicy:'no-referrer'});
+        if (!response.ok) throw new Error('Open Library returned ' + response.status + '. Try again later.');
+        if (Number(response.headers.get('Content-Length')) > maximum) throw new Error('Open Library response is too large.');
+        const reader = response.body.getReader(), chunks = [];
+        let size = 0;
+        while (true) {
+          const {done, value} = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > maximum) { await reader.cancel(); throw new Error('Open Library response is too large.'); }
+          chunks.push(value);
+        }
+        const data = new Blob(chunks, {type:response.headers.get('Content-Type') || ''});
+        if (image && !data.type.startsWith('image/')) throw new Error('Open Library did not return an image.');
+        return image ? data : JSON.parse(await data.text());
+      } catch (error) {
+        if (error.name === 'AbortError' || error instanceof TypeError) throw new Error('Cannot reach Open Library. Check Internet access, then retry. You can also choose local images.');
+        throw error;
+      } finally { clearTimeout(timeout); }
+    }
+    async function libraryJson(path) {
+      // Pace explicit searches and edition requests to one per second.
+      const wait = nextLibraryRequest - Date.now();
+      if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+      nextLibraryRequest = Date.now() + 1100;
+      return library('https://openlibrary.org' + path);
+    }
+    function updateCoverCount() {
+      const loaded = Array.from(covers.values()).filter(cover => !cover.disabled);
+      const count = loaded.filter(cover => cover.checked).length;
+      el('coverCount').textContent = covers.size ? count + ' selected, ' + loaded.length + ' covers shown.' + (loaded.length < covers.size ? ' Loading covers...' : '') : '';
+      el('prepareCovers').disabled = !count || !bookPath;
+    }
+    function addCover(id, title, author, work) {
+      if (!Number.isSafeInteger(id) || id < 1 || covers.has(id) || covers.size >= 60) return;
+      const card = document.createElement('div'); card.className = 'cover'; card.hidden = true;
+      const label = document.createElement('label'), image = document.createElement('img'), check = document.createElement('input');
+      check.type = 'checkbox'; check.disabled = true; check.onchange = updateCoverCount;
+      image.alt = title; image.referrerPolicy = 'no-referrer';
+      // Hidden cards need eager thumbnails; only decoded images become selectable.
+      const failed = () => {
+        clearTimeout(timeout);
+        if (covers.get(id) !== check) return;
+        check.checked = false; covers.delete(id); card.remove(); updateCoverCount();
+        if (!covers.size) notice('No covers could be loaded. Try another title or choose local images.');
+      };
+      const timeout = setTimeout(failed, 20000);
+      image.onerror = failed;
+      image.onload = () => {
+        if (image.naturalWidth < 2 || image.naturalHeight < 2) { failed(); return; }
+        clearTimeout(timeout);
+        if (covers.get(id) !== check) return;
+        check.disabled = false; card.hidden = false; updateCoverCount();
+      };
+      label.append(image, check, document.createTextNode(' ' + title)); card.append(label);
+      const by = document.createElement('p'); by.textContent = author || ''; card.append(by);
+      const link = document.createElement('a'); link.textContent = 'View source';
+      link.href = 'https://openlibrary.org' + work; link.target = '_blank'; link.rel = 'noopener noreferrer'; card.append(link);
+      covers.set(id, check); el('covers').append(card);
+      image.src = 'https://covers.openlibrary.org/b/id/' + id + '-M.jpg?default=false';
+      return card;
+    }
+    async function editions(work, title, author, more) {
+      const offset = Number(more.dataset.offset || 0);
+      const data = await libraryJson(work + '/editions.json?limit=12&offset=' + offset);
+      for (const edition of data.entries || []) {
+        for (const id of (edition.covers || []).slice(0, 3)) addCover(id, edition.title || title, author, work);
+      }
+      more.dataset.offset = offset + 12;
+      more.disabled = !data.entries?.length || offset + 12 >= data.size || covers.size >= 60;
+      updateCoverCount(); notice('Editions loaded. Select covers to prepare, or load more editions.');
+    }
+    async function searchCovers() {
+      const title = el('searchTitle').value.trim(), author = el('searchAuthor').value.trim();
+      if (!title) throw new Error('Enter a book title.');
+      const query = new URLSearchParams({title, fields:'key,title,author_name,cover_i', limit:'12', lang:navigator.language.split('-')[0]});
+      if (author) query.set('author', author);
+      notice('Searching Open Library...');
+      const data = await libraryJson('/search.json?' + query);
+      covers.clear(); el('covers').replaceChildren();
+      for (const book of data.docs || []) {
+        if (!/^\/works\/OL\d+W$/.test(book.key)) continue;
+        const title = book.title || 'Untitled', author = (book.author_name || []).join(', ');
+        const card = addCover(book.cover_i, title, author, book.key);
+        if (!card) continue;
+        const more = button('Other editions', () => editions(book.key, title, author, more)); card.append(more);
+      }
+      updateCoverCount();
+      notice(covers.size ? 'Select covers, or browse other editions of the matching books.' : 'No covers found. Try a shorter title or leave the author empty.');
+    }
+    function prepareCovers() {
+      if (!bookPath) throw new Error('Choose a book first.');
+      const ids = Array.from(covers).filter(([,check]) => check.checked && !check.disabled).map(([id]) => id);
+      if (!ids.length) throw new Error('Select at least one cover.');
+      clear();
+      queue = ids.map(id => ({url:'https://covers.openlibrary.org/b/id/' + id + '-L.jpg?default=false', name:'OpenLibrary-' + id + '.jpg', fit:'crop', zoom:100, thresholds:[43,128,213]}));
+      showQueue();
+      return load(0);
+    }
+    function showQueue() {
+      el('queue').replaceChildren();
+      queue.forEach((entry,i) => { const option = document.createElement('option'); option.value = i; option.textContent = entry.name; el('queue').append(option); });
+    }
+    async function refresh() {
+      if (!folder) await prepare();
+      const files = await listing(folder); el('images').replaceChildren(); el('existingPreview').hidden = true;
+      for (const file of files.filter(f => !f.isDirectory && /\.bmp$/i.test(f.name))) {
+        const path = join(folder, file.name), item = document.createElement('li'), row = document.createElement('div'); row.className = 'row';
+        const name = document.createElement('span'); name.textContent = file.name; row.append(name);
+        row.append(button('Preview', () => previewExisting(path)));
+        const link = document.createElement('a'); link.textContent = 'Download'; link.href = '/download?path=' + encodeURIComponent(path); row.append(link);
+        row.append(button('Delete', async () => {
+          if (!confirm('Delete this gallery image?\n' + path)) return;
+          await request('/delete', form({path})); await refresh(); notice('Image deleted.');
+        }));
+        item.append(row); el('images').append(item);
+      }
+      if (!el('images').children.length) el('images').textContent = 'This gallery has no BMP images yet.';
+    }
+    async function previewExisting(path) {
+      const buffer = await (await request('/download?path=' + encodeURIComponent(path))).arrayBuffer();
+      const view = new DataView(buffer), canvas = el('existingPreview');
+      // Browsers do not all decode the 2-bit BMP files supported by the reader.
+      if (buffer.byteLength < 54 || view.getUint16(0, true) !== 0x4d42) throw new Error('Invalid BMP image.');
+      const offset = view.getUint32(10, true), dib = view.getUint32(14, true), w = view.getInt32(18, true), signedHeight = view.getInt32(22, true);
+      const h = Math.abs(signedHeight), bits = view.getUint16(28, true), compression = view.getUint32(30, true);
+      if (dib >= 40 && [1,2,4,8].includes(bits) && compression === 0) {
+        const stride = Math.ceil(w * bits / 32) * 4, palette = 14 + dib;
+        if (w <= 0 || h <= 0 || w * h > 4000000 || palette + (1 << bits) * 4 > offset || offset + stride * h > buffer.byteLength) throw new Error('Invalid BMP dimensions or palette.');
+        canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'), pixels = ctx.createImageData(w,h);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const row = signedHeight < 0 ? y : h - 1 - y, byte = view.getUint8(offset + row * stride + Math.floor(x * bits / 8));
+          const index = (byte >> (8 - bits - (x * bits % 8))) & ((1 << bits) - 1), color = palette + index * 4, dest = (y * w + x) * 4;
+          pixels.data.set([view.getUint8(color+2),view.getUint8(color+1),view.getUint8(color),255], dest);
+        }
+        ctx.putImageData(pixels,0,0);
+      } else {
+        const image = await createImageBitmap(new Blob([buffer], {type:'image/bmp'}));
+        canvas.width = image.width; canvas.height = image.height; canvas.getContext('2d').drawImage(image,0,0); image.close();
+      }
+      canvas.hidden = false; notice('Preview: ' + path);
+    }
+    function clear() {
+      if (source) source.close(); source = null; blob = null; queue = []; el('queue').replaceChildren();
+      drag = null;
+      el('editor').hidden = true; el('files').value = '';
+    }
+    async function load(index) {
+      el('editor').hidden = false; el('imageControls').disabled = true; el('reset').disabled = true;
+      blob = null; if (source) source.close(); source = null; selected = index;
+      el('queue').value = index;
+      for (const id of ['crop','preview']) { const canvas = el(id); canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height); }
+      const entry = queue[index];
+      notice('Loading ' + entry.name + '...');
+      source = await createImageBitmap(entry.file || await library(entry.url, true));
+      if (source.width * source.height > 20000000) { source.close(); source = null; throw new Error('Image dimensions are too large. Choose another image.'); }
+      entry.loaded = true; entry.width = source.width; entry.height = source.height;
+      if (!entry.crop) prep.crop(entry, width, height);
+      el('queue').value = index; el('editor').hidden = false;
+      el('imageControls').disabled = false; el('reset').disabled = false;
+      updateControls(); drawCrop(); render(); notice('Adjust the crop and grayscale, then upload this image.');
+    }
+    function updateControls() {
+      const entry = queue[selected]; el('zoom').value = entry.zoom; el('zoomValue').textContent = entry.zoom + '%';
+      el('fit').value = entry.fit; el('cropControls').hidden = entry.fit !== 'crop';
+      entry.thresholds.forEach((v,i) => { el('gray'+i).value = v; el('grayValue'+i).textContent = v; });
+    }
+    function drawCrop() {
+      if (!source) return;
+      const canvas = el('crop'), scale = Math.min(1, 700 / source.width, 900 / source.height);
+      canvas.width = Math.round(source.width * scale); canvas.height = Math.round(source.height * scale);
+      const ctx = canvas.getContext('2d'), c = queue[selected].crop;
+      ctx.drawImage(source,0,0,canvas.width,canvas.height);
+      if (queue[selected].fit !== 'crop') return;
+      ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      const sx = canvas.width / source.width, sy = canvas.height / source.height;
+      ctx.drawImage(source,c.x,c.y,c.w,c.h,c.x*sx,c.y*sy,c.w*sx,c.h*sy);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(c.x*sx,c.y*sy,c.w*sx,c.h*sy);
+    }
+    function render() {
+      if (!source) return;
+      const entry = queue[selected], c = entry.crop, canvas = el('preview'); canvas.width = width; canvas.height = height;
+      // Keep sampling on one backend: switching GPU/CPU after repeated reads can change dithering inputs.
+      const ctx = canvas.getContext('2d', {willReadFrequently:true}); ctx.fillStyle = '#fff'; ctx.fillRect(0,0,width,height);
+      if (entry.fit === 'crop') ctx.drawImage(source,c.x,c.y,c.w,c.h,0,0,width,height);
+      else {
+        const target = prep.contain(source.width, source.height, width, height);
+        ctx.drawImage(source, target.x, target.y, target.w, target.h);
+      }
+      const pixels = ctx.getImageData(0,0,width,height), indexes = prep.indexes(pixels,width,height,entry.thresholds);
+      for (let i = 0; i < indexes.length; i++) { const v = indexes[i] * 85; pixels.data.set([v,v,v,255],i*4); }
+      ctx.putImageData(pixels,0,0); blob = prep.bmp(indexes,width,height);
+    }
+    function move(dx,dy) {
+      if (!source || queue[selected].fit !== 'crop') return; const entry = queue[selected];
+      dirty();
+      entry.crop = prep.clampCrop({...entry.crop, x:entry.crop.x + dx, y:entry.crop.y + dy},entry); drawCrop();
+    }
+    async function upload() {
+      if (!queue.length) throw new Error('Choose an image first.');
+      if (!source || !blob) await load(selected);
+      if (!folder) await prepare();
+      const names = new Set((await listing(folder)).map(f => f.name.toLowerCase()));
+      let stem = queue[selected].name.replace(/\.[^.]*$/, '').replace(/[\x00-\x1f\x7f/\\:*?"<>|]/g, '_').replace(/^\.+/, '') || 'sleep';
+      while (new TextEncoder().encode(stem).length > 120) stem = Array.from(stem).slice(0,-1).join('');
+      let name = stem + '.bmp', n = 1; while (names.has(name.toLowerCase())) name = stem + '-' + n++ + '.bmp';
+      const body = new FormData(); body.append('file',blob,name);
+      notice('Uploading ' + name + '...'); await request('/upload?path=' + encodeURIComponent(folder), {method:'POST',body});
+      queue[selected].uploaded = true;
+      el('queue').options[selected].textContent = queue[selected].name + ' (uploaded)';
+      await refresh();
+      notice('Uploaded ' + name + ' to ' + folder + '.');
+    }
+    async function uploadAll() {
+      let uploaded = 0, failed = 0;
+      for (let i = 0; i < queue.length; i++) {
+        if (queue[i].uploaded) continue;
+        try { if (selected !== i || !source || !blob) await load(i); await upload(); uploaded++; }
+        catch (error) {
+          if (queue[i].uploaded) uploaded++;
+          else { failed++; el('queue').options[i].textContent = queue[i].name + ' (failed: ' + error.message + ')'; }
+        }
+      }
+      notice(uploaded + ' images uploaded. ' + failed + ' failed.' + (failed ? ' Select a failed image to retry, or upload all pending images again.' : ''), failed > 0);
+    }
+    el('global').onclick = () => run(() => gallery(''));
+    el('current').onclick = () => run(() => gallery(currentBook));
+    el('browse').onclick = () => run(() => browse('/'));
+    el('parent').onclick = () => run(() => browse(browsePath.slice(0,browsePath.lastIndexOf('/')) || '/'));
+    el('refresh').onclick = () => run(refresh); el('upload').onclick = () => run(upload); el('clear').onclick = clear;
+    el('uploadAll').onclick = () => run(uploadAll);
+    el('searchCovers').onclick = () => run(searchCovers);
+    el('prepareCovers').onclick = () => run(prepareCovers);
+    el('choose').onclick = () => el('files').click();
+    el('files').onchange = () => run(async () => {
+      const files = Array.from(el('files').files); clear();
+      queue = files.map(file => ({file,name:file.name,fit:'crop',zoom:100,thresholds:[43,128,213]}));
+      showQueue();
+      if (queue.length) await load(0);
+    });
+    el('queue').onchange = () => run(() => load(Number(el('queue').value)));
+    function dirty() { queue[selected].uploaded = false; el('queue').options[selected].textContent = queue[selected].name; }
+    el('fit').onchange = () => { dirty(); queue[selected].fit = el('fit').value; updateControls(); drawCrop(); render(); };
+    el('zoom').oninput = () => { dirty(); const entry = queue[selected]; entry.zoom = Number(el('zoom').value); prep.crop(entry,width,height,true); updateControls(); drawCrop(); render(); };
+    for (let i=0;i<3;i++) el('gray'+i).oninput = () => { dirty(); const entry = queue[selected]; entry.thresholds[i] = Number(el('gray'+i).value); entry.thresholds = prep.thresholds(entry.thresholds); updateControls(); render(); };
+    el('reset').onclick = () => { dirty(); const entry = queue[selected]; entry.fit = 'crop'; entry.zoom = 100; entry.thresholds = [43,128,213]; prep.crop(entry,width,height); updateControls(); drawCrop(); render(); };
+    for (const [id,dx,dy] of [['left',-1,0],['right',1,0],['up',0,-1],['down',0,1]]) el(id).onclick = () => { const entry = queue[selected]; move(dx*entry.width*.02,dy*entry.height*.02); render(); };
+    el('crop').onpointerdown = event => { if (!source || busy || queue[selected].fit !== 'crop') return; drag = {x:event.clientX,y:event.clientY}; el('crop').setPointerCapture(event.pointerId); };
+    el('crop').onpointermove = event => {
+      if (!drag || !source || busy) return; const rect = el('crop').getBoundingClientRect();
+      move((event.clientX-drag.x)*source.width/rect.width,(event.clientY-drag.y)*source.height/rect.height); drag = {x:event.clientX,y:event.clientY};
+    };
+    el('crop').onpointerup = el('crop').onpointercancel = () => { if (drag) { drag = null; render(); } };
+    run(async () => {
+      const status = await (await request('/api/status')).json();
+      if (!Number.isInteger(status.imageWidth) || !Number.isInteger(status.imageHeight) || status.imageWidth < 1 || status.imageHeight < 1 || status.imageWidth * status.imageHeight > 1000000) throw new Error('Reader image dimensions are unavailable.');
+      width = status.imageWidth; height = status.imageHeight; currentBook = status.currentBookPath || '';
+      connected = true;
+      el('dimensions').textContent = width + ' x ' + height + ' pixels, four grayscale levels. Images are processed in this browser.';
+      await gallery('');
+    });
+  </script>
+<p>YACP &bull; Based on CrossPoint 1.6.5 &bull; Open Source</p>
+</body>
+</html>

@@ -8,6 +8,8 @@
 
 #include "CrossPointSettings.h"
 #include "DictionaryDefinitionActivity.h"
+#include "EpubReaderActivity.h"
+#include "util/DictionaryHistory.h"
 #include "components/UITheme.h"
 
 namespace {
@@ -60,13 +62,16 @@ void DictionaryWordSelectActivity::performLookup() {
   const bool found = ok && dict.lookup(lookupText.c_str(), definition, headword, &result);
 
   if (found) {
+    const bool hasTouch = mappedInput.hasTouch();
     {
       RenderLock lock;
       popup = Popup::None;
-      page.reset();
+      if (!hasTouch) page.reset();
     }
-    auto activity = makeUniqueNoThrow<DictionaryDefinitionActivity>(renderer, mappedInput, std::move(headword),
-                                                                    std::move(definition), dict.definitionsAreHtml());
+    // The covered selector keeps the existing page alive as the popup background.
+    auto activity = makeUniqueNoThrow<DictionaryDefinitionActivity>(
+        renderer, mappedInput, std::move(headword), std::move(definition), dict.definitionsAreHtml(),
+        hasTouch ? page.get() : nullptr, marginLeft, marginTop, &reader);
     if (!activity || !activity->enableLookup(dict, std::move(lookupText))) {
       LOG_ERR("DICT", "OOM: definition activity");
       popup = Popup::Error;
@@ -75,6 +80,7 @@ void DictionaryWordSelectActivity::performLookup() {
       requestUpdate();
       return;
     }
+    DictionaryHistory::record(SETTINGS.dictionaryName, activity->getHeadword());
     startActivityForResult(std::move(activity), [this](const ActivityResult& result) {
       setResult(ActivityResult{result});
       finish();
@@ -147,6 +153,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
   if (page) page->render(renderer, fontId, marginLeft, marginTop);
   scope.endScanAndPrewarm();
   if (page) page->render(renderer, fontId, marginLeft, marginTop);
+  if (mappedInput.hasTouch()) reader.renderStatusBar();
 
   if (popup != Popup::None) {
     GUI.drawPopup(renderer, I18N.get(popupMsg));

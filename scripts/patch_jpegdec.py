@@ -26,7 +26,7 @@ PATCH_DIR = os.path.join(env["PROJECT_DIR"], "scripts", "jpegdec_patches")  # no
 
 
 def patch_jpegdec(env):
-    libdeps_dir = os.path.join(env["PROJECT_DIR"], ".pio", "libdeps")
+    libdeps_dir = env.subst("$PROJECT_LIBDEPS_DIR")
     if not os.path.isdir(libdeps_dir):
         return
     patches = _patch_files()
@@ -65,7 +65,7 @@ def _apply_one(jpeg_dir, patch_path):
         # Not applied, not appliable -- the libdep source has diverged from
         # what the patch expects. Don't write a half-patched file.
         result = subprocess.run(
-            ["git", "apply", "--check", patch_path],
+            ["git", "apply", "--check", "--ignore-whitespace", patch_path],
             cwd=jpeg_dir,
             capture_output=True,
             text=True,
@@ -75,12 +75,12 @@ def _apply_one(jpeg_dir, patch_path):
             % (name, result.stdout, result.stderr)
         )
         raise SystemExit(1)
-    subprocess.run(["git", "apply", patch_path], cwd=jpeg_dir, check=True)
+    subprocess.run(["git", "apply", "--ignore-whitespace", patch_path], cwd=jpeg_dir, check=True)
     print("Applied JPEGDEC patch: %s" % name)
 
 
 def _git_apply_succeeds(jpeg_dir, patch_path, *, reverse):
-    cmd = ["git", "apply", "--check"]
+    cmd = ["git", "apply", "--check", "--ignore-whitespace"]
     if reverse:
         cmd.append("--reverse")
     cmd.append(patch_path)

@@ -33,8 +33,8 @@ def patch_user_settings(path: Path) -> None:
     if MARKER in text:
         text = text.split(MARKER, 1)[0].rstrip()
     path.write_text(text + OVERRIDES + "\n")
-    print(f"Patched wolfSSL settings: {path.relative_to(PROJECT_DIR)}")
+    print(f"Patched wolfSSL settings: {path}")
 
 
-for settings in PROJECT_DIR.glob(".pio/libdeps/*/Arduino-wolfSSL/src/user_settings.h"):
+for settings in Path(env.subst("$PROJECT_LIBDEPS_DIR")).glob("*/Arduino-wolfSSL/src/user_settings.h"):
     patch_user_settings(settings)

@@ -1,0 +1,31 @@
+{
+  "upstream": "https://github.com/googlefonts/atkinson-hyperlegible-next",
+  "commit": "7925f50f649b3813257faf2f4c0b381011f434f1",
+  "license": "SIL Open Font License 1.1",
+  "files": [
+    {
+      "file": "AtkinsonHyperlegibleNext-Regular.ttf",
+      "url": "https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-Regular.ttf",
+      "bytes": 65068,
+      "sha256": "88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c"
+    },
+    {
+      "file": "AtkinsonHyperlegibleNext-Bold.ttf",
+      "url": "https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-Bold.ttf",
+      "bytes": 66792,
+      "sha256": "994414047df66bb4998d01c1cb1eeb4a2ddc4622d1aa56bbb8adbeca7645b041"
+    },
+    {
+      "file": "AtkinsonHyperlegibleNext-Italic.ttf",
+      "url": "https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-Italic.ttf",
+      "bytes": 69812,
+      "sha256": "b7f8f03ceb28ebadb2de2332b2e869a00e8dbfb5c8e00fdbb06385770c8227e7"
+    },
+    {
+      "file": "AtkinsonHyperlegibleNext-BoldItalic.ttf",
+      "url": "https://raw.githubusercontent.com/googlefonts/atkinson-hyperlegible-next/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-BoldItalic.ttf",
+      "bytes": 71456,
+      "sha256": "c2d3c596b54d1565ca20d383cdfb127b50b18b500b85a774fd07d4d976cd018b"
+    }
+  ]
+}

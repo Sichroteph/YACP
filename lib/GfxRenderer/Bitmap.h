@@ -69,6 +69,8 @@ class Bitmap {
       : file(file), dithering(dithering), originalThresholds(originalThresholds) {}
   ~Bitmap();
   BmpReaderError parseHeaders();
+  // Explicit sleep-image analysis only. Ordinary bitmap decode does not scan.
+  bool analyzeAdaptiveToneMapping() const;
   BmpReaderError readNextRow(uint8_t* data, uint8_t* rowBuffer) const;
   BmpReaderError rewindToData() const;
   // Unprocessed luminance of display-order row y (0 = top); leaves readNextRow()'s dither state alone.
@@ -97,6 +99,10 @@ class Bitmap {
   bool nativePalette = false;  // true if all palette entries map to native gray levels
   int rowBytes = 0;
   uint8_t paletteLum[256] = {};
+  mutable bool adaptiveToneMapping = false;
+  mutable uint8_t adaptiveBlackPoint = 0;
+  mutable uint8_t adaptiveWhitePoint = 255;
+  uint8_t applyAdaptiveTone(uint8_t lum) const;
 
   // Dithering state (mutable for const methods)
   mutable int16_t* errorCurRow = nullptr;

@@ -15,8 +15,13 @@ A dictionary folder must contain:
 
 Not supported: dictionaries with 64-bit index offsets (`idxoffsetbits=64` in the `.ifo` — rare, and rejected with an error).
 
-> [!NOTE]  
-> If you use .dict.dz and Crosspoint failed to load your dictionary with error message "Not enough memory", try unzipping it.
+## Dictionary History
+
+Open **Dictionary History** from Home (in the Menu on the YACP theme) to see the words for the dictionary selected in Reader settings. Successful lookups appear automatically, most recent first. Looking up the same entry again moves it to the top. Select a word to open its definition. Closing the popup returns to the list at the last word displayed.
+
+Swipe horizontally within the definition popup to change words, or vertically to change definition pages. Word navigation wraps between the first and last entries. On button models, use the corresponding directional buttons. Tap **Delete** or press Confirm to remove the displayed word. **Undo** restores it before you move to another word or close the popup.
+
+The SD card keeps up to 128 entries per dictionary, within an 8 KiB limit for the words themselves. The definition is read from the installed dictionary when you open a word.
 
 ## Setting Up a Dictionary
 
@@ -24,14 +29,19 @@ Not supported: dictionaries with 64-bit index offsets (`idxoffsetbits=64` in the
 2. Open **Settings → Reader → Dictionary** on the device.
 3. Select a dictionary from the list, or **None** to disable lookups.
 
-The Dictionary setting only appears when at least one usable dictionary folder exists. Folders containing more than one dictionary (multiple `.idx` stems) are skipped as ambiguous.
+The Dictionary setting stays visible even when no usable dictionary is installed. Opening it then shows the SD folder and required file names. Folders containing more than one dictionary (multiple `.idx` stems) are skipped as ambiguous.
 
 ## Looking Up Words and Phrases
 
 Two ways to start a lookup while reading:
 
+On a touch reader with touch controls enabled and a dictionary selected, hold a word on the EPUB page until the lookup starts. The definition opens in a popup over the book. Swipe up or down inside the popup to browse long definitions in blocks; tap outside it to return directly to the same book page. A hold on empty space does not open the dictionary. The initiating hold and the dismissal tap do not turn the book page.
+
+The existing menu and button paths remain available:
+
 - Open the reader menu (**Confirm**) and choose **Look Up**.
-- Or set **Settings → Controls → Long-press Menu** to "Dictionary", then hold **Confirm** (~0.4s) on the reading page.
+- On X3 and original X4, choose **Settings → Controls → Hold Menu (EPUB) → Dictionary**, then hold **Confirm** on the reading page.
+- **Long-Press Menu → Dictionary** also works. Where **Hold Menu (EPUB)** is available, leave it on **Default** to use the existing **Long-Press Menu** shortcut.
 
 ### Selecting Text
 
@@ -62,11 +72,7 @@ When a word is found, the definition screen shows the matched headword at the to
 
 HTML dictionaries (`sametypesequence=h`) and XDXF dictionaries (`sametypesequence=x`) use the EPUB text-layout engine for supported formatting such as headings, bold, italics, lists, and line breaks. Unrecognized tags keep their text without special formatting. Images and CSS styling are ignored. Definitions that are too large or cannot be parsed or laid out within the available memory fall back to plain text.
 
-A readable `.ifo` file with a missing or empty `sametypesequence` enables the type stored in each entry field. HTML (`h`) and XDXF (`x`) fields use the same formatting support. Text fields are shown as text; binary fields, such as images and sounds, are skipped. Missing, empty, or unreadable `.ifo` files retain plain-text handling.
-
-Inline entries with only empty or binary fields are skipped. If all matching entries are empty, the lookup reports no match.
-
-Definitions are drawn in your reading font. Dictionaries may use IPA symbols (e.g. `ˈ ː ɹ ɪ ʊ`…) as pronunciation guide, which built-in reader fonts do not include, so they are shown as `�`. To see them, install an [SD card font](./sd-card-fonts.md) that covers IPA and select it as the reading font.
+HTML dictionaries that declare `sametypesequence=h` use the EPUB text-layout engine for semantic formatting such as headings, bold, italics, lists, and line breaks. Images and CSS styling are ignored. Definitions that are too large or cannot be laid out within the available memory fall back to plain text. Touch readers use the popup for menu-initiated lookups too; button-only readers retain the full-screen viewer.
 
 - **Left/Right** or side **Up/Down** — previous / next page
 - **Confirm** — select words or a phrase inside the definition, then choose **Look Up**

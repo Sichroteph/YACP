@@ -135,16 +135,29 @@ EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputMana
   // configured, same rule as ReaderUtils::detectPageTurn). This matters on entry: with
   // press-triggered turns, the press that turned the final page already fired in the
   // reader, and its release must not double-fire into this menu.
-  const bool usePress = SETTINGS.longPressButtonBehavior == CrossPointSettings::OFF;
-  const auto triggered = [&](const MappedInputManager::Button button) {
+  const bool frontUsePress = SETTINGS.longPressButtonBehavior == CrossPointSettings::OFF;
+  const auto sideMode = ReaderUtils::sideLongPressMode();
+  const bool sideUsePress = sideMode == CrossPointSettings::SIDE_LONG_INHERIT
+                               ? frontUsePress : sideMode == CrossPointSettings::SIDE_LONG_OFF;
+  const auto triggered = [&](const MappedInputManager::Button button, const bool usePress) {
     return usePress ? input.wasPressed(button) : input.wasReleased(button);
   };
+  const bool swapped = input.isNavDirectionSwapped();
+  const bool sideSwapped = input.isSideNavDirectionSwapped();
+  const bool previous = triggered(sideSwapped ? MappedInputManager::Button::Down : MappedInputManager::Button::Up,
+                                  sideUsePress) ||
+                        triggered(swapped ? MappedInputManager::Button::Right : MappedInputManager::Button::Left,
+                                  frontUsePress);
+  const bool next = triggered(sideSwapped ? MappedInputManager::Button::Up : MappedInputManager::Button::Down,
+                              sideUsePress) ||
+                    triggered(swapped ? MappedInputManager::Button::Left : MappedInputManager::Button::Right,
+                              frontUsePress);
   const int itemCount = static_cast<int>(names.size()) + 1;  // + "Home" entry
-  if (triggered(MappedInputManager::Button::NavPrevious)) {
+  if (previous) {
     selector.store(ButtonNavigator::previousIndex(selectedIndex, itemCount), std::memory_order_relaxed);
     return Action::Redraw;
   }
-  if (triggered(MappedInputManager::Button::NavNext)) {
+  if (next) {
     selector.store(ButtonNavigator::nextIndex(selectedIndex, itemCount), std::memory_order_relaxed);
     return Action::Redraw;
   }

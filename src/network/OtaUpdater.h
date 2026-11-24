@@ -1,11 +1,13 @@
 #pragma once
 
 #include <string>
+#include <cstdint>
 
 class OtaUpdater {
   bool updateAvailable = false;
   std::string latestVersion;
   std::string otaUrl;
+  uint8_t expectedSha256[32] = {};
   size_t otaSize = 0;
   size_t processedSize = 0;
   size_t totalSize = 0;

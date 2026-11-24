@@ -5,6 +5,7 @@
 
 #include "Print.h"
 #include "TxtToHtml.h"
+#include "src/util/LegacyTextPosition.h"
 
 namespace {
 
@@ -55,6 +56,31 @@ TEST(TxtToHtmlTest, PreservesCacheVersionTagsForBothFormats) {
                 kFooter);
   EXPECT_NE(out.str.find(TxtToHtml::cacheVersionTag("test.MD")), std::string::npos);
   EXPECT_NE(convert("text").find(TxtToHtml::cacheVersionTag("test.txt")), std::string::npos);
+}
+
+std::optional<uint32_t> legacyAnchor(std::string_view source, size_t anchor) {
+  size_t current = 0;
+  return legacy::txt::visibleOffset(anchor, source.size(), [&]() -> int {
+    return current < source.size() ? static_cast<unsigned char>(source[current++]) : -1;
+  });
+}
+
+TEST(TxtToHtmlTest, LegacyAnchorCountsDecodedTextAtTheSamePassage) {
+  const std::string source = "\xef\xbb\xbf  \xc3\xa9&<>  \r\n\t\xe4\xb8\xad  passage";
+  ASSERT_EQ(convert(source), kHeader + "&#160;&#160;\xc3\xa9&amp;&lt;&gt;<br />\t\xe4\xb8\xad&#160; passage" + kFooter);
+  EXPECT_EQ(legacyAnchor(source, source.find("passage")), 11u);
+  EXPECT_EQ(legacyAnchor(source, source.find("  \r")), 7u);
+  EXPECT_EQ(legacyAnchor(source, source.find("passage") - 1), 10u);
+  EXPECT_EQ(legacyAnchor(source, source.size()), 18u);
+}
+
+TEST(TxtToHtmlTest, LegacyAnchorRejectsInvalidBoundaries) {
+  EXPECT_EQ(legacyAnchor("any text", 0), 0u);
+  EXPECT_EQ(legacyAnchor("\xc3\xa9", 1), std::nullopt);
+  EXPECT_EQ(legacyAnchor("\xed\xa0\x80", 3), std::nullopt);
+  EXPECT_EQ(legacyAnchor("\xf4\x90\x80\x80", 4), std::nullopt);
+  EXPECT_EQ(legacyAnchor("word", 5), std::nullopt);
+  EXPECT_EQ(legacyAnchor("word  ", 6), 5u);
 }
 
 }  // namespace

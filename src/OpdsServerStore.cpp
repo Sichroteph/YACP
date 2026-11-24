@@ -14,6 +14,7 @@ void OpdsServerStore::toJson(JsonDocument& doc) const {
     obj["url"] = server.url;
     obj["username"] = server.username;
     obj["password_obf"] = obfuscation::obfuscateToBase64(server.password);
+    obj["filenameFormat"] = server.filenameFormat;
     JsonArray headers = obj["headers"].to<JsonArray>();
     for (const auto& header : server.customHeaders) {
       JsonObject headerObj = headers.add<JsonObject>();
@@ -38,7 +39,14 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
     server.url = obj["url"] | "";
     server.username = obj["username"] | "";
     server.password = extractPassword(obj, needsResave);
-
+    if (!obj["filenameFormat"].isNull()) {
+      const auto value = obj["filenameFormat"];
+      if (value.is<unsigned>() && (value.as<unsigned>() < 3 || value.as<unsigned>() == OpdsServer::INHERIT_FILENAME)) {
+        server.filenameFormat = static_cast<uint8_t>(value.as<unsigned>());
+      } else {
+        LOG_ERR("OPS", "Invalid OPDS filename choice; keeping global default");
+      }
+    }
     size_t headerIndex = 0;
     for (JsonObjectConst headerObj : obj["headers"].as<JsonArrayConst>()) {
       if (headerIndex >= OpdsServer::MAX_CUSTOM_HEADERS) break;
@@ -68,7 +76,10 @@ bool OpdsServerStore::addServer(const OpdsServer& server) {
 
   servers.push_back(server);
   LOG_DBG("OPS", "Added server: %s", server.name.c_str());
-  return saveToFile();
+  if (saveToFile()) return true;
+  servers.pop_back();
+  LOG_ERR("OPS", "Could not persist added OPDS server");
+  return false;
 }
 
 bool OpdsServerStore::updateServer(size_t index, const OpdsServer& server) {
@@ -76,9 +87,16 @@ bool OpdsServerStore::updateServer(size_t index, const OpdsServer& server) {
     return false;
   }
 
+  if (&server == &servers[index]) return saveToFile();
+  // Settings/network edits only. Move the previous strings for rollback without
+  // allocating another copy of the old record.
+  OpdsServer previous = std::move(servers[index]);
   servers[index] = server;
   LOG_DBG("OPS", "Updated server: %s", server.name.c_str());
-  return saveToFile();
+  if (saveToFile()) return true;
+  servers[index] = std::move(previous);
+  LOG_ERR("OPS", "Could not persist updated OPDS server");
+  return false;
 }
 
 bool OpdsServerStore::removeServer(size_t index) {

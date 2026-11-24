@@ -6,17 +6,25 @@
 #include <PersistableStore.h>
 
 #include <cstdint>
+#include <string_view>
 
 #include "util/HomeButtonInput.h"
+
+class BookReaderSettings;
 
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
   // Private constructor for singleton
   CrossPointSettings() = default;
+  BookReaderSettings* bookProfile = nullptr;  // Borrowed for the EPUB activity lifetime.
 
   friend class PersistableStore<CrossPointSettings>;
 
  public:
+  bool saveToFile() const;
+  void beginBookProfile(BookReaderSettings& profile, const char* cachePath);
+  void endBookProfile(BookReaderSettings& profile);
+  void setAutoPageTurnSeconds(uint8_t seconds);
   enum SLEEP_SCREEN_MODE {
     DARK = 0,
     LIGHT = 1,
@@ -34,6 +42,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     NO_FILTER = 0,
     BLACK_AND_WHITE = 1,
     INVERTED_BLACK_AND_WHITE = 2,
+    ADAPTIVE_GRAYSCALE = 3,
     SLEEP_SCREEN_COVER_FILTER_COUNT
   };
   enum STATUS_BAR_PROGRESS_BAR {
@@ -48,6 +57,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     PROGRESS_BAR_THICK = 2,
     STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT
   };
+  enum STATUS_BAR_PROGRESS_BAR_POSITION { PROGRESS_BAR_BOTTOM = 0, PROGRESS_BAR_TOP = 1 };
   enum STATUS_BAR_TITLE { BOOK_TITLE = 0, CHAPTER_TITLE = 1, HIDE_TITLE = 2, STATUS_BAR_TITLE_COUNT };
   enum XTC_STATUS_BAR_MODE {
     XTC_STATUS_BAR_HIDE = 0,
@@ -60,6 +70,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     STATUS_BAR_CLOCK_HIDE = 0,
     STATUS_BAR_CLOCK_RIGHT = 1,
     STATUS_BAR_CLOCK_LEFT = 2,
+    STATUS_BAR_CLOCK_TOP_CENTER = 3,
     STATUS_BAR_CLOCK_MODE_COUNT
   };
 
@@ -104,14 +115,16 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     SIDE_BUTTONS_DISABLED = 2,
     NEXT_NEXT = 3,
     PREV_PREV = 4,
+    NEXT_SLEEP = 5,
+    SLEEP_NEXT = 6,
+    SLEEP_SLEEP = 7,
     SIDE_BUTTON_LAYOUT_COUNT
   };
 
   // Font family options (built-in fonts only; SD card fonts use sdFontFamilyName)
-  enum FONT_FAMILY { NOTOSANS = 0, FONT_FAMILY_COUNT };
-  static constexpr uint8_t LEGACY_NOTOSERIF = 0;
-  // Persisted IDs stay stable even though the built-in menu now starts at zero.
-  static constexpr uint8_t STORED_NOTOSANS = 1;
+  // Keep slot 1 for existing preferences when replacing the former Bitter family.
+  enum FONT_FAMILY { LEXENDDECA = 0, ATKINSONNEXT = 1, FONT_FAMILY_COUNT };
+  static constexpr uint8_t DEFAULT_FONT_FAMILY = ATKINSONNEXT;
   static constexpr uint8_t LEGACY_OPENDYSLEXIC = 2;
   static constexpr uint8_t BUILTIN_FONT_COUNT = FONT_FAMILY_COUNT;
   // Reader font size is a point size, not an enum slot — see fontPointSize.
@@ -157,8 +170,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     REFRESH_15 = 3,
     REFRESH_30 = 4,
     REFRESH_NEVER = 5,
+    REFRESH_60 = 6,
     REFRESH_FREQUENCY_COUNT
   };
+
+  enum REFRESH_ACTION { REFRESH_FULL = 0, REFRESH_BW_REINFORCEMENT = 1, REFRESH_BW_REINFORCEMENT_2X = 2 };
 
   // Short power button press actions. Touch boards get PWR_CONFIRM in place of
   // CREATE_CLIPPING; touch boards without a home key also get the reader
@@ -198,11 +214,23 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     OFF = 0,
     CHAPTER_SKIP = 1,
     ORIENTATION_CHANGE = 2,
+    FONT_SIZE_CHANGE = 3,
     LONG_PRESS_BUTTON_BEHAVIOR_COUNT
   };
 
+  // First five values retain the persisted YACP meanings. A new installation
+  // follows CrossPoint until the user explicitly chooses a separate profile.
+  enum SIDE_LONG_PRESS {
+    SIDE_LONG_CHAPTER_SKIP = 0,
+    SIDE_LONG_FONT_SIZE = 1,
+    SIDE_LONG_OFF = 2,
+    SIDE_LONG_ORIENTATION_CHANGE = 3,
+    SIDE_LONG_PREVIOUS_PAGE = 4,
+    SIDE_LONG_INHERIT = 5
+  };
+
   // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, COVER_GRID = 4 };
+  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, COVER_GRID = 4, YACP = 5 };
 
   // Image rendering in EPUB reader. IMAGES_DISPLAY_BW lays images out like
   // IMAGES_DISPLAY but draws them as a B/W dither, so image pages skip the
@@ -220,7 +248,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // painted over the page.
   enum READER_MENU_STYLE { READER_MENU_LIST = 0, READER_MENU_TOOLBAR = 1, READER_MENU_STYLE_COUNT };
 
-  enum TILT_PAGE_TURN { TILT_OFF = 0, TILT_NORMAL = 1, TILT_NVERTED = 2, TILT_PAGE_TURN_COUNT };
+  enum TILT_PAGE_TURN {
+    TILT_OFF = 0,
+    TILT_NORMAL = 1,
+    TILT_NVERTED = 2,
+    TILT_FORWARD_BACK = 3,
+    TILT_FORWARD_BACK_INVERTED = 4,
+    TILT_PAGE_TURN_COUNT
+  };
   enum VIBRATION { VIBRATION_TOUCH = 0, VIBRATION_TOUCH_PAGE = 1, VIBRATION_OFF = 2 };
   uint8_t vibration = VIBRATION_OFF;
   enum HAPTIC_INTENSITY { HAPTIC_LOW = 0, HAPTIC_MEDIUM = 1, HAPTIC_HIGH = 2 };
@@ -244,6 +279,13 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // "tapForReaderMenu" key: 0/1 keep their old Off/Tap meaning.
   enum SHOW_READER_MENU { READER_MENU_OFF = 0, READER_MENU_TAP = 1, READER_MENU_SWIPE_UP = 2, SHOW_READER_MENU_COUNT };
 
+  enum STATUS_BAR_TIME_LEFT {
+    TIME_LEFT_HIDE = 0,
+    TIME_LEFT_CHAPTER = 1,
+    TIME_LEFT_BOOK = 2,
+    STATUS_BAR_TIME_LEFT_COUNT
+  };
+
   enum QUICK_RESUME_SLEEP_SCREEN {
     QUICK_RESUME_NEVER = 0,
     QUICK_RESUME_AFTER_TIMEOUT = 1,
@@ -251,10 +293,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // Sleep screen settings
-  uint8_t sleepScreen = DARK;
+  uint8_t sleepScreen = QUICK_RESUME;
   // Night mode: inverted output polarity, applied to every activity per
   // render by ActivityManager. The sleep screen opts out itself.
   uint8_t screenInverted = 0;
+  uint8_t readerDarkMode = 0;
   // Sleep screen cover mode settings
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
@@ -264,11 +307,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t statusBarBookProgressPercentage = 1;
   uint8_t statusBarProgressBar = HIDE_PROGRESS;
   uint8_t statusBarProgressBarThickness = PROGRESS_BAR_NORMAL;
+  uint8_t statusBarProgressBarPosition = PROGRESS_BAR_BOTTOM;
   uint8_t statusBarTitle = CHAPTER_TITLE;
   uint8_t statusBarBattery = 1;
+  uint8_t statusBarBatteryCurrent = 1;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
   // Clock display in status bar (any board whose RTC probe succeeds)
   uint8_t statusBarClock = STATUS_BAR_CLOCK_HIDE;
+  uint8_t statusBarTimeLeft = TIME_LEFT_HIDE;
   // LEGACY, kept for migration only: quarter-hour UTC offset biased by 48
   // (48 = UTC+0). Superseded by clockTimezone; read once by
   // timezones::activeIndex() when clockTimezone is unset.
@@ -285,9 +331,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Set once an NTP sync succeeds. Used to skip re-syncing on every WiFi connect.
   // Resetting to 0 (e.g. via the web UI) forces a re-sync on next WiFi connect.
   uint8_t clockHasBeenSynced = 0;
+  // Older YACP could sync only the time. Preserve its separate date validity.
+  uint8_t clockDateHasBeenSynced = 0;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
   uint8_t paragraphIndentSpaces = 2;
+  uint8_t guideReadingEnabled = 0;
   static constexpr uint8_t WORD_SPACING_MIN = 50;
   static constexpr uint8_t WORD_SPACING_MAX = 200;
   static constexpr uint8_t WORD_SPACING_STEP = 25;
@@ -311,24 +360,38 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontButtonLayout = BACK_CONFIRM_LEFT_RIGHT;
   uint8_t sideButtonLayout = PREV_NEXT;
   uint8_t frontButtonFollowOrientation = 0;
+  // YACP C3 reader profiles. Sentinel values retain CrossPoint's live policy.
+  uint8_t frontButtonOrientationAware = 3;  // off, navigation, all, default
+  uint8_t sideButtonOrientationAware = 2;   // off, on, default
   // Front button remap (logical -> hardware)
   // Used by MappedInputManager to translate logical buttons into physical front buttons.
   uint8_t frontButtonBack = FRONT_HW_BACK;
   uint8_t frontButtonConfirm = FRONT_HW_CONFIRM;
   uint8_t frontButtonLeft = FRONT_HW_LEFT;
   uint8_t frontButtonRight = FRONT_HW_RIGHT;
+  uint8_t readerFrontButtonsEnabled = 0;
+  uint8_t readerFrontButtonBack = FRONT_HW_BACK;
+  uint8_t readerFrontButtonConfirm = FRONT_HW_CONFIRM;
+  uint8_t readerFrontButtonLeft = FRONT_HW_LEFT;
+  uint8_t readerFrontButtonRight = FRONT_HW_RIGHT;
   // Reader font settings
-  uint8_t fontFamily = NOTOSANS;
+  uint8_t fontFamily = DEFAULT_FONT_FAMILY;
   // Point size of the reader font. Only sizes the active family actually ships
   // are selectable; SdCardFontSystem::ensureLoaded() snaps this to the nearest
   // available size (and persists the snap) whenever the family changes.
   uint8_t fontPointSize = DEFAULT_FONT_POINT_SIZE;
   uint8_t lineSpacing = LINE_SPACING_120;
+  // Zero keeps the active CrossPoint preset; nonzero is a natural-line-height percentage.
+  uint8_t lineHeightPercent = 0;
+  uint8_t autoPageTurnSeconds = 30;  // Custom cadence, activated explicitly in the reader.
+  static constexpr uint8_t LINE_HEIGHT_MIN = 70;
+  static constexpr uint8_t LINE_HEIGHT_MAX = 200;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
+  uint8_t refreshAction = REFRESH_FULL;
   uint8_t hyphenationEnabled = 0;
 
   // Reader screen margin settings
@@ -348,11 +411,19 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press page turn button behavior
   uint8_t longPressButtonBehavior = OFF;
+  uint8_t sideButtonLongPress = SIDE_LONG_INHERIT;
   // Long-press Confirm function in EPUB reader (cycles through LONG_PRESS_MENU_FUNCTION values).
   // Defaults to Disabled so shortcut-based bookmark toggling remains opt-in.
   uint8_t longPressMenuFunction = LP_MENU_DISABLED;
+  // Legacy EPUB commands are opt-in and remain inert on S3/Home-key boards.
+  // 22 selects CrossPoint's Menu/Back behavior, 23 its Power behavior.
+  uint8_t longPressBackAction = 22;
+  uint8_t longPressMenuAction = 22;
+  uint8_t longPwrBtn = 23;
+  uint8_t readerShortPowerAction = 23;
   // UI Theme
-  uint8_t uiTheme = LYRA;
+  uint8_t uiTheme = YACP;
+  uint8_t recentBooksView = 0;  // 0: list, 1: cover grid.
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)
@@ -362,6 +433,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
   uint8_t readerMenuStyle = READER_MENU_LIST;
+  uint8_t stablePageNumbers = 0;
+  uint8_t publisherPageNumbers = 0;
   // SD card font family name (empty = use built-in fontFamily)
   char sdFontFamilyName[32] = "";
   // Dictionary folder name under /dictionaries (empty = no dictionary)
@@ -374,6 +447,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t pluginHubPromptHidden = 0;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
+  uint8_t hideFileExtension = 0;
+  // Keep CrossPoint's two-line list for a fresh installation. Migration
+  // preserves the recorded YACP preference (0: one line, 1: two lines).
+  uint8_t fileBrowserDisplay = 1;
   // Show the title and author read from inside each book rather than its
   // filename. Users can disable this to make index rebuilds skip EPUB parsing.
   uint8_t libraryUseMetadata = 1;
@@ -381,12 +458,29 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t removeReadBooksFromRecents = 0;
   // Move epub to /Read/ folder on SD card when finished (0 = disabled, 1 = enabled)
   uint8_t moveFinishedToReadFolder = 0;
+  uint8_t trackReadingStats = 1;
+  char deviceName[21] = {};
+  static constexpr size_t MIN_DEVICE_NAME_LENGTH = 2;
+  static constexpr size_t MAX_DEVICE_NAME_LENGTH = 20;
+  static bool isValidDeviceName(std::string_view name);
+  static const char* getDefaultDeviceName();
+  const char* getEffectiveDeviceName() const;
+  uint8_t autoBackupStats = 1;
+  // Keep YACP's persisted 10-second units; the picker displays seconds.
+  uint8_t readingIdleTimeThresholdUnits = 30;
+  uint16_t getReadingIdleTimeThresholdSeconds() const {
+    const uint8_t units = readingIdleTimeThresholdUnits < 3    ? 3
+                          : readingIdleTimeThresholdUnits > 60 ? 60
+                                                               : readingIdleTimeThresholdUnits;
+    return static_cast<uint16_t>(units) * 10;
+  }
   // Short press Back goes to file browser instead of home (0 = disabled, 1 = enabled)
   uint8_t backShortToFileBrowser = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)
   uint8_t tiltPageTurn = TILT_OFF;
+  uint8_t tiltPageTurnLastMode = TILT_NORMAL;  // Retain the gesture while disabled.
   // Master reader-touch toggle on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
   // Which gestures turn the page in each direction (PAGE_TURN_GESTURE).
@@ -423,7 +517,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Bluetooth page turner, saved under the keys lib/BlePageTurner reads and writes (BlePageTurnerJson.h).
   bleturner::Config ble;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
-  uint8_t quickResumeSleepScreen = QUICK_RESUME_NEVER;
+  uint8_t quickResumeSleepScreen = QUICK_RESUME_AFTER_TIMEOUT;
 
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
@@ -460,21 +554,25 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     bool showBookProgressPercent = false;
     uint8_t titleMode = HIDE_TITLE;  // STATUS_BAR_TITLE
     bool showBattery = false;
+    bool showBatteryCurrent = false;
     bool showBatteryPercent = false;
     uint8_t clockMode = STATUS_BAR_CLOCK_HIDE;  // STATUS_BAR_CLOCK_MODE
     bool clock12h = false;
+    uint8_t timeLeftMode = TIME_LEFT_HIDE;
     uint8_t progressBarMode = HIDE_PROGRESS;  // STATUS_BAR_PROGRESS_BAR
     uint8_t progressBarHeightPx = 0;          // (thickness+1)*2; 0 when the bar is hidden
-    uint8_t xtcMode = XTC_STATUS_BAR_HIDE;    // XTC_STATUS_BAR_MODE
+    bool progressBarAtTop = false;
+    uint8_t xtcMode = XTC_STATUS_BAR_HIDE;  // XTC_STATUS_BAR_MODE
 
     bool showsProgressBar() const { return progressBarMode != HIDE_PROGRESS; }
     bool showsTitle() const { return titleMode != HIDE_TITLE; }
-    bool showsClock() const { return clockMode != STATUS_BAR_CLOCK_HIDE; }
+    bool showsClock() const { return clockMode == STATUS_BAR_CLOCK_LEFT || clockMode == STATUS_BAR_CLOCK_RIGHT; }
+    bool showsTopClock() const { return clockMode == STATUS_BAR_CLOCK_TOP_CENTER; }
     // Visibility of the text lane. Clock hardware presence is the caller's
     // concern: pass halClock.isAvailable(), or true for layout reservation.
     bool textLaneVisible(bool clockAvailable) const {
-      return showChapterPageCount || showBookProgressPercent || showsTitle() || showBattery ||
-             (showsClock() && clockAvailable);
+      return showChapterPageCount || showBookProgressPercent || showsTitle() || showBattery || showBatteryCurrent ||
+             timeLeftMode != TIME_LEFT_HIDE || (showsClock() && clockAvailable);
     }
   };
   StatusBarSpec statusBarSpec() const;
@@ -495,6 +593,13 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
+  // Raw cadence and AA fields retain the Classic preferences, including book
+  // overrides. Readers and settings displays use these effective values.
+  bool supportsUc8279MagicFlash() const;
+  bool supportsMagicFlash() const;
+  bool isMagicFlash() const;
+  bool isTextAntiAliasingEnabled() const;
+  uint8_t getRefreshFrequencySetting() const;
 };
 
 // Helper macro to access settings

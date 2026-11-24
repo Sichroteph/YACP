@@ -15,6 +15,7 @@ env:
 
 jobs:
   build-fonts:
+    if: github.repository == 'crosspoint-reader/crosspoint-reader'
     runs-on: ubuntu-latest
 
     steps:

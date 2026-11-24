@@ -5,6 +5,7 @@
 #include <PowerManager.h>
 #include <WiFi.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include <soc/soc_caps.h>
 
 #include <cassert>
@@ -200,6 +201,34 @@ bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(bool c
 }
 #endif
 
+#if defined(YACP_PERSONAL_GO_TIMER_WAKE)
+[[noreturn]] void HalPowerManager::startTimerWakeDeepSleep(HalGPIO& gpio) const {
+  // The X3 normally drops its battery latch before deep sleep. Keep it powered
+  // for the personal Go build so the ESP32-C3 timer can wake it for a DGS poll.
+  // The SD filesystem, WiFi and display are already shut down by main.
+  if (!gpio.deviceIsX3()) {
+    startDeepSleep(gpio);
+  }
+#ifdef ENABLE_SERIAL_LOG
+  logSerial.end();
+#endif
+
+  // GPIO13 is the active-high SD rail in the X3 profile, and the X3 hardware
+  // also powers off when this pad stops being driven. Merely skipping the
+  // normal LOW write is insufficient: entering deep sleep releases an
+  // unheld output and the next button press is then reported as a cold boot.
+  // Reassert HIGH and hold it before PowerManager isolates the remaining pads.
+  gpio_hold_dis(XTEINK_C3_GPIO13);
+  gpio_set_direction(XTEINK_C3_GPIO13, GPIO_MODE_OUTPUT);
+  gpio_set_level(XTEINK_C3_GPIO13, 1);
+  gpio_hold_en(XTEINK_C3_GPIO13);
+
+  freeink::PowerManager::waitForPowerButtonRelease();
+  if (!freeink::PowerManager::armPowerButtonWakeup()) esp_restart();
+  freeink::PowerManager::deepSleep();
+}
+#endif
+
 uint16_t HalPowerManager::getBatteryPercentage() const {
   static const BatteryMonitor battery;
   if (BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0) {
@@ -214,16 +243,26 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
       return _batteryCachedPercent;
     }
     _batteryCachedPercent = percent;
+    batteryHasValidSample = true;
     return _batteryCachedPercent;
   }
 
-  // smooth the battery %.
+  uint16_t sample = 0;
+  if (!battery.readPercentageChecked(sample)) return _batteryCachedPercent / 10;
+  batteryHasValidSample = true;
+  // Keep CrossPoint's existing ADC smoothing.
   if (_batteryCachedPercent == 0) {
-    _batteryCachedPercent = 10 * battery.readPercentage();
+    _batteryCachedPercent = 10 * sample;
   } else {
-    _batteryCachedPercent = (_batteryCachedPercent * 9 + battery.readPercentage() * 10) / 10;
+    _batteryCachedPercent = (_batteryCachedPercent * 9 + sample * 10) / 10;
   }
   return _batteryCachedPercent / 10;
+}
+
+bool HalPowerManager::getCachedBatteryPercentage(uint16_t& percent) const {
+  if (!batteryHasValidSample) return false;
+  percent = BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0 ? _batteryCachedPercent : _batteryCachedPercent / 10;
+  return percent <= 100;
 }
 
 HalPowerManager::Lock::Lock() {

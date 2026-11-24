@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalMemory.h>
 #include <Logging.h>
@@ -17,8 +18,32 @@
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
+#include "fontIds.h"
 
 UITheme UITheme::instance;
+
+namespace {
+// Keep the typographic YACP Home's geometry and header while sharing
+// RoundedRaff's hints, lists, menus and controls on secondary screens.
+constexpr ThemeMetrics yacpMetrics = [] {
+  auto metrics = RoundedRaffMetrics::values;
+  const auto& home = LyraMetrics::values;
+  metrics.topPadding = home.topPadding;
+  metrics.verticalSpacing = home.verticalSpacing;
+  metrics.contentSidePadding = home.contentSidePadding;
+  metrics.batteryWidth = home.batteryWidth;
+  metrics.batteryHeight = home.batteryHeight;
+  metrics.batteryBarHeight = home.batteryBarHeight;
+  metrics.headerHeight = home.headerHeight;
+  metrics.headerSidePadding = home.headerSidePadding;
+  metrics.headerUnderlineSize = home.headerUnderlineSize;
+  metrics.headerTitleAlign = home.headerTitleAlign;
+  metrics.headerBatterySide = home.headerBatterySide;
+  metrics.headerShowsClock = home.headerShowsClock;
+  metrics.headerClockCentered = home.headerClockCentered;
+  return metrics;
+}();
+}  // namespace
 
 UITheme::UITheme() {
   auto themeType = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
@@ -45,6 +70,17 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentTheme = std::make_unique<BaseTheme>();
       currentMetrics = &BaseMetrics::values;
       break;
+    case CrossPointSettings::UI_THEME::YACP: {
+      auto theme = makeUniqueNoThrow<RoundedRaffTheme>();
+      if (!theme) {
+        LOG_ERR("UI", "OOM: YACP theme");
+        return;
+      }
+      currentTheme = std::move(theme);
+      currentMetrics = &yacpMetrics;
+      LOG_DBG("UI", "Using YACP theme with RoundedRaff components");
+      break;
+    }
     case CrossPointSettings::UI_THEME::COVER_GRID:
     case CrossPointSettings::UI_THEME::LYRA: {
       // The cover home owns its screen-lifetime UI state; other screens retain Lyra styling.
@@ -169,13 +205,44 @@ int UITheme::getStatusBarHeight() {
   // Layout reservation is hardware-agnostic: pass clockAvailable=true so the
   // reserved height does not depend on whether an RTC is present.
   return (sb.textLaneVisible(true) ? (metrics.statusBarVerticalMargin) : 0) +
-         (sb.showsProgressBar() ? (sb.progressBarHeightPx + metrics.progressBarMarginTop) : 0);
+         (sb.showsProgressBar() && !sb.progressBarAtTop ? (sb.progressBarHeightPx + metrics.progressBarMarginTop) : 0);
 }
 
 int UITheme::getProgressBarHeight() {
   const ThemeMetrics metrics = UITheme::getInstance().getMetrics();
   const auto sb = SETTINGS.statusBarSpec();
-  return sb.showsProgressBar() ? (sb.progressBarHeightPx + metrics.progressBarMarginTop) : 0;
+  return sb.showsProgressBar() && !sb.progressBarAtTop ? (sb.progressBarHeightPx + metrics.progressBarMarginTop) : 0;
+}
+
+int UITheme::getTopProgressBarHeight() {
+  const auto sb = SETTINGS.statusBarSpec();
+  return sb.showsProgressBar() && sb.progressBarAtTop
+             ? sb.progressBarHeightPx + getInstance().getMetrics().progressBarMarginTop
+             : 0;
+}
+
+bool UITheme::pinReaderTopProgressBarToScreenEdge() {
+  const auto sb = SETTINGS.statusBarSpec();
+  return gpio.deviceIsX3() && sb.showsProgressBar() && sb.progressBarAtTop;
+}
+
+int UITheme::getReaderTopClockOffset() {
+  const auto sb = SETTINGS.statusBarSpec();
+  if (sb.showsProgressBar() && sb.progressBarAtTop && sb.showsTopClock() && halClock.isAvailable()) {
+    constexpr int progressBarClockGap = 4;
+    return sb.progressBarHeightPx + progressBarClockGap;
+  }
+  return getTopProgressBarHeight();
+}
+
+int UITheme::getReaderTopClockHeight(const GfxRenderer& renderer) {
+  return SETTINGS.statusBarSpec().showsTopClock() && halClock.isAvailable() ? renderer.getLineHeight(UI_10_FONT_ID) : 0;
+}
+
+int UITheme::getReaderTopInset(const GfxRenderer& renderer, const int viewableTop) {
+  const int topChromeHeight = getReaderTopClockOffset() + getReaderTopClockHeight(renderer);
+  const int chromeOrigin = pinReaderTopProgressBarToScreenEdge() ? 0 : viewableTop;
+  return std::max<int>(SETTINGS.screenMargin, chromeOrigin + topChromeHeight - viewableTop);
 }
 
 // Centered text implementation that takes the safe area into account

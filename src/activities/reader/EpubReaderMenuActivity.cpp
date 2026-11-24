@@ -1,9 +1,12 @@
 #include "EpubReaderMenuActivity.h"
+#include "activities/util/IntervalSelectionActivity.h"
 
 #include <BlePageTurner.h>
 #include <GfxRenderer.h>
 #include <HalFrontlight.h>
 #include <I18n.h>
+#include <Memory.h>
+#include <Logging.h>
 
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
@@ -104,6 +107,7 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const 
   }
   items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
   items.push_back({MenuAction::TEXT_SETTINGS, StrId::STR_TEXT_SETTINGS});
+  items.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
 }
 
 void EpubReaderMenuActivity::toggleBluetooth() {
@@ -154,6 +158,7 @@ void EpubReaderMenuActivity::activateIndex(const int index) {
   if (selectedAction == MenuAction::AUTO_PAGE_TURN) {
     optionPopup.show(I18N.get(StrId::STR_AUTO_TURN_PAGES_PER_MIN), pageTurnLabels.data(),
                      static_cast<int>(pageTurnLabels.size()), selectedPageTurnOption, [this](int idx) {
+                       if (idx == 5) { customIntervalRequested = true; return; }
                        selectedPageTurnOption = idx;
                        requestUpdate();
                      });
@@ -188,7 +193,36 @@ void EpubReaderMenuActivity::activateIndex(const int index) {
 }
 
 bool EpubReaderMenuActivity::handleCustomInput() {
-  return optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+  const bool handled = optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+  if (customIntervalRequested) {
+    customIntervalRequested = false;
+    openCustomInterval();
+  }
+  return handled;
+}
+
+void EpubReaderMenuActivity::updateCustomIntervalLabel() {
+  char seconds[24];
+  snprintf(seconds, sizeof(seconds), tr(STR_SECONDS_VALUE_FORMAT), SETTINGS.autoPageTurnSeconds);
+  snprintf(customIntervalLabel, sizeof(customIntervalLabel), "%s (%s)", tr(STR_CUSTOM), seconds);
+}
+
+void EpubReaderMenuActivity::openCustomInterval() {
+  // Only an explicit adjustment creates a screen-lifetime slider activity.
+  auto picker = makeUniqueNoThrow<IntervalSelectionActivity>(
+      renderer, mappedInput, "AutoTurnInterval", StrId::STR_AUTO_TURN_INTERVAL_SECONDS,
+      SETTINGS.autoPageTurnSeconds, 5, 120, 1, 5, StrId::STR_SECONDS_VALUE_FORMAT, true);
+  if (!picker) { LOG_ERR("ERM", "OOM: automatic-turn interval picker"); return; }
+  requestUpdateAndWait();
+  startActivityForResult(std::move(picker), [this](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      SETTINGS.setAutoPageTurnSeconds(static_cast<uint8_t>(std::get<IntervalResult>(result.data).value));
+      SETTINGS.saveToFile();
+      selectedPageTurnOption = 5;
+      updateCustomIntervalLabel();
+    }
+    requestUpdate();
+  });
 }
 
 bool EpubReaderMenuActivity::handleButtons() {

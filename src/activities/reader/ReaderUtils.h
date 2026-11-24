@@ -1,5 +1,6 @@
 #pragma once
 
+#include <BoardConfig.h>
 #include <CrossPointSettings.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
@@ -11,6 +12,7 @@
 
 #include "HapticFeedback.h"
 #include "MappedInputManager.h"
+#include "ReaderRefreshPolicy.h"
 #include "activities/ActivityManager.h"
 
 namespace ReaderUtils {
@@ -61,7 +63,37 @@ struct PageTurnResult {
   bool prev;
   bool next;
   bool fromTilt;
+  bool fromSide;
 };
+
+inline uint8_t sideLongPressMode() { return SETTINGS.sideButtonLongPress; }
+
+inline bool handleSideSleep(const MappedInputManager& input, ActivityManager& manager) {
+  if (!BoardConfig::isX4Pro()) return false;
+  const auto layout = SETTINGS.sideButtonLayout;
+  const bool topSleeps = layout == CrossPointSettings::SLEEP_NEXT || layout == CrossPointSettings::SLEEP_SLEEP;
+  const bool bottomSleeps = layout == CrossPointSettings::NEXT_SLEEP || layout == CrossPointSettings::SLEEP_SLEEP;
+  if (input.getHeldTime() >= SKIP_HOLD_MS) {
+    if (topSleeps && input.isPressed(MappedInputManager::Button::Up))
+      input.suppressNextRelease(MappedInputManager::Button::Up);
+    if (bottomSleeps && input.isPressed(MappedInputManager::Button::Down))
+      input.suppressNextRelease(MappedInputManager::Button::Down);
+    return false;
+  }
+  const bool top = topSleeps && input.wasReleased(MappedInputManager::Button::Up);
+  const bool bottom = bottomSleeps && input.wasReleased(MappedInputManager::Button::Down);
+  if (!top && !bottom) return false;
+  // Let goToSleep run the outgoing reader's save hooks immediately.
+  manager.requestReaderSleep();
+  return true;
+}
+
+inline uint8_t pageLongPressBehavior(const bool fromSide) {
+  if (!fromSide || sideLongPressMode() == CrossPointSettings::SIDE_LONG_INHERIT)
+    return SETTINGS.longPressButtonBehavior;
+  return sideLongPressMode() == CrossPointSettings::SIDE_LONG_CHAPTER_SKIP ? CrossPointSettings::CHAPTER_SKIP
+                                                                           : CrossPointSettings::OFF;
+}
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool usePress = SETTINGS.longPressButtonBehavior == SETTINGS.OFF;
@@ -74,14 +106,40 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
     if (usePress) return input.wasPressed(button);
     return input.wasLongPressed(button, SKIP_HOLD_MS) || input.wasReleased(button);
   };
-  const bool prev =
-      tiltPrev || (pageButtonTriggered(MappedInputManager::Button::PageBack) || pageButtonTriggered(prevButton));
+  const auto sideMode = sideLongPressMode();
+  const auto sideTriggered = [&](const MappedInputManager::Button button) {
+    if (sideMode == CrossPointSettings::SIDE_LONG_INHERIT) return pageButtonTriggered(button);
+    if (sideMode == CrossPointSettings::SIDE_LONG_OFF) return input.wasPressed(button);
+    if (sideMode == CrossPointSettings::SIDE_LONG_CHAPTER_SKIP)
+      return input.wasLongPressed(button, SKIP_HOLD_MS) || input.wasReleased(button);
+    // Font/rotation holds are handled by the EPUB reader using physical Up/Down.
+    return input.wasReleased(button);
+  };
+  const bool previousMode = sideMode == CrossPointSettings::SIDE_LONG_PREVIOUS_PAGE;
+  // Sleep and disabled short actions have no PageBack/PageForward identity.
+  // Directional holds on those keys use Up=previous and Down=next.
+  const bool unmappedHold = (sideMode == CrossPointSettings::SIDE_LONG_CHAPTER_SKIP ||
+                             (sideMode == CrossPointSettings::SIDE_LONG_INHERIT && !usePress)) &&
+                            !input.isPressed(MappedInputManager::Button::PageBack) &&
+                            !input.isPressed(MappedInputManager::Button::PageForward);
+  bool topHold = false;
+  bool bottomHold = false;
+  if (previousMode || unmappedHold) {
+    topHold = input.wasLongPressed(MappedInputManager::Button::Up, SKIP_HOLD_MS);
+    bottomHold = input.wasLongPressed(MappedInputManager::Button::Down, SKIP_HOLD_MS);
+  }
+  const bool previousHold = previousMode && (topHold || bottomHold);
+  const bool sidePrev =
+      previousHold || (unmappedHold && topHold) || sideTriggered(MappedInputManager::Button::PageBack);
+  const bool sideNext =
+      !previousHold && ((unmappedHold && bottomHold) || sideTriggered(MappedInputManager::Button::PageForward));
+  const bool frontPrev = pageButtonTriggered(prevButton);
   const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
                          input.wasReleased(MappedInputManager::Button::Power);
-  const bool next = input.homeButtonAction() == HomeButtonAction::NextPage || tiltNext ||
-                    pageButtonTriggered(MappedInputManager::Button::PageForward) || powerTurn ||
-                    pageButtonTriggered(nextButton);
-  return {prev, next, tiltPrev || tiltNext};
+  const bool frontNext =
+      input.homeButtonAction() == HomeButtonAction::NextPage || powerTurn || pageButtonTriggered(nextButton);
+  return {tiltPrev || sidePrev || frontPrev, tiltNext || sideNext || frontNext, tiltPrev || tiltNext,
+          (sidePrev || sideNext) && !(frontPrev || frontNext)};
 }
 
 struct TouchPageTurn {
@@ -178,28 +236,64 @@ inline bool isTouchMenuGesture(const GfxRenderer& renderer, const MappedInputMan
 // Async callers must not touch the framebuffer until
 // renderer.waitRefreshComplete() and must rebuild the differential baseline
 // before the next page turn (the tiled grayscale cleanup does).
-inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh, bool async = false) {
+inline bool needsPeriodicReinforcement(const GfxRenderer& renderer, int remaining, bool textPage = true) {
+  // A live mode change must not wait out the previous Classic countdown.
+  const int deadline = SETTINGS.isMagicFlash() && remaining > 0 ? 1 : remaining;
+  return reader_refresh::select(deadline, SETTINGS.supportsMagicFlash(), renderer.grayscaleCapabilities().supported(),
+                                textPage, SETTINGS.isMagicFlash()) == reader_refresh::Action::Reinforce;
+}
+
+inline void displayNoFlashReinforcement(const GfxRenderer& renderer, bool grayscaleFollows = false,
+                                        bool periodic = true,
+                                        const reader_refresh::ReinforcementInterrupt* interrupt = nullptr) {
+  if (SETTINGS.supportsUc8279MagicFlash()) {
+    const int completed =
+        reader_refresh::reinforceMonochrome([&renderer]() { renderer.displayMonochromeReinforcement(); }, interrupt);
+    LOG_DBG("READER", "Magic Flash UC8279 mono passes=%d/3", completed);
+    return;
+  }
+  const int passes = periodic && SETTINGS.isMagicFlash() ? 3 : 1;
+  LOG_DBG("READER", "Magic Flash passes=%d grayscale=%d periodic=%d", passes, grayscaleFollows, periodic);
+  // Reuse the intact BW framebuffer. The first pass synchronizes old/new
+  // controller planes; subsequent passes reinforce the now-unchanged page. Grays
+  // are written only afterward, with no extra framebuffer or SD access.
+  for (int pass = 1; pass < passes; ++pass) {
+    renderer.displayGrayscaleBaseIntermediate(HalDisplay::FAST_REFRESH);
+  }
+  if (grayscaleFollows)
+    renderer.displayGrayscaleBaseIntermediate(HalDisplay::FAST_REFRESH);
+  else
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+}
+
+inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh, bool async = false,
+                                    bool textPage = true, bool grayscaleFollows = false,
+                                    const reader_refresh::ReinforcementInterrupt* interrupt = nullptr) {
+  if (needsPeriodicReinforcement(renderer, pagesUntilFullRefresh, textPage)) {
+    LOG_DBG("READER", "Periodic X3 reinforcement");
+    displayNoFlashReinforcement(renderer, grayscaleFollows, true, interrupt);
+    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+    return;
+  }
   const auto mode = (pagesUntilFullRefresh <= 1) ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
+  if (pagesUntilFullRefresh <= 1) LOG_DBG("READER", "Reader cleanup (remaining=%d)", pagesUntilFullRefresh);
   if (async) {
     renderer.displayBufferAsync(mode);
   } else {
     renderer.displayBuffer(mode);
   }
-  if (pagesUntilFullRefresh <= 1) {
-    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-  } else {
-    pagesUntilFullRefresh--;
-  }
+  pagesUntilFullRefresh = reader_refresh::advance(pagesUntilFullRefresh, SETTINGS.getRefreshFrequency());
 }
 
 // Display the B/W base of a page whose grayscale pass follows. Panels that
 // combine the base (Paper Mono) defer the activation so base + gray planes go
-// out as one waveform — displaying the base separately makes the gray pass
+// out as one waveform â€” displaying the base separately makes the gray pass
 // re-drive the whole text body (a visible flash). Other panels display
 // normally. Same refresh-cadence bookkeeping as displayWithRefreshCycle.
 inline void displayBaseWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {
   if (renderer.grayscaleCapabilities().base != HalDisplay::GrayscaleBase::Combined) {
-    displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    displayWithRefreshCycle(renderer, pagesUntilFullRefresh, /*async=*/false, /*textPage=*/true,
+                            /*grayscaleFollows=*/true);
     return;
   }
   const auto mode = (pagesUntilFullRefresh <= 1) ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
@@ -212,7 +306,7 @@ inline void displayBaseWithRefreshCycle(const GfxRenderer& renderer, int& pagesU
 }
 
 // Grayscale anti-aliasing pass. Renders content twice (LSB + MSB) to build
-// the grayscale buffer. Only the content callback is re-rendered — status bars
+// the grayscale buffer. Only the content callback is re-rendered â€” status bars
 // and other overlays should be drawn before calling this.
 // Kept as a template to avoid std::function overhead; instantiated once per reader type.
 template <typename RenderFn>
@@ -223,6 +317,8 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
     // so the page reaches the panel even without its grays.
     if (renderer.grayscaleCapabilities().base == HalDisplay::GrayscaleBase::Combined)
       renderer.cleanupGrayscaleWithFrameBuffer();
+    else if (gpio.deviceIsX3())
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);  // Finish any powered-on reinforcement base.
     return;
   }
 

@@ -32,6 +32,10 @@ enum class SettingAction {
   KeyboardLayouts,
   HomeButton,
   About,
+  RemapReaderButtons,
+  PowerStats,
+  BackupStats,
+  OpenGroup,
 };
 
 struct SettingInfo {
@@ -185,6 +189,7 @@ struct SettingInfo {
 // its option popup, or launches its sub-screen.
 class SettingsActivity final : public UiListActivity {
   const SettingsSection section;
+  const StrId group;
   std::vector<SettingInfo> settings;
 
   bool preserveQuickResumeTimeoutOn = false;
@@ -202,6 +207,8 @@ class SettingsActivity final : public UiListActivity {
   void rebuildRowItems();
   void toggleSelectedSetting();
   void openSleepTimeoutPicker();
+  void openDeviceNameEditor();
+  void openReadingIdlePicker();
   void applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr);
   void syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChanged, bool quickResumeTimeoutChanged);
   static std::string settingValueText(const SettingInfo& setting);
@@ -214,7 +221,8 @@ class SettingsActivity final : public UiListActivity {
   void drawFooter() override;
 
  public:
-  SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, SettingsSection section);
+  SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, SettingsSection section,
+                   StrId group = StrId::STR_NONE_OPT);
   void onEnter() override;
   void render(RenderLock&& lock) override;
 };

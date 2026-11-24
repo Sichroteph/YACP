@@ -1,4 +1,5 @@
 #pragma once
+
 #include <functional>
 #include <vector>
 
@@ -6,6 +7,7 @@
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "components/CoverGridHomeUi.h"
+#include "components/HomeMenuLayout.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -49,6 +51,12 @@ class HomeActivity final : public Activity {
     if (hasOpdsUrl) ++i;
     if (item == HomeMenuItem::FILE_TRANSFER) return i;
     ++i;
+    if (item == HomeMenuItem::READING_STATS) return i;
+    ++i;
+    if (item == HomeMenuItem::POWER_STATS) return i;
+    ++i;
+    if (item == HomeMenuItem::DICTIONARY_HISTORY) return i;
+    ++i;
     if (item == HomeMenuItem::SETTINGS_MENU) return i;
     return 0;
   }
@@ -60,6 +68,9 @@ class HomeActivity final : public Activity {
     if (idx == i++) return HomeMenuItem::LIBRARY;
     if (hasOpdsUrl && idx == i++) return HomeMenuItem::OPDS_BROWSER;
     if (idx == i++) return HomeMenuItem::FILE_TRANSFER;
+    if (idx == i++) return HomeMenuItem::READING_STATS;
+    if (idx == i++) return HomeMenuItem::POWER_STATS;
+    if (idx == i++) return HomeMenuItem::DICTIONARY_HISTORY;
     if (idx == i) return HomeMenuItem::SETTINGS_MENU;
     return HomeMenuItem::NONE;
   }
@@ -70,8 +81,11 @@ class HomeActivity final : public Activity {
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
   void onPluginsOpen();
+  void onReadingStatsOpen();
+  void onPowerStatsOpen();
 
   int getMenuItemCount() const;
+  HomeMenuLayout getHomeMenuLayout() const;
   bool storeCoverBuffer();    // Store frame buffer for cover image
   bool restoreCoverBuffer();  // Restore frame buffer from stored cover
   void freeCoverBuffer();     // Free the stored cover buffer

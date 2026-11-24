@@ -1,300 +1,140 @@
-# CrossPoint Reader
+<img src="assets/brand/yacp-logo.svg" alt="YACP" width="80">
 
-[![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
+# YACP
 
-CrossPoint is open-source e-reader firmware - community-built, fully hackable, free forever. It's maintained by a growing community of developers and readers who believe your device should do what you want - not what a manufacturer decided for you.
+YACP is open-source firmware for Xteink readers. It prioritizes battery efficiency, responsive reading and avoiding unnecessary work on the reading path.
 
-### Now running on:
+Read EPUB, TXT and XTC/XTCH books, resume your current page, and save reading preferences for each book.
 
-- **ESP32C3-based** Xteink X4 and X3.
-- **ESP32S3-based** Xteink X4Pro and X4Classic, Seeed reTerminal Sticky, M5PaperMono, Metalio E-Ink 4, EEGOREAD A4 and Boox Picco.
+[Downloads](https://github.com/Sichroteph/YACP/releases) | [User guide](USER_GUIDE.md) | [Report a bug](https://github.com/Sichroteph/YACP/issues)
 
-Check [our Devices page](https://crosspointreader.com/devices) for the full list.
+## How YACP limits work
 
-![CrossPoint Reader running on Xteink device](./docs/images/cover.jpg)
+- **Home uses saved book data.** Progress and reading durations load for the selected book when you enter Home or change the selection. Painting Home does not open the book or scan global statistics.
+- **EPUB statistics are saved at session end.** Reading time and page-turn samples accumulate during the session, then save when you leave the reader, including for sleep.
+- **Sleep images are prepared in your browser.** Your phone or computer resizes and converts images before upload. The reader receives prepared files.
+- **Dictionary lookups run when requested.** Normal reading does not perform dictionary lookups in the background.
 
-> If you're planning to buy an Xteink device, consider purchasing an **X3/X4 Developer Edition** through https://crosspointreader.com. CrossPoint receives a small share of each sale, helping fund development costs.
+These choices limit CPU and SD-card work. Battery life and page-turn latency depend on the reader, screen mode, font and workload.
 
-## What can CrossPoint do?
+## Reading features
 
-- **Reader engine**: EPUB 2/3 rendering with embedded-style option, image handling, hyphenation, kerning, adaptive table layouts, native CJK ruby annotations, chapter navigation, footnotes, bookmarks, dictionary lookups ([StarDict](docs/dictionary.md)), go-to-percent, auto page turn, orientation control, focus reading, KOReader progress sync and more.
+- **Quick Resume:** keep the current reading page visible during sleep. Wake the reader to continue or turn the page.
+- **Home:** resume the selected book or switch to another recent book. Its progress, reading time and estimated time left appear on the same screen.
+- **Per-book preferences:** adjust the font, size, spacing and other reading options for individual books.
+- **Reading statistics:** per-book and global totals, session duration, daily and weekly history, and completed-book records. Time-left values are estimates based on reading pace.
+- **Autonomy view:** compare battery level with active use and displayed reader pages during a battery cycle.
+- **Library and transfers:** folders, recent books, cover grids, EPUB chapters, bookmarks and footnotes. Use the web file portal, OPDS or Calibre wireless workflows to transfer books.
 
-- **Various formats**: native handling for `.epub`, `.xtc/.xtch`, `.txt`, and `.bmp`.
+<p>
+  <img src="docs/images/yacp/home.png" alt="YACP Home with book progress and reading durations" width="240">
+  <img src="docs/images/yacp/reading-stats.png" alt="Per-book and global reading statistics" width="240">
+</p>
 
-- **Touch reading**: follow EPUB links and look up words in the dictionary on touch-enabled devices.
+English development simulator captures with illustrative reading data.
 
-- **Highlights and clippings**: highlight text in EPUBs and save excerpts as clippings. Use the reader menu on button devices, or hold a word and drag the selection handles on touch devices. Look up selected words or phrases in the dictionary. Enable Sync Clippings to sync saved excerpts through a compatible CrossPoint Sync server. See [Clippings and Highlights](USER_GUIDE.md#53-clippings-and-highlights).
+## Per-book sleep galleries
 
-- **Screenshots.**
+Assign several images to a book. In gallery sleep mode, each sleep selects an image at random from that book's gallery. A general gallery is the fallback. Quick Resume is an alternative sleep-screen choice.
 
-- **Custom fonts**: install your favorite fonts on the SD card.
+**The next beta adds online cover search and batch preparation.** In the web portal, choose a book, search Open Library by title and author, select covers from its editions, adjust the crop and grayscale, then convert and upload the selection. Local image import remains available offline.
 
-- **Tilt page turn (X3 and Sticky)**.
+[See the cover workflow](docs/images/releases/1.9.0-beta1/YACP-book-gallery-walkthrough.gif): six covers selected, converted and uploaded to an isolated simulator gallery. The edited sequence does not measure processing speed.
 
-- **Bluetooth page turners**: pair a remote under Settings → Connectivity → Bluetooth Page Turner. Map short and long presses to page turns, chapter navigation, the reader menu, or clipping selection.
+## Fonts, CJK and dictionary
 
-- **USB Drive mode (X4Pro)**: access the SD card as USB mass storage.
+YACP 2.0.0 includes **Atkinson Hyperlegible Next** and **Lexend Deca** at 12, 14 and 16 pt. Use a compatible SD-card font for larger text. After updating from XLarge, a saved 18 or 20 pt setting for a built-in font uses 16 pt. Older releases list their available sizes in their release notes.
 
-- **Library workflow**: indexed title/author search, recently-added and alphabetical views, multilingual grouping, folder browser, recent books, and SD-cache management.
+Add compatible SD-card fonts for Chinese, Japanese, Korean or other scripts. A font must contain the characters your books use. CJK fonts are installed separately. See the [SD-card font guide](docs/sd-card-fonts.md) for device-dependent formats and installation.
 
-- **Wireless workflows**:
-  
-  - File transfer web UI
-  - EPUB Optimizer
-  - Web settings UI/API (edit many device settings from browser)
-  - WebSocket fast uploads
-  - WebDAV handler
-  - AP mode (hotspot) and STA mode (join existing Wi-Fi), both with QR helpers
-  - Calibre wireless connect flow
-  - OPDS browser with saved servers (up to 8), search, pagination, and direct download
-  - OTA update checks and installs from GitHub releases
+The offline dictionary opens a definition over the EPUB page. On X4 Pro, hold the word; on readers with physical controls, select it with the buttons. Install dictionary files on the SD card first. See [dictionary setup](docs/dictionary.md).
 
-- **Customization**: night mode, multiple themes (Classic, Lyra, Lyra Extended, RoundedRaff), sleep screen modes including transparent overlays, front/side button remapping, status bar controls, power-button behavior, refresh cadence, and more.
+## Models and releases
 
-- **Localization**: 34 UI languages and counting, including CJK font fallback and RTL support.
+**Stable 1.7.1** supports X3 and original X4. **YACP 2.0.0 is in preparation**, including separate Classic and Pro builds. Source support and a successful compilation do not establish hardware validation or a published release.
 
-- **SD card plugins**: install plugins for book catalogs, downloads, and tools in the device's web interface. Enable Plugins under Settings → Connectivity to show them on Home. On-device plugins use existing firmware screens and operations. JavaScript runs in a browser on your phone or computer, and its page must stay open while it works. Plugins follow [CrossPoint's reading-focused scope](SCOPE.md#out-of-scope). See the [plugin guide](docs/sd-plugins.md).
+| Model | Firmware family | Device-specific controls |
+| --- | --- | --- |
+| X3 | Shared X3 / original X4 | Physical buttons, optional tilt page turning |
+| Original X4 | Shared X3 / original X4 | Physical front and side buttons |
+| X4 Classic | Classic | Physical controls |
+| X4 Pro | Pro | Touch, Home key, frontlight, USB drive mode |
 
-### Coming soon:
+YACP 2.0.0 ships a Standard image for each firmware family.
 
-- More themes.
+**Magic Flash:** X3 retains its own implementation. The next beta extends text-page reinforcement to original X4 and Pro screens identified as UC8279 with LUT 0x68. Christophe has tested his matching Pro; matching original X4 hardware still needs reports. Other panels and X4 Classic are outside this extension. Classic refresh remains available.
 
-- Much more! stay tuned.
+On Pro, the reading status bar shows whether the frontlight is on. This helps identify a light left on in daylight and switch it off when unnecessary.
 
----
+## Download and update
 
-## USB-locked devices (Xteink Unlocker)
+1. Open [YACP Releases](https://github.com/Sichroteph/YACP/releases) and read the selected release's compatibility and test status.
+2. Back up the SD card, including reading data and saved settings.
+3. Select the Standard firmware for your exact model. Check the supplied hash and follow the release's installation instructions. When updating from XLarge, copy the new Standard image to the SD card and use **SD Card Firmware Update**.
 
-Some Xteink units purchased from third-party stores (e.g. AliExpress) ship with USB flashing locked from the factory.
-If your device is locked, you will need to use the **Xteink Unlocker** tool available at
-https://crosspointreader.com/#unlock-tool before you can flash CrossPoint.
+When moving from an older YACP base, consult the [migration status](docs/yacp-migration.md). Keep the pre-update SD backup and the firmware for your exact model and variant if you might want to switch back.
 
-**You do not need this tool if you bought your device directly from xteink.com.** Those units are not locked.
+### Return to the previous firmware
 
-**Not sure if your device is locked?** Power it on, connect the USB-C cable, and try flashing via the web flasher first (see
-[Install firmware](#install-firmware) below). If the browser's serial device picker does not show your device, try a different
-USB port or browser before assuming the device is locked. Only reach for the unlocker if the device still doesn't appear.
+Reinstall the exact firmware you were using and boot it with the original SD card or a card restored from the complete pre-update backup. If you plan to try YACP on a second card, keep the original card intact. Restoring the backup takes reading positions, bookmarks and statistics back to the time of that backup.
 
-> ### ⚠️ WARNING: READ THIS BEFORE USING THE UNLOCKER ⚠️
-> 
-> **The only officially supported firmwares in the unlock tool are CrossPoint and CrossInk.**
-> 
-> Flashing any other firmware on a USB-locked device may **permanently brick the device** or leave it **permanently
-> stuck on that firmware with no recovery path**. Once USB flashing is re-locked, your only way back is via OTA, and if
-> the firmware you flashed doesn't support OTA, **there is no way out**.
+YACP preserves the original `.crosspoint` directory before it starts using your reading data. Look for the archive that matches your starting firmware:
 
-## Install firmware
+- Older YACP based on CrossInk: `/.yacp-migration-v1/original`.
+- Earlier YACP based on CrossPoint: `/.yacp-source-backup/pre-crosspoint-2.0`. This snapshot is made once, before the reader changes its saved data for the new reading engine.
+- CrossPoint or official CrossInk: `/.yacp-source-backup/original`. YACP copies the directory once and keeps it for rollback. The SD card needs space for a second copy of `.crosspoint`. If the copy is interrupted, restart YACP to resume. If the card is full, make space for the copy or use a larger card with the same contents.
 
-### Web installer (recommended)
+When a CrossInk card has only `crossink-settings.json`, YACP imports the compatible reading and display preferences. If the card also has a native `settings.json`, that profile takes priority. The archive retains both files so either can be recovered.
 
-1. Connect your device to your computer via USB-C and wake/unlock the device
-2. Go to https://crosspointreader.com/#flash-tools, select your device (X3, X4, Xteink X4Pro, Seeed reTerminal Sticky, or M5PaperMono), and choose an official CrossPoint release.
+For a copy you can keep off the SD card, save the entire matching archive directory as a ZIP on your computer. Extract it before restoring it as `.crosspoint`.
 
-### Web installer (specific version)
+If you have no pre-update card backup, you can recover the archived directory as follows:
 
-1. Connect your device to your computer via USB-C and wake/unlock the device
-2. Download the firmware file for your device from [Releases](https://github.com/crosspoint-reader/crosspoint-reader/releases), or compile yourself.
-3. Go to https://crosspointreader.com/#flash-tools, select your device, click "Custom .bin" and upload the firmware file.
+1. Turn the reader off. Open the card on a computer and show hidden files. Locate the archive directory for your previous firmware listed above. A directory named `pending` or ending in `.pending` is an incomplete backup.
+2. On a spare card, copy your books, fonts and other personal files, keeping the same names and folder paths. Copy the entire archive directory to the root of the spare card and name the copy `.crosspoint`. Leave the migration folders on the trial card.
+3. Reinstall your previous firmware and start it with the restored card. Check a previously opened book, a bookmark, reading statistics and saved Wi-Fi where supported. Keep the trial card if you want to retain changes made during the trial.
 
-### Revert to Official Firmware
+These archives cover `.crosspoint` and reside on the same SD card. Keep a separate complete SD backup and confirm the firmware reinstall procedure before switching to YACP. Factory Xteink data requires that separate backup.
 
-To revert to the official firmware, you can also flash the latest official firmware using https://crosspointreader.com/#flash-tools.
+## Other options
 
-### Command line
+- Settings grouped into Display, Reader, Controls and System subpages in the next beta.
+- Button mapping, separate long-press actions, orientation and automatic page turning.
+- Focus Reading, Guide Dots, reader-only dark mode and status-bar controls.
+- Manual and supported automatic reading-data backups.
+- Optional KOReader SmartSync.
 
-1. Install [`esptool`](https://github.com/espressif/esptool):
+See the [changelog](CHANGELOG.md) for version-specific additions and fixes.
 
-```bash
-pip install esptool
-```
+## Development
 
-2. Download the firmware file for your device from the [releases page](https://github.com/crosspoint-reader/crosspoint-reader/releases).
-3. Connect your device via USB-C.
-4. Find the device port. On Linux, run `dmesg` after connecting. On macOS:
+The active YACP source uses **CrossPoint 2.0.0 and its pinned FreeInk SDK**. Earlier YACP releases used CrossInk. This branch is the single active source for all four Xteink models.
 
-```bash
-log stream --predicate 'subsystem == "com.apple.iokit"' --info
-```
-
-5. Flash an X3 or X4:
-
-```bash
-esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-```
-
-   Flash an Xteink X4Pro, Seeed reTerminal Sticky, or M5PaperMono:
-
-```bash
-esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-```
-
-### Manual
-
-See [Development quick start](#development-quick-start) below.
-
----
-
-## Custom SD-card fonts
-
-On devices with external RAM enabled in CrossPoint, copy `.ttf`, `.otf`, or `.ttc` files to the SD card and select them as reader fonts. Put one file in `/fonts/` or `/.fonts/`, or put one family's files in a subfolder. See the [SD card font guide](./docs/sd-card-fonts.md) for the folder layout and styles.
-
-On other devices, convert the font to `.cpfont` first. `.cpfont` files also work on devices with external RAM enabled and have better performance. No firmware reflash is needed to add fonts.
-
-To make `.cpfont` files:
-
-1. Go to https://crosspointreader.com/fonts and open the "SD-card font builder" form.
-2. Upload up to four styles (regular, bold, italic, bold-italic), set the family name, point sizes, and Unicode range.
-3. Download the generated `.cpfont` files.
-4. Copy them to your SD card under `/fonts/YourFont/` (or `/.fonts/YourFont/` to hide the folder).
-5. Select the font on the device from the font settings.
-
-Conversion runs the firmware repo's `lib/EpdFont/scripts/fontconvert_sdcard.py` script unmodified, so output matches a local host build.
-
----
-
-## Documentation
-
-- [User Guide](./USER_GUIDE.md)
-- [Web server usage](./docs/webserver.md)
-- [Web server endpoints](./docs/webserver-endpoints.md)
-- [Project scope](./SCOPE.md)
-- [Contributing docs](./docs/contributing/README.md)
-- [Touch and UI development](./docs/contributing/touch-and-ui.md) - how to build new screens on the FreeInkUI activity bases (UiListActivity and friends), plus build envs for the non-Xteink touch devices
-
----
-
-## Development quick start
-
-### Prerequisites
-
-- [pioarduino PlatformIO Core](https://github.com/pioarduino/platformio-core) or [VS Code + pioarduino IDE](https://github.com/pioarduino/pioarduino-vscode-ide)
-- Python 3.8+
-- `clang-format` 21
-- USB-C cable supporting data transfer
-
-### Setup
-
-```bash
-git clone --recursive https://github.com/crosspoint-reader/crosspoint-reader
-cd crosspoint-reader
-
-# if cloned without --recursive:
-git submodule update --init --recursive
-```
-
-### Nix/NixOS
-
-Nix/NixOS users can enter the development shell with either `nix develop` (flakes) or `nix-shell`:
-
-```bash
-nix develop -f nix
-# or
-nix-shell nix
-```
-
-To flash a connected ESP32-C3 device, enable PlatformIO's udev rules in your NixOS configuration:
-
-```nix
-services.udev.packages = with pkgs; [ platformio-core.udev ];
-```
-
-After rebuilding the system configuration, reconnect the device or reload udev rules.
-
-### Build / flash / monitor
-
-```bash
-pio run --target upload
-```
-
-### Contributor pre-PR checks
-
-```bash
-./bin/clang-format-fix
-pio check -e default
-pio run -e default
-```
-
-### Debugging
-
-After flashing the new features, it’s recommended to capture detailed logs from the serial port.
-
-First, make sure all required Python packages are installed:
-
-```python
-python3 -m pip install pyserial colorama matplotlib
-```
-
-After that run the script:
+Read the [source policy](docs/yacp-source-consolidation.md), [feature and validation matrix](docs/yacp-port-matrix.md) and [project layout](docs/yacp-project-layout.md) before building. PlatformIO supplies the toolchain; YACP builds use the guarded wrapper:
 
 ```sh
-# For Linux
-# This was tested on Debian and should work on most Linux systems.
-python3 scripts/debugging_monitor.py
-
-# For macOS
-python3 scripts/debugging_monitor.py /dev/cu.usbmodem2101
+python scripts/check_yacp_source.py
+python scripts/build_yacp.py all-local
 ```
 
-Minor adjustments may be required for Windows.
+The source check requires the registered worktree described in the source policy. The wrapper reserves a new embedded build version, builds all three Standard firmware profiles and records artifact identity. Simulator builds use the same wrapper with an existing WSL mirror. For a different registered distribution, pass its name and the path to its PlatformIO executable, for example:
 
----
-
-## Internals
-
-CrossPoint Reader is pretty aggressive about caching data down to the SD card to minimise RAM usage. The ESP32-C3 only has ~380KB of usable RAM, so we have to be careful. A lot of the decisions made in the design of the firmware were based on this constraint.
-
-### Data caching
-
-The first time chapters of a book are loaded, they are cached to the SD card. Subsequent loads are served from the
-cache. This cache directory exists at `.crosspoint` on the SD card. The structure is as follows:
-
-```text
-.crosspoint/
-├── epub_<hash>/         # one directory per book, named by content hash
-│   ├── progress.bin     # reading position (chapter, page, etc.)
-│   ├── cover.bmp        # generated cover image
-│   ├── book.bin         # metadata: title, author, spine, TOC
-│   ├── css_rules.cache  # parsed CSS rule cache
-│   ├── img_*            # rendered image cache files
-│   └── sections/        # per-chapter layout cache
-│       ├── 0.bin
-│       ├── 1.bin
-│       └── ...
-├── settings.json        # device settings
-├── state.json           # resume/runtime state
-└── recent.json          # recent books list
+```powershell
+python scripts/build_yacp.py simulator_x3 --wsl-mirror /home/yacp-simulator/crosspoint-200 --wsl-distro YACP-Simulator --wsl-pio /home/yacp-simulator/venv/bin/pio
 ```
 
-Removing `/.crosspoint` clears all cached metadata and forces a full regeneration on next open. Book deletes, overwrites, and moves done through the firmware or web UI clear or re-key matching caches; manual SD-card edits may leave stale cache directories behind.
+Direct PlatformIO builds bypassing the wrapper are refused.
 
-For more details on the internal file structures, see the [file formats document](./docs/file-formats.md).
+No build or simulator result replaces device testing. Bug reports should include the exact reader model, full embedded version, font variant, reproduction steps and expected versus observed behavior.
 
----
+## Credits and support
 
-## Contributing
+Christophe has continued development since the last stable release. A reader donated the X4 Pro used for Pro development and testing. Thank you to that anonymous donor, the testers and contributors.
 
-Contributions are welcome. If you're new to the codebase, start with the [contributing docs](./docs/contributing/README.md). For things to work on, check the [ideas discussion board](https://github.com/crosspoint-reader/crosspoint-reader/discussions/categories/ideas) — leave a comment before starting so we don't duplicate effort.
+YACP builds on [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader), [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) and earlier [CrossInk](https://github.com/uxjulia/CrossInk) work. Imported code, fonts, dictionaries and cover artwork retain their respective credits and licenses. Release notes identify contributions included in each version.
 
-Everyone here is a volunteer, so please be respectful and patient. For governance and community expectations, see [GOVERNANCE.md](./GOVERNANCE.md).
+Optional support: [PayPal](https://www.paypal.com/paypalme/ChrJeannette). Releases have no fixed schedule.
 
----
+## License
 
-## Community forks
-
-One of the best things about open source is that anyone can take the code in a different direction. If you need something outside CrossPoint's [scope](./SCOPE.md), check out the community forks:
-
-- [CrossInk](https://github.com/uxjulia/CrossInk) — UX focused with minimal reading stats and broader customizations for the reading experience.
-
-- [papyrix-reader](https://github.com/bigbag/papyrix-reader) — Adds FB2 and MD format support. Actively maintained with Arabic script support. Custom themes.
-
-- [inx](https://github.com/obijuankenobiii/inx) — Completely reimagines the user interface with tabbed navigation.
-
-- [Witch(hunt) Reader](https://github.com/jpirnay/witchhunt-reader) — More faithful CSS styling and background work for slightly snappier interaction. Weather information panel. Markdown support.
-
-**Note:** Many of these features will make their way into CrossPoint over time. Each project chooses its own priorities and tradeoffs.
-
-Want to build your own device? Be sure to check out the [Silkscreen](https://silkscreenreader.com) project or [OnePage Reader](https://github.com/MoveCall/onepage-reader).
-
----
-
-CrossPoint Reader is **not affiliated with Xteink or any device manufacturer**.
+YACP retains the upstream [MIT license](LICENSE). It is not affiliated with Xteink or any device manufacturer.

@@ -17,6 +17,11 @@ class ReleaseJsonParser {
 
   // Release-asset filename to match (default "firmware.bin").
   void setFirmwareAssetName(const char* name);
+  using AssetMatcher = bool (*)(const char* name);
+  void setFirmwareAssetMatcher(AssetMatcher matcher) { assetMatcher = matcher; }
+  bool complete() const { return rootComplete && !invalid && !parser.hasError(); }
+  const char* getSelectedAssetName() const { return selectedAssetName; }
+  const char* getFirmwareDigest() const { return firmwareDigest; }
 
   bool foundTag() const;
   bool foundFirmware() const;
@@ -38,6 +43,7 @@ class ReleaseJsonParser {
     ASSET_NAME,
     ASSET_URL,
     ASSET_SIZE,
+    ASSET_DIGEST,
   };
 
   static void sOnKey(void* ctx, const char* key, size_t len);
@@ -70,4 +76,10 @@ class ReleaseJsonParser {
   size_t currentAssetSize;
 
   char firmwareAssetName[48];
+  char selectedAssetName[48] = {};
+  char firmwareDigest[72] = {};
+  char currentAssetDigest[72] = {};
+  AssetMatcher assetMatcher = nullptr;
+  bool rootComplete = false;
+  bool invalid = false;
 };

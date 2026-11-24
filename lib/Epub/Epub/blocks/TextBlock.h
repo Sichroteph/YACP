@@ -55,6 +55,8 @@ class TextBlock final : public Block {
     int16_t width;
     int16_t topLift;
   };
+  // Layout-only range for optional publisher annotations; never serialized with text.
+  uint32_t sourceEndOffset = 0;
 
  private:
   BlockStyle blockStyle;
@@ -62,6 +64,7 @@ class TextBlock final : public Block {
   uint16_t paragraphStartWord = UINT16_MAX;  // Visual index of the paragraph's first logical word.
   uint16_t textBytes = 0;                    // total size of the text region, including NULs
   bool focusPresent = false;
+  bool guidePresent = false;
   bool isValid = true;
   // The ONLY allocation: makeUniqueNoThrow, so OOM yields an invalid block
   // instead of abort() (bare new is not nothrow with -fno-exceptions).
@@ -71,6 +74,7 @@ class TextBlock final : public Block {
   const SourceRange* sourceRanges = nullptr;
   const uint16_t* textOffArr = nullptr;
   const int16_t* xposArr = nullptr;
+  const int16_t* guideDotXArr = nullptr;
   const uint16_t* focusSplitXArr = nullptr;  // null when !focusPresent
   const uint8_t* stylesArr = nullptr;
   const uint8_t* focusBoundaryArr = nullptr;  // null when !focusPresent
@@ -85,7 +89,7 @@ class TextBlock final : public Block {
   std::vector<LinkSpan> linkSpans;
 
   TextBlock() = default;  // deserialize() fills the fields directly
-  static size_t arenaSize(uint16_t wordCount, bool hasFocus, uint16_t textBytes);
+  static size_t arenaSize(uint16_t wordCount, bool hasFocus, bool hasGuide, uint16_t textBytes);
   void bindArenaPointers();
 
  public:
@@ -96,7 +100,8 @@ class TextBlock final : public Block {
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& focusBoundary,
                      const std::vector<uint16_t>& focusSplitX, const BlockStyle& blockStyle = BlockStyle(),
                      std::vector<std::string> rubyTexts = {}, std::vector<LinkSpan> linkSpans = {},
-                     const std::vector<SourceRange>& ranges = {}, uint16_t paragraphStartWord = UINT16_MAX);
+                     const std::vector<SourceRange>& ranges = {}, uint16_t paragraphStartWord = UINT16_MAX,
+                     const int16_t* guideDots = nullptr);
   ~TextBlock() override = default;
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;

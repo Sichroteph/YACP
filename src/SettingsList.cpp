@@ -27,6 +27,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
     values[CrossPointSettings::STATUS_BAR_CLOCK_HIDE] = StrId::STR_HIDE;
     values[CrossPointSettings::STATUS_BAR_CLOCK_RIGHT] = StrId::STR_DIR_RIGHT;
     values[CrossPointSettings::STATUS_BAR_CLOCK_LEFT] = StrId::STR_DIR_LEFT;
+    values[CrossPointSettings::STATUS_BAR_CLOCK_TOP_CENTER] = StrId::STR_CLOCK_TOP_CENTER;
     return values;
   }();
 
@@ -37,7 +38,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
                          {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
-                         {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
+                         {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED, StrId::STR_ADAPTIVE_GRAYSCALE},
                          "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
                          {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, "quickResumeSleepScreen",
@@ -47,10 +48,12 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                          StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
                          {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15,
-                          StrId::STR_PAGES_30, StrId::STR_NEVER},
+                          StrId::STR_PAGES_30, StrId::STR_NEVER, StrId::STR_PAGES_60},
                          "refreshFrequency", StrId::STR_CAT_DISPLAY));
-  emit(SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme, homeThemeValues(), "uiTheme",
-                         StrId::STR_CAT_DISPLAY));
+  emit(homeThemeSetting());
+  emit(displayModeSetting());
+  emit(SettingInfo::Enum(StrId::STR_MENU_RECENT_BOOKS, &CrossPointSettings::recentBooksView,
+                  {StrId::STR_LIST_VIEW, StrId::STR_GRID_VIEW}, "recentBooksView", StrId::STR_CAT_DISPLAY));
   if (!BoardConfig::hasTouch())
     emit(SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                              StrId::STR_CAT_DISPLAY));
@@ -66,7 +69,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   // --- Reader ---
   // Built-in font-family entry. Replaced per-call with a registry-aware
   // version when SD fonts are installed.
-  emit(SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily, {StrId::STR_NOTO_SANS}, "fontFamily",
+  emit(SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily, {StrId::STR_LEXEND_DECA, StrId::STR_ATKINSON_HYPERLEGIBLE_NEXT}, "fontFamily",
                          StrId::STR_CAT_READER)
            .withTextSettings());
   // Placeholder: the selectable sizes depend on the active font family, so
@@ -113,8 +116,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Toggle(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing,
                            "extraParagraphSpacing", StrId::STR_CAT_READER)
            .withTextSettings());
-  emit(SettingInfo::Value(StrId::STR_PARAGRAPH_INDENTATION, &CrossPointSettings::paragraphIndentSpaces, {0, 5, 1},
-                          "paragraphIndentSpaces", StrId::STR_CAT_READER)
+  emit(SettingInfo::Value(StrId::STR_PARAGRAPH_INDENTATION, &CrossPointSettings::paragraphIndentSpaces,
+                          {0, FORCE_PARAGRAPH_INDENTS, 1}, "paragraphIndentSpaces", StrId::STR_CAT_READER)
            .withTextSettings());
   emit(SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                            StrId::STR_CAT_READER)
@@ -126,6 +129,18 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Enum(StrId::STR_READER_MENU_STYLE, &CrossPointSettings::readerMenuStyle,
                          {StrId::STR_MENU_STYLE_LIST, StrId::STR_MENU_STYLE_TOOLBAR}, "readerMenuStyle",
                          StrId::STR_CAT_READER));
+  emit(SettingInfo::Toggle(StrId::STR_GUIDE_READING, &CrossPointSettings::guideReadingEnabled, "guideReadingEnabled",
+                    StrId::STR_CAT_READER)
+    .withTextSettings());
+  emit(SettingInfo::Toggle(StrId::STR_STABLE_PAGE_NUMBERS, &CrossPointSettings::stablePageNumbers, "stablePageNumbers",
+                    StrId::STR_CAT_READER));
+  emit(SettingInfo::Toggle(StrId::STR_PUBLISHER_PAGE_NUMBERS, &CrossPointSettings::publisherPageNumbers,
+                    "publisherPageNumbers", StrId::STR_CAT_READER)
+    .withTextSettings());
+  emit(SettingInfo::Toggle(StrId::STR_READER_DARK_MODE, &CrossPointSettings::readerDarkMode, "readerDarkMode",
+                    StrId::STR_CAT_READER)
+    .withTextSettings());
+
   // --- Controls ---
 #if FREEINK_CAP_HAPTIC
   emit(SettingInfo::Enum(StrId::STR_VIBRATION, &CrossPointSettings::vibration,
@@ -137,7 +152,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
 #endif
   emit(SettingInfo::Enum(
       StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
-      {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV, StrId::STR_DISABLED, StrId::STR_NEXT_NEXT, StrId::STR_PREV_PREV},
+      {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV, StrId::STR_DISABLED, StrId::STR_NEXT_NEXT, StrId::STR_PREV_PREV,
+       StrId::STR_NEXT_SLEEP, StrId::STR_SLEEP_NEXT, StrId::STR_SLEEP_SLEEP},
       "sideButtonLayout", StrId::STR_CAT_CONTROLS));
 #if FREEINK_DEVICE_PICCO
   emit(SettingInfo::Enum(StrId::STR_SLIDE_SWITCH, &CrossPointSettings::slideSwitchAction,
@@ -173,18 +189,38 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                              "frontButtonFollowOrientation", StrId::STR_CAT_CONTROLS));
   emit(SettingInfo::Enum(StrId::STR_LONG_PRESS_BEHAVIOR, &CrossPointSettings::longPressButtonBehavior,
                          {StrId::STR_LONG_PRESS_BEHAVIOR_OFF, StrId::STR_LONG_PRESS_BEHAVIOR_SKIP,
-                          StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
+                          StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION, StrId::STR_CHANGE_FONT_SIZE},
                          "longPressButtonBehavior", StrId::STR_CAT_CONTROLS));
   emit(buildLongPressMenuSetting());
+#if FREEINK_MCU_C3
+  emit(readerCommandSetting(StrId::STR_EPUB_HOLD_MENU, &CrossPointSettings::longPressMenuAction, "longPressMenuAction",
+                            true));
+  emit(readerCommandSetting(StrId::STR_EPUB_HOLD_BACK, &CrossPointSettings::longPressBackAction, "longPressBackAction",
+                            true));
+  emit(readerCommandSetting(StrId::STR_EPUB_SHORT_POWER, &CrossPointSettings::readerShortPowerAction,
+                            "readerShortPowerAction", false));
+  emit(SettingInfo::Enum(
+    StrId::STR_READER_FRONT_ORIENTATION, &CrossPointSettings::frontButtonOrientationAware,
+    {StrId::STR_STATE_OFF, StrId::STR_NAV_BUTTONS, StrId::STR_ALL_BUTTONS, StrId::STR_DEFAULT_VALUE},
+    "frontButtonOrientationAware", StrId::STR_CAT_CONTROLS));
+  emit(SettingInfo::Enum(StrId::STR_READER_SIDE_ORIENTATION, &CrossPointSettings::sideButtonOrientationAware,
+                  {StrId::STR_STATE_OFF, StrId::STR_STATE_ON, StrId::STR_DEFAULT_VALUE},
+                  "sideButtonOrientationAware", StrId::STR_CAT_CONTROLS));
+#endif
+  emit(readerCommandSetting(StrId::STR_EPUB_HOLD_POWER, &CrossPointSettings::longPwrBtn, "longPwrBtn", false));
+  emit(SettingInfo::Enum(
+    StrId::STR_SIDE_BTN_LONG_PRESS, &CrossPointSettings::sideButtonLongPress,
+    {StrId::STR_LONG_PRESS_BEHAVIOR_SKIP, StrId::STR_CHANGE_FONT_SIZE, StrId::STR_LONG_PRESS_BEHAVIOR_OFF,
+     StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION, StrId::STR_PREVIOUS_PAGE_OPT, StrId::STR_FOLLOW_FRONT_BUTTONS},
+    "sideButtonLongPress", StrId::STR_CAT_CONTROLS));
+
   // Double-click power frontlight shortcut only exists on the X4 Pro.
   if (BoardConfig::isX4Pro())
     emit(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
                              "doubleClickPwrLight", StrId::STR_CAT_CONTROLS));
   emit(buildShortPowerButtonSetting());
   // Always persisted; getSettingsList() hides it when the IMU probe fails.
-  emit(SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
-                         {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED}, "tiltPageTurn",
-                         StrId::STR_CAT_CONTROLS));
+  emit(tiltPageTurnSetting());
   emit(SettingInfo::Toggle(StrId::STR_PWR_BTN_FOOTNOTE_BACK, &CrossPointSettings::pwrBtnFootnoteBack,
                            "pwrBtnFootnoteBack", StrId::STR_CAT_CONTROLS));
   if (!BoardConfig::hasTouch())
@@ -209,6 +245,23 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                            "removeReadBooksFromRecents", StrId::STR_CAT_SYSTEM));
   emit(SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
                            "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM));
+
+  emit(SettingInfo::Toggle(StrId::STR_AUTO_BACKUP_STATS, &CrossPointSettings::autoBackupStats, "autoBackupStats",
+                    StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Toggle(StrId::STR_TRACK_READING_STATS, &CrossPointSettings::trackReadingStats, "trackReadingStats",
+                    StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Value(StrId::STR_IDLE_TIME_THRESHOLD, &CrossPointSettings::readingIdleTimeThresholdUnits,
+                   {3, 60, 1}, "readingIdleTimeThresholdUnits", StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Toggle(StrId::STR_HIDE_FILE_EXTENSION, &CrossPointSettings::hideFileExtension, "hideFileExtension",
+                    StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Enum(StrId::STR_FILE_BROWSER_DISPLAY, &CrossPointSettings::fileBrowserDisplay,
+                  {StrId::STR_FILE_BROWSER_DISPLAY_1_LINE, StrId::STR_FILE_BROWSER_DISPLAY_2_LINES},
+                  "fileBrowserDisplay", StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::String(StrId::STR_DEVICE_NAME, &SETTINGS.deviceName[0], sizeof(SETTINGS.deviceName), "deviceName"));
+  emit(SettingInfo::Enum(StrId::STR_REFRESH_ACTION, &CrossPointSettings::refreshAction,
+                         {StrId::STR_REFRESH_ACTION_FULL, StrId::STR_REFRESH_ACTION_BW_REINFORCEMENT,
+                          StrId::STR_REFRESH_ACTION_MAGIC_2X},
+                         "refreshAction").withWebHidden());
 
   // OPDS download folder: persisted + web-exposed, but category-less so it
   // is hidden from the on-device Settings screen (edited via OPDS UI).
@@ -339,12 +392,20 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                          StrId::STR_CUSTOMISE_STATUS_BAR));
   emit(SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
                            StrId::STR_CUSTOMISE_STATUS_BAR));
+  emit(SettingInfo::Enum(StrId::STR_PROGRESS_BAR_POSITION, &CrossPointSettings::statusBarProgressBarPosition,
+                  {StrId::STR_BOTTOM, StrId::STR_TOP}, "statusBarProgressBarPosition",
+                  StrId::STR_CUSTOMISE_STATUS_BAR));
+  emit(SettingInfo::Enum(StrId::STR_TIME_LEFT, &CrossPointSettings::statusBarTimeLeft,
+                  {StrId::STR_HIDE, StrId::STR_CHAPTER, StrId::STR_BOOK}, "statusBarTimeLeft",
+                  StrId::STR_CUSTOMISE_STATUS_BAR));
+  emit(SettingInfo::Toggle(StrId::STR_BATTERY_CURRENT, &CrossPointSettings::statusBarBatteryCurrent,
+                    "statusBarBatteryCurrent", StrId::STR_CUSTOMISE_STATUS_BAR));
   emit(SettingInfo::Enum(StrId::STR_XTC_STATUS_BAR, &CrossPointSettings::xtcStatusBarMode,
                          {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP}, "xtcStatusBarMode",
                          StrId::STR_CUSTOMISE_STATUS_BAR));
   // Clock entries (persistence + web settings; the device UI is
   // ClockSettingsActivity under System settings).
-  emit(SettingInfo::StaticEnum(StrId::STR_CLOCK, &CrossPointSettings::statusBarClock, STATUS_BAR_CLOCK_VALUES,
+  emit(SettingInfo::StaticEnum(StrId::STR_CLOCK_POSITION, &CrossPointSettings::statusBarClock, STATUS_BAR_CLOCK_VALUES,
                                "statusBarClock", StrId::STR_CUSTOMISE_STATUS_BAR));
   // LEGACY: retired quarter-hour UTC offset (biased by 48). Persisted so
   // timezones::activeIndex() can migrate it into clockTimezone.

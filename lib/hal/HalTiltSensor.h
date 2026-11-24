@@ -9,7 +9,8 @@ enum Value : uint8_t { PORTRAIT = 0, LANDSCAPE_CW = 1, INVERTED = 2, LANDSCAPE_C
 }
 
 namespace CrossPointTiltPageTurn {
-enum Value : uint8_t { TILT_OFF = 0, TILT_NORMAL = 1, TILT_INVERTED = 2 };
+enum Value : uint8_t { TILT_OFF = 0, TILT_NORMAL = 1, TILT_INVERTED = 2,
+                       TILT_FORWARD_BACK = 3, TILT_FORWARD_BACK_INVERTED = 4 };
 }
 
 class HalTiltSensor;
@@ -25,6 +26,8 @@ class HalTiltSensor {
   bool _hadActivity = false;       // Non-consuming flag for sleep timer
   bool _inTilt = false;            // Currently tilted past threshold
   bool _isAwake = false;           // Tracks power state
+  bool _powerStateUncertain = false;
+  unsigned long _lastPowerAttemptMs = 0;
   unsigned long _initMs = 0;       // Timestamp of sensor init
   unsigned long _lastTiltMs = 0;   // Debounce / cooldown
   unsigned long _wakeMs = 0;       // Timestamp of last wake() for stabilization
@@ -35,6 +38,7 @@ class HalTiltSensor {
   static constexpr unsigned long COOLDOWN_MS = 600;        // Minimum ms between triggers
   static constexpr unsigned long POLL_INTERVAL_MS = 50;    // 20 Hz polling
   static constexpr unsigned long WAKE_STABILIZE_MS = 300;  // Ignore readings after wake
+  static constexpr unsigned long POWER_RETRY_MS = 1000;  // Do not flood I2C after a failed transition
 
   mutable unsigned long _lastPollMs = 0;
 

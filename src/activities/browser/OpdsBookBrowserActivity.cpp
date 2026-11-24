@@ -498,7 +498,7 @@ std::string OpdsBookBrowserActivity::downloadDestination(const OpdsEntry& book) 
   filename.reserve(96);
   if (haveFolder) filename += folder;
   filename += '/';
-  filename += opdsBookFilename(book.author, book.title, static_cast<OpdsFilenameFormat>(SETTINGS.opdsFilenameFormat));
+  filename += opdsBookFilename(book.author, book.title, static_cast<OpdsFilenameFormat>(server.effectiveFilenameFormat(SETTINGS.opdsFilenameFormat)));
   return filename;
 }
 

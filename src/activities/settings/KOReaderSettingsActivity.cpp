@@ -201,7 +201,9 @@ void KOReaderSettingsActivity::buildScreen(UiScreen& screen) {
     } else {
       rowValues_[i] = KOREADER_STORE.hasCredentials() ? "" : std::string("[") + tr(STR_SET_CREDENTIALS_FIRST) + "]";
     }
-    rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
+    const char* value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
+    rowItems_[i].value = i == 2 ? nullptr : value;
+    rowItems_[i].subtitle = i == 2 ? value : nullptr;
   }
   GUI.setCheckboxRow(rowItems_[IDX_SEND_METADATA], KOREADER_STORE.getSendMetadata());
   GUI.setCheckboxRow(rowItems_[IDX_SYNC_CLIPPINGS], KOREADER_STORE.getSyncClippings());
@@ -216,6 +218,8 @@ void KOReaderSettingsActivity::buildScreen(UiScreen& screen) {
   // maxLines=2 also marks the style caller-owned (see textStyleUnset).
   props.labelText = screen.theme().smallText;
   props.labelText.maxLines = 2;
+  props.subtitleText = screen.theme().smallText;
+  props.subtitleText.maxLines = 2;
   syncListViewport(screen, props);
   screen.list(props);
 }

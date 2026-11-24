@@ -1,5 +1,123 @@
 # File Formats
 
+## Dictionary history, version 1
+
+Each installed dictionary folder name has a separate history under `/.crosspoint/dictionary-history/<folder>/`. The firmware alternates between `a.bin` and `b.bin` so a partial write does not replace the previous valid snapshot.
+
+The 16-byte header consists of ASCII magic `DIH1`, a 32-bit generation, a 32-bit payload length and a 32-bit checksum, all little-endian. The checksum is the XOR of the IEEE CRC-32 of the first 12 header bytes and the IEEE CRC-32 of the payload. The newest valid generation wins. The payload contains up to 128 NUL-terminated UTF-8 dictionary headwords, newest first, within 8192 bytes. An empty payload represents an empty history. The history contains no book paths, definitions or dictionary offsets.
+
+## Legacy-source receipt, schema 2
+
+`/.crosspoint/data-checked-v3` holds the eight-byte `YACPMIG` plus byte 1 marker after a successful boot inspection. It only permits skipping inspection on an ordinary same-firmware deep-sleep resume without a pending repair. The prior v2 marker does not attest to the TXT/Markdown conversion. Cold restart ignores this shortcut. External card changes require a restart.
+
+`/.crosspoint/legacy-receipts/<legacy-cache-name>` contains 160 bytes. It identifies the active legacy inputs that have already been reconciled; it never replaces `progress.bin` or changes an EPUB section-cache version.
+
+| Offset | Bytes | Meaning |
+| --- | --- | --- |
+| 0 | 8 | ASCII `YACPRCP` followed by byte 2 |
+| 8 | 1 | Legacy progress length: 4, 6 or 10 |
+| 9 | 10 | Exact progress bytes, zero-padded |
+| 19 | 1 | Legacy profile length: 0, 3 or 86 |
+| 20 | 86 | Exact profile bytes, zero-padded |
+| 106 | 1 | Section prefix length: 0 or 44 |
+| 107 | 44 | Exact section-header prefix, zero-padded |
+| 151 | 4 | Little-endian FNV-1a checksum of bytes 0 through 150 |
+| 155 | 5 | Reserved zero bytes |
+
+Missing receipts trigger review/conversion. A present receipt with a wrong schema, length or checksum blocks replay. Native position changes do not modify this source receipt. Repeat-repair directories under `/.yacp-reentry-v2` preserve the complete prior active store; only a prepared inactive clone becomes `/.crosspoint`.
+
+## TXT and Markdown progress after CrossPoint 2.0
+
+Older YACP stored TXT and Markdown progress under `/.crosspoint/txt_<path-hash>/progress.bin`. Its six-byte record contains a little-endian uint16 page and a uint32 source byte offset. The earlier four-byte record contains the page without a source offset. It needs a matching version 3 index (disk magic `ITXT` followed by byte 3), with a valid source size, page count and monotonic offsets. XTC and XTCH retain their distinct `xtc_` cache and four-byte page record.
+
+CrossPoint 2.0 paginates TXT and Markdown through its EPUB engine. Conversion writes a ten-byte `epub_<path-hash>/progress.bin`, with spine, page and page count set to zero and the decoded text offset in bytes 6 through 9. The offset counts Unicode code points in the generated HTML body before the saved passage. CR and line break tags do not add a character. A leading UTF-8 BOM and non-emitted trailing spaces are excluded. A record past the end of the source, split across a UTF-8 character, or in conflict with an unacknowledged native position pauses migration.
+
+`/.crosspoint/txt-receipts/<old-cache-name>` records a source already converted. Its 24 bytes hold `YTX` plus byte 1, a one-byte source progress length, six bytes for the original progress (zero-padded), a reserved zero byte, the file size, the checked source byte offset and an FNV-1a checksum of bytes 0 through 19. The final three fields are little-endian uint32 values. A downgrade that writes the same source record leaves later native progress intact. The inactive staging copy moves the old cache to `retired-txt` in the repair history, where the complete prior store also remains under `original`. The live reader uses only the new cache.
+
+## Offline migration bundle, schema 1
+
+The host-only bundle uses `intent.json` to pin every output path, byte length and SHA-256. Files assemble in `card.pending`; a rename publishes `card` after verification. `COMPLETE.json` confirms a prepared copy, with installation and hardware validation explicitly false. Original stores remain in `card/.yacp-migration/original-crosspoint`, beside a non-secret review report. This is an offline data format, not a new firmware boot importer. See `yacp-migration.md` for retry and credential handling.
+
+## YACP decoded sleep-image planes, version 2
+
+Custom full-screen BMPs and per-book gallery BMPs can use `/.crosspoint/sleep_planes_v2/<path-fnv32>.bin`. These are disposable render caches, separate from the original BMP, legacy YACP sleep caches and reading data. Covers and transparent overlays retain the ordinary upstream path.
+
+The 48-byte header has ASCII `YSC2` at 0, version 2 at 4 and commit byte 1 at 5. Bytes 6 to 11 contain filter, cover mode, orientation, controller, grayscale mode and fading-fix setting. Little-endian uint16 width/height occupy 12/14. Little-endian uint32 values at 16/20/24/28 contain framebuffer bytes, source file bytes, source FNV-1a and source-path FNV-1a. Three plane checksums start at 32, 36 and 40. Offset 44 stores the FNV-1a of bytes 0 through 43. The payload is exactly three framebuffers: BW, LSB, MSB, in the current SDK encoding.
+
+A provisional header has commit byte zero. The complete checksummed header is written only after all three frames. A hit requires matching rendering parameters, full source content fingerprint, exact cache length, header checksum and all plane checksums before display begins. Each subsequent plane read is checked again. Unknown, truncated, altered or mismatched data takes the ordinary BMP decoder. A transient adaptive-tone analysis failure is not cached. Increment this format and directory version if future code changes how stored plane bytes are interpreted.
+
+The fixed cache state is 115 bytes, allocated fallibly once for an eligible sleep render. Preparation and validation borrow the existing framebuffer while its previous pixels are disposable, hashing the source in framebuffer-sized reads and validating one complete plane per read. The helper retains a bounded 192-byte stack fallback for callers without scratch storage. Validation also holds one 48-byte header. No second framebuffer is allocated. The source BMP is closed before each cache read/write and reopened only when another decode pass is needed. Warm reuse still reads the source for content identity and validates the cache, but skips adaptive histogram analysis and the three BMP rasterization passes. Energy, latency and physical grayscale quality require device measurement.
+
+## YACP on CrossPoint 2.0.0, section 74
+
+Section 74 extends the CrossPoint 2.0.0 header with three one-byte YACP options before the page count: forced paragraph indentation, guide dots and publisher annotations. The header occupies 47 bytes on the supported targets and the partial sentinel is 208. Text blocks carry the optional guide-dot positions in their arena, and each page ends with its bounded publisher-marker list. Earlier generated sections are rebuilt. Reading positions remain in a separate file and do not use this section version.
+
+## YACP CrossPoint port: publisher annotations (section 51)
+
+Section 51 adds the publisher-numbering toggle at byte 23 after the guide toggle. Its packed header is 46 bytes; the page count starts at byte 24. The matching partial sentinel is 231. Each page body ends with a one-byte marker count (0 to 8), followed by that many records: signed 16-bit line Y and a 16-byte, NUL-terminated UTF-8 label. Invalid counts, truncated records and unterminated labels are rejected. Older layout caches rebuild from the EPUB while retaining separately saved reading positions.
+
+Book profile version 4 is 66 bytes. It appends `publisherPageNumbers` as text field 20, before the 32-byte font-family field and checksum. Version 1 (62 bytes), 2 (64 bytes) and 3 (65 bytes) remain readable; their absent fields inherit global values. New writes use the alternate verified slot, preserving the preceding record during interruption.
+
+## YACP CrossPoint port: guide annotations (section 50)
+
+Section version 50 adds `guideReadingEnabled` immediately after the version 49 forced-indent flag. Its packed header is 45 bytes: indent at byte 21, guide at byte 22, page count at byte 23. The corresponding partial sentinel is 232. Old sections are rebuilt from the EPUB; progress uses the separate visible-text anchor.
+
+TextBlock's existing one-byte focus flag becomes flags: bit 0 retains focus annotations, bit 1 adds `int16_t guideDotX[wordCount]` after the optional focus suffix positions and before byte arrays. `INT16_MIN` means no dot for that word. Other values are line-relative dot positions. Words, line positions, link spans and visible offsets remain unchanged by this decoration. The extra array exists only on lines with dots, inside the same fallible arena allocation. Font-cache scanning includes the dot glyph. Dot placement performs no word measurement during page rendering.
+
+Book profile version 3 is 65 bytes. It appends the guide switch at field index 18, after the version 2 interval at index 17. The family occupies bytes 29 through 60 and the checksum starts at byte 61. Versions 1 and 2 remain readable, retaining current global defaults for fields they did not store. Writes still alternate slots and preserve the preceding valid profile.
+
+## YACP book-scoped reader profiles
+
+The CrossPoint-based port stores EPUB text choices separately from global defaults in
+`/.crosspoint/book_profiles/epub_<native-path-hash>/reader_profile.0` and `reader_profile.1`.
+These are user data, not disposable pagination caches. Legacy `reader_settings.bin`
+is preserved and requires explicit conversion; firmware does not guess its font indices.
+
+The first text-only format is 62 bytes: ASCII `YBRS`, version byte 1, little-endian uint32 generation,
+17 bytes of settings, a 32-byte NUL-terminated SD family, and little-endian uint32
+FNV-1a checksum of the first 58 bytes. Field order is font family, point size,
+line spacing preset, numeric line height, orientation, margin, alignment,
+embedded styles, hyphenation, antialiasing, reader dark mode, images, paragraph
+spacing, forced indents, focus reading, word spacing, character spacing.
+
+Version 2 is 64 bytes: `YBRS`, version 2, uint32 generation, one flags
+byte, 18 setting bytes, the 32-byte family and a uint32 FNV-1a checksum of the
+first 60 bytes. The first 17 settings keep their previous order; byte 18 is the
+custom automatic-turn interval in seconds (5 to 120). Flag bit 0 enables text
+overrides and bit 1 enables the saved interval. An interval-only record continues
+to follow global text defaults. Choosing an unchanged interval explicitly still
+creates its override. The timer itself is never restored as active. Version 1
+loads as text-only and upgrades on a later setting change, retaining the old slot.
+
+Version 3 is 65 bytes and adds the guide-dot preference at field index 18.
+Version 4 is 66 bytes and adds the publisher page-number preference at index 19.
+The family follows the settings and the checksum covers all preceding bytes.
+
+Version 5 keeps the 66-byte record and stores settings for the CrossPoint 2.0
+layout engine. Field index 2 accepts the seven line-height presets (0 to 6).
+Index 11 also accepts monochrome images (3). Index 13 is the paragraph indent
+width in spaces (0 to 5). The flags, field count, family and checksum stay in
+their version 4 positions. Earlier profiles use their original ranges when read.
+When there is no explicit line-height percentage, the earlier YACP preset
+is converted using the original table for the saved font family. The new
+renderer derives line height from font size, so pagination can change after
+the transition.
+
+Version 6 keeps the same layout and adds value 6 in field index 13 for YACP's
+forced paragraph indents. A version 1 to 4 forced-indent flag restores this
+mode when enabled and maps to zero spaces otherwise. Saved numeric widths
+from version 5 retain their value. The firmware writes version 6 when forced
+indents are selected and version 5 for numeric widths.
+
+The latest valid generation wins using unsigned wrap-aware comparison. A save
+writes the other slot, closes it and verifies its contents before accepting it.
+Truncation can therefore retain the preceding valid copy. Unknown magic or
+version prevents writes to both slots. If neither damaged slot is recoverable,
+global defaults are used without overwriting the damaged files. Unchanged
+settings cause no profile write once their explicit overrides have been recorded.
+
+## Upstream formats
+
 These formats describe the SD-card cache files under `/.crosspoint/epub_<hash>/`.
 All POD fields are written in the ESP32 little-endian representation used by
 `Serialization.h`; strings are length-prefixed UTF-8.
@@ -90,202 +208,18 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Version 73
+### Version 49 (YACP)
 
-Version 73 keeps the binary layout and rebuilds completed and partial sections.
-TrueType vector fonts now render and advance the .notdef glyph for missing
-characters instead of omitting them. Cached line breaks and word positions change
-for text containing glyph fallbacks. Book metadata and saved progress are kept.
+Adds the one-byte `forceParagraphIndents` boolean after `wordSpacingPercent`,
+before the page count. The header is 44 bytes. Page count starts at offset 22,
+page LUT at 24, and visible-text LUT at 40. Both enabled and disabled values
+participate in validation. The committed partial marker is 233; the complete
+marker is 49. A different version or flag rebuilds the section using the saved
+visible-text position. An incomplete build still uses zero.
 
-### Version 72
-
-Version 72 makes ruby layout closer to how Chromium browser render text with
-ruby characters by default (`ruby-align: space-around; ruby-overhang: auto;`)
-Ruby annotation can overhang neighboring base text by at most the smaller of
-half the ruby edge-character width and 1/4 of the neighboring word width. When
-the ruby annotation is wider than its base text, spacing is inserted between
-every character in the base text as well as at the start and the end of the
-base text so that it becomes the same length as the ruby annotation.
-
-### Version 71
-
-Version 71 keeps the binary layout and rebuilds completed and partial sections.
-Focus split offsets now locate the bold prefix in RTL words and the regular
-suffix in LTR words. Book metadata and saved progress are kept.
-
-### Version 70
-
-Version 70 preserves the binary layout but rebuilds completed and partial
-sections because SD-font layout now rounds each scaled glyph advance to pixels,
-matching unkerned drawing. Cached line breaks and word positions change.
-Book metadata and saved progress are kept.
-
-### Version 69
-
-Version 69 preserves the binary layout but rebuilds completed and partial
-sections because line spacing now multiplies font size instead of the font's
-newline distance (`advanceY`). Clipping layout signatures also distinguish the
-new calculation so old page-local word ranges are not reused for a new layout.
-Book metadata and saved progress are kept.
-
-### Version 68
-
-Version 68 preserves the binary layout but rebuilds completed and partial
-sections to remove mid-line hyphens left by drop-cap layout. The lines beside
-the drop cap use bounded greedy wrapping; the rest keep their usual wrapping.
-Book metadata and saved progress are kept.
-
-### Version 67
-
-Version 67 preserves the binary layout but rebuilds completed and partial
-sections for corrected justification of visually reordered text with attached
-spaces. Book metadata and saved progress are kept.
-
-### Version 66
-
-Version 66 preserves the binary layout but rebuilds completed and partial
-sections to remove leading non-breaking spaces carried across soft line wraps.
-Explicit paragraph-leading spaces, book metadata, and saved progress are kept.
-
-### Version 65
-
-Version 65 preserves the binary layout but rebuilds completed and partial
-sections for corrected justification of non-breaking spaces after hyphens and
-ellipses. Book metadata and reading progress are unchanged.
-
-### Version 64
-
-Version 64 preserves the binary layout but rebuilds completed and partial
-sections for corrected explicit font-weight/font-style inheritance. It retains
-version 63's GIF rendering and paragraph-boundary fixes. CSS cache version 19 stores
-`inherit` as value 2 in the existing font-style and font-weight bytes; the
-winning declaration is resolved against the parent before applying the element's
-style. Older CSS caches are rebuilt. Book metadata and reading progress are
-unchanged.
-
-### Version 63
-
-Version 63 retains the version 60 rendering format and rebuilds completed and
-partial sections to include previously omitted GIFs and their alternative text.
-Earlier GIF/table development builds used versions 60 through 62; their caches
-also rebuild to preserve both the current rendering format and corrected
-paragraph boundaries. The partial-build sentinel remains derived from the final
-section version. Book metadata and saved progress are kept, but pagination can
-change as GIFs become visible.
-
-### Version 60
-
-The serialized layout is unchanged. Text that runs straight into a block or
-heading start (`text<div>…`) now stays in its own paragraph instead of being
-joined to the first word of the new block. Older completed and partial section
-caches rebuild automatically; book metadata and reading progress are kept.
-
-### Version 59
-
-The serialized layout is unchanged. Stored CSS rules now apply even below
-48 KiB free heap. Older completed and partial sections rebuild because they may
-contain missing styles, different line breaks, or content that should be hidden.
-Book metadata, CSS rule caches, and reading progress are kept.
-
-### Version 58
-
-The serialized layout is unchanged. Completed and partial sections rebuild for
-corrected rendering layout and footnote placement. Book metadata and reading
-progress are kept.
-
-### Version 57
-
-Version 57 combines the rendering layout below with line breaks after explicit
-hyphens and dashes. It invalidates version 56 caches from both branches, which
-used different layouts under the same version. Completed and partial sections
-are rebuilt.
-
-### Version 56
-
-Version 56 adds the rendering layout below on top of version 55.
-
-Each TextBlock's BlockStyle stores a signed 32-bit `fontId` after
-`characterSpacing`: the renderer font the line was laid out in, or 0 for the
-section font. Each TextBlock ends with a `hasWordFonts` flag. When set, it is
-followed by three signed 32-bit font ids and one slot byte per word: 0 draws the
-word in the block's font, `n` in font `n - 1`; bit 0x80 of a slot marks CSS
-small caps (the word text keeps its original case). Mixed-size words share the baseline
-of the tallest font. SD (.cpfont) and vector fonts use sized variants for
-headings, CSS font-size blocks, inline runs and drop caps. A font-size span
-holding a whole paragraph sizes that paragraph.
-
-Pages gain two element types. `TAG_PageDropCap` (4) is an initial letter drawn
-scaled up from a font's glyph: position (its `yPos` is the baseline of the last
-spanned line), the renderer font id, the scale in 1/256ths, the word style and
-up to 12 bytes of UTF-8 text. `TAG_PageBorderBox` (5) is a CSS border and/or
-background shade around one page's slice of a block element: position, size,
-width and style for the top, right, bottom and left edges (a side split off by a
-page break has width 0), and a shade flag.
-
-Layout changes keep headings with following content and avoid leaving a
-paragraph's first line alone at a page bottom or its last line alone at a page
-top. Preserved whitespace and inherited block emphasis affect word placement
-and styles. Inline `<br>` breaks omit paragraph spacing, while standalone and
-consecutive breaks add blank lines.
-
-Table columns are sized from a markup pre-scan rather than equal widths.
-Bordered tables frame each grid cell with `PageBorderBox` elements. Cells honor
-CSS padding in grid and stacked layouts. Plain-text rows share a 160-token /
-2 KB budget; rows containing blocks or images use full-width flow to preserve
-paragraphs and illustrations. Older sections are rebuilt for the serialized
-font data, page elements and layout changes.
-
-CSS cache version 16 adds a boolean `preserveWhitespace` byte after `initialLetter`
-and uses defined-property bit 30 for `white-space`.
-CSS cache version 17 stores rules in source order and retains nonadjacent repeated
-selectors so equal-specificity declarations cascade in stylesheet order.
-
-CSS cache version 18 adds a border-component byte after the four border sides.
-Bits 0-3 mark declared widths and bits 4-7 mark declared styles, in top, right,
-bottom, left order. Width and style declarations cascade independently.
-
-### Version 55
-
-Each TextBlock adds a uint16 `paragraphStartWord` after `textBytes`. It is the
-visual index of the paragraph's first logical word, or `UINT16_MAX` for a
-continuation line. Clipping uses this marker independently of source-offset
-gaps. Older completed and partial section caches rebuild automatically;
-book metadata and reading progress are kept.
-
-### Version 54
-
-The serialized layout is unchanged. Word source ranges and split offsets now
-include codepoints absorbed by NFC composition. The high bit of each word's
-style byte marks a discretionary hyphen, so clipping can remove it independently
-of source length. Rebuild completed and partial section caches to correct
-clipping spaces and anchors for decomposed text.
-
-### Version 53
-
-Each TextBlock arena starts with one 8-byte source range per word (two uint32
-chapter-visible Unicode-codepoint offsets, start inclusive and end exclusive).
-Ranges follow words through BiDi ordering and line wrapping. This version also
-includes the version 52 redaction layout changes. Older completed and partial
-section caches are rebuilt automatically; book and progress files are kept.
-
-### Version 52
-
-The serialized layout is unchanged. Missing full-block (`U+2588`) and black-square
-(`U+25A0`) symbols now use font-sized solid rectangles instead of replacement
-glyphs. Rebuild older sections so cached line breaks and word positions match
-their new widths.
-
-### Version 51
-
-The serialized layout is unchanged. Paragraph continuity and top spacing are
-preserved across soft flushes. Older sections are rebuilt for the updated layout.
-
-### Version 50
-
-The header adds `paragraphIndentSpaces` after `extraParagraphSpacing`. The value
-participates in cache validation, so sections with different indentation settings
-are rebuilt. Version 49 was used by pre-release builds with a different header
-layout and is skipped to prevent reuse of those caches.
+This is a YACP format extension. Before integrating a later upstream section
+format, reconcile its version and layout explicitly rather than treating an
+upstream version numbered 49 as this format. Book progress remains ten bytes.
 
 ### Version 48
 
@@ -397,7 +331,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 64
+#define EXPECTED_VERSION 49
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 256
@@ -601,6 +535,7 @@ struct SectionBin {
     bool focusReadingEnabled;
     s8 characterSpacing;
     u8 wordSpacingPercent;
+    bool forceParagraphIndents;
 
     u16 pageCount;
     u32 pageLutOffset;
@@ -743,24 +678,52 @@ make a real book disappear.
 `selfSize` is the expected file size. Comparing it against the real one is a free
 truncation guard: a build cut short by a power failure cannot pass.
 
-## Clipping store (`/.crosspoint/clippings/epub_<path-hash>.bin`)
+## YACP statistics retained by the CrossPoint port
 
-Version 4 retains the version 3 header and page-local range fields. After each
-record's layout signature it stores `startOffset` and `endOffset` (uint32 chapter
-codepoint range, end exclusive; UINT32_MAX means unavailable), `syncRevision`
-(uint64), `pendingUpload` (one byte), and a 65-byte NUL-terminated sync ID. The
-chapter title, text length, and text follow. Versions 1–3 remain readable.
+- Per-book `stats_v6.bin` is 73 bytes. Versions 1 through 6 remain readable; the flags preserve manual dates and completion state. A save verifies its temporary bytes, retains the preceding valid file as `.bak`, and publishes by rename. Future or corrupt data blocks destructive saves.
+- `global_stats.bin` version 3 is 159 bytes and includes 730 days of activity bits. Synchronized device files are snapshots, not deltas; the current device identifier is excluded from imported totals.
+- `daily_reading.bin` begins with `CRHM`. Version 2 stores a four-byte anchor day and 730 little-endian 16-bit minute buckets, totaling 1,469 bytes. Version 1 remains readable without discarding its day values. The wider buckets fix the former 255-minute ceiling.
+- `finished_books.bin` begins with `CPFB` and retains at most 32 records. Version 3 stores a 64-bit FNV-1a path key, reading seconds, start/finish dates and bounded UTF-8 title/author strings. Device cache-directory hashes remain CrossPoint's platform-dependent hashes and must not be confused with these stable index keys.
 
-Stable IDs are saved before upload. A sibling `.deleted` file stores fixed
-65-byte IDs awaiting server acknowledgement. Deletions are queued before the
-local record is removed and retried on the next enabled manual sync. A `.bak`
-file is recovered if power interrupted replacement of the main store.
+The independent host decoders live in `scripts/yacp_data_formats.py`. Existing caches are never considered proof of position preservation across layout engines; migration uses reviewed source-text anchors and fresh CrossPoint page tables.
 
-Clipping header strings are limited to 4 KiB on both reads and writes. A failed
-load leaves no usable index and disables writes until a successful load. The
-index is allocated with checked, bounded growth and released on unload.
+## Legacy YACP per-book reader settings
 
-Book moves rename the store and its `.deleted` journal (plus recovery sidecars)
-together. The stored source path is informational and is refreshed on the next
-save; the current file path selects the store. Local book deletion cleans up all
-of these sidecars but preserves the independent `My Clippings.txt` export.
+`epub_<legacy-path-hash>/reader_settings.bin` is user data, not disposable pagination cache.
+Version 1 contains the version byte and a little-endian 16-bit automatic page-turn interval (three bytes total).
+Version 2 contains 86 bytes: version, flags, interval, rendering mode, 17 byte-sized reader settings, and a 64-byte terminated UTF-8 SD font-family field. Flags 0/1/2 respectively enable custom text settings, the interval and a rendering-mode override.
+
+The 17 settings, in order, are family, size index, line height, orientation, margin, publisher numbers, alignment, embedded styles, hyphenation, antialiasing, reader dark mode, images, paragraph spacing, paragraph indents, bionic reading, guide dots and rendering mode. The font-size range is not stored per book. The frozen reader computes a nominal target from the global range, but selects the indexed available family size first. Migration must use the captured font catalogue, not just that nominal target. Built-in indices instead depend on Standard/XLarge. A record with custom-settings flag off must not override text choices, even when its unused snapshot contains values.
+
+`book_reader_settings()` rejects unknown versions/flags, wrong lengths and unterminated family names. Conversion candidates retain old rendering-mode selections as evidence while selecting the CrossPoint layout engine, as requested. The port persists its converted book profiles in alternating `reader_profile.0` and `reader_profile.1` slots under `/.crosspoint/book_profiles/epub_<path-hash>/`. Version 3 is 65 bytes and includes the independent custom automatic-turn interval. Activation of a complete real-card migration remains pending.
+
+## Nearby YACP statistics
+
+The retained CISS protocol has a 14-byte header: four ASCII magic bytes, version 1, message type, one-byte payload size, a zero reserved byte and the sender's six-byte factory MAC. Types are Hello (1), Stats (2), Ack (3) and Name (4). Stats payloads are exactly 13, 17 or 159 bytes for global-statistics versions 1, 2 and 3. Names occupy 2 to 20 bytes. This protocol is separate from the SDK's CIFT file transfer.
+
+Each peer has one canonical lowercase file `/.crosspoint/synced_stats/device_<12-hex-factory-MAC>.bin`. It is a complete local-device snapshot, never an aggregate or an increment. Saving verifies `.part` before rotating the canonical file to `.previous` and promoting the new snapshot. A failed promotion retains a recoverable previous snapshot. Identical snapshots perform no write. Unknown or corrupt existing snapshots block replacement.
+
+Aggregation excludes this device, temporary files and noncanonical copies. It reads `.previous` only when the matching canonical snapshot is missing or invalid. A newer canonical format is skipped without falling back to an older snapshot. Files remain untouched during aggregation. These checks provide recoverable file-level behavior; they do not establish FAT/SD power-loss atomicity on physical hardware.
+
+The YACP `recentBooksView` setting keeps its legacy meanings: `0` for the dedicated list, `1` for the nine-cover grid. The default is list. This does not change the `recent.json` record format or the eighteen-record bound.
+
+## Book-profile reset
+
+The YACP book-profile v3 format already permits flags zero. An explicit reset writes a newer, verified zero-flag record to the alternate slot. Both text and automatic-turn interval then inherit the current global settings, including later global changes. The preceding slot is preserved during the write. Unsupported formats block reset. Repeating an already complete reset does not write another record.
+
+## YACP book move journal
+
+`/.crosspoint/book-move.bin` is a 1,052-byte immutable intent: `YBM1`, version byte 1, five-bit source-presence mask (book/cache/bookmarks/profile/gallery), two-bit metadata-snapshot mask, reserved zero byte, two little-endian size/FNV-1a32 pairs for the recent/state snapshots, two zero-padded 512-byte absolute book paths, and a trailing little-endian FNV-1a32 checksum of the preceding bytes. Paths are validated before use. Version 2 keeps the record length and checksum and uses mask bits 5 and 6 for the protected book's `.key` and `.rights` files. It derives an `epub_` cache identity for TXT and Markdown. The v1 recovery path continues to resolve `txt_` identities. A pending journal must stay on the same MCU architecture because these identities use the device's `std::hash`.
+
+Version 3 keeps the same record length and uses presence bits 7 through 11 for the clipping store and its `.bak`, `.tmp`, `.deleted` and `.migrate.bak` companions, in that order. The previously reserved byte at offset 7 stores the high byte of the presence mask. Recovery continues to accept versions 1 and 2.
+
+`book-move-recent.json` and `book-move-state.json` preserve pre-operation metadata. They remain after successful completion, and may only be replaced for a new operation with no active intent. Recovery verifies snapshot sizes/checksums before restoring normal JSON paths. Existing destination data, missing source and destination, invalid records or corrupt snapshots block recovery. A truncated initial intent can require manual recovery, but no file renames occur until the intent has been reopened and verified. A successful operation retires only its intent, never book data.
+
+
+## On-reader YACP migration transaction, schema 1
+
+`/.yacp-migration-v1/intent`, `/.crosspoint/migration-ready` and `/.yacp-migration-v1/complete` contain the eight bytes `YACPMIG` followed by `0x01`. Intent is written and reopened before renaming the legacy `/.crosspoint` directory to `/.yacp-migration-v1/original`. Preparation writes under `/.yacp-migration-v1/staging`. The ready marker is written only after conversion; the staged directory is then renamed to `/.crosspoint`, followed by completion. Recovery accepts matching partial deterministic outputs, never conflicting prefixes. A partial completion marker is completed only when the activated ready marker is valid. Ambiguous active/original directory combinations block normal data loading.
+
+Original files remain byte-identical, including unknown stores. Converted cache directories contain `migration-source-path` with the exact absolute SD book path. `migration-known-caches` records resolved legacy cache identities, including superseded hashes for the same path. `migration-report.json` gives schema, book/position/review counts and original location; `migration-review` contains individual source/reason records. Inactive bookmark scratch and owner files make streamed conversion repeatable and detect flattened target-name collisions.
+
+Migration has a bounded 2 KiB copy/verification workspace, a 1 KiB cached-text buffer and a lazy matcher under 4 KiB, allocated once off the boot stack. JSON documents are individually capped at 32 KiB, with input/output buffers capped at 16 KiB; per-book profile conversion can hold two documents. A bookmark record's temporary serialized buffer is capped at 8 KiB and released before the next record. EPUB metadata and XML parsing reuse the current reader libraries. These allocations run before ordinary reader/font/network initialization and are released on completion; no migration work is added to page turns. Physical peak heap and FAT power-loss behavior still require device tests.

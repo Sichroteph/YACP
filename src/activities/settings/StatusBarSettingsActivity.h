@@ -10,8 +10,8 @@ class StatusBarSettingsActivity final : public UiListActivity {
   explicit StatusBarSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   // Must equal ITEM_COUNT in the .cpp (static_assert'd there) — the max
-  // possible row count (RTC-equipped devices show all of them).
-  static constexpr int MAX_STATUS_BAR_ITEMS = 8;
+  // possible row count (X3 shows all of them).
+  static constexpr int MAX_STATUS_BAR_ITEMS = 10;
 
   void onEnter() override;
   void render(RenderLock&&) override;
@@ -19,8 +19,9 @@ class StatusBarSettingsActivity final : public UiListActivity {
  private:
   OptionPopup optionPopup;
 
-  // Decided in onEnter() based on halClock.isAvailable() so clock entries are hidden on X4.
+  // Decided on entry: the X3 current entry follows hardware support.
   int visibleItemCount = 0;
+  uint8_t visibleItems_[MAX_STATUS_BAR_ITEMS]{};
 
   int listCount() const override { return visibleItemCount; }
   void buildScreen(UiScreen& screen) override;

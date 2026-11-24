@@ -1,0 +1,39 @@
+diff --git a/libs/hardware/BatteryMonitor/include/BatteryMonitor.h b/libs/hardware/BatteryMonitor/include/BatteryMonitor.h
+--- a/libs/hardware/BatteryMonitor/include/BatteryMonitor.h
++++ b/libs/hardware/BatteryMonitor/include/BatteryMonitor.h
+@@ -73,6 +73,10 @@
+     //     a board with a gauge but no charger IC (e.g. X3) still reports it.
+     bool isCharging() const;
+ 
++    // Signed battery current from a BQ27220 in milliamps (positive = charging).
++    // Returns false if unavailable without changing the caller's sample.
++    bool readCurrentMilliamps(int16_t& out) const;
++
+     // True when external power (a USB cable or charger) is physically present.
+     //
+     // This is NOT isCharging(): a full battery stops charging while still
+diff --git a/libs/hardware/BatteryMonitor/src/BatteryMonitor.cpp b/libs/hardware/BatteryMonitor/src/BatteryMonitor.cpp
+--- a/libs/hardware/BatteryMonitor/src/BatteryMonitor.cpp
++++ b/libs/hardware/BatteryMonitor/src/BatteryMonitor.cpp
+@@ -885,6 +885,21 @@
+ 
+ double BatteryMonitor::readVolts() const {
+   return static_cast<double>(readMillivolts()) / 1000.0;
++}
++
++bool BatteryMonitor::readCurrentMilliamps(int16_t& out) const {
++#if FREEINK_BATTERY_I2C_GAUGE
++  const auto& g = BoardConfig::ACTIVE.batteryGauge;
++  uint16_t raw = 0;
++  if (g.gaugeType == BoardConfig::GaugeType::Bq27220 && g.gaugeAddr != 0 &&
++      readReg16(g.gaugeAddr, BQ27220_CURRENT, raw)) {
++    out = static_cast<int16_t>(raw);
++    return true;
++  }
++#else
++  (void)out;
++#endif
++  return false;
+ }
+ 
+ bool BatteryMonitor::isCharging() const {

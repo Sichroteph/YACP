@@ -1,7 +1,7 @@
 #include "StatusBarSettingsActivity.h"
 
 #include <GfxRenderer.h>
-#include <HalClock.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <cstring>
@@ -9,29 +9,30 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/reader/BookReadingStats.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
 
 namespace {
-// Menu items in their natural order. The clock position entry is appended only
-// when the RTC probe found hardware; time, zone, and format live in Settings >
-// System > Clock.
+// Bottom status-bar items in their natural order. Reading-clock placement
+// lives separately in Settings > Reader > Clock.
 enum MenuItem {
   ITEM_CHAPTER_PAGE_COUNT = 0,
   ITEM_BOOK_PROGRESS_PERCENTAGE,
   ITEM_PROGRESS_BAR,
   ITEM_PROGRESS_BAR_THICKNESS,
+  ITEM_PROGRESS_BAR_POSITION,
   ITEM_TITLE,
   ITEM_BATTERY,
   ITEM_XTC_STATUS_BAR,
-  ITEM_CLOCK,  // RTC boards only
+  ITEM_TIME_LEFT,
+  ITEM_BATTERY_CURRENT,  // X3 gauge only
   ITEM_COUNT
 };
 
-constexpr int BASE_MENU_ITEMS = ITEM_CLOCK;  // Items shown on every device
-constexpr int FULL_MENU_ITEMS = ITEM_COUNT;  // Items shown when RTC is available
+constexpr int FULL_MENU_ITEMS = ITEM_COUNT;
 static_assert(FULL_MENU_ITEMS == StatusBarSettingsActivity::MAX_STATUS_BAR_ITEMS,
               "keep StatusBarSettingsActivity::MAX_STATUS_BAR_ITEMS in sync with ITEM_COUNT");
 
@@ -40,10 +41,12 @@ const StrId menuNames[FULL_MENU_ITEMS] = {
     StrId::STR_BOOK_PROGRESS_PERCENTAGE,
     StrId::STR_PROGRESS_BAR,
     StrId::STR_PROGRESS_BAR_THICKNESS,
+    StrId::STR_PROGRESS_BAR_POSITION,
     StrId::STR_TITLE,
     StrId::STR_BATTERY,
     StrId::STR_XTC_STATUS_BAR,
-    StrId::STR_CLOCK,
+    StrId::STR_TIME_LEFT,
+    StrId::STR_BATTERY_CURRENT,
 };
 
 constexpr int PROGRESS_BAR_ITEMS = 3;
@@ -53,14 +56,14 @@ constexpr int PROGRESS_BAR_THICKNESS_ITEMS = 3;
 const StrId progressBarThicknessNames[PROGRESS_BAR_THICKNESS_ITEMS] = {
     StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK};
 
+const StrId timeLeftNames[] = {StrId::STR_HIDE, StrId::STR_CHAPTER, StrId::STR_BOOK};
+const StrId progressBarPositionNames[] = {StrId::STR_BOTTOM, StrId::STR_TOP};
+
 constexpr int TITLE_ITEMS = 3;
 const StrId titleNames[TITLE_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE};
 
 constexpr int XTC_STATUS_BAR_ITEMS = 3;
 const StrId xtcStatusBarNames[XTC_STATUS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP};
-
-constexpr int STATUS_BAR_CLOCK_ITEMS = CrossPointSettings::STATUS_BAR_CLOCK_MODE_COUNT;
-const StrId statusBarClockNames[STATUS_BAR_CLOCK_ITEMS] = {StrId::STR_HIDE, StrId::STR_DIR_RIGHT, StrId::STR_DIR_LEFT};
 
 const int verticalPreviewTextPadding = 40;
 }  // namespace
@@ -71,7 +74,11 @@ StatusBarSettingsActivity::StatusBarSettingsActivity(GfxRenderer& renderer, Mapp
 void StatusBarSettingsActivity::onEnter() {
   UiListActivity::onEnter();
 
-  visibleItemCount = halClock.isAvailable() ? FULL_MENU_ITEMS : BASE_MENU_ITEMS;
+  visibleItemCount = 0;
+  for (int item = 0; item < ITEM_COUNT; ++item) {
+    if (item == ITEM_BATTERY_CURRENT && !gpio.deviceIsX3()) continue;
+    visibleItems_[visibleItemCount++] = static_cast<uint8_t>(item);
+  }
 
   // Clamp statusBarProgressBar and statusBarTitle in case of corrupt/migrated data
   if (SETTINGS.statusBarProgressBar >= PROGRESS_BAR_ITEMS) {
@@ -86,18 +93,22 @@ void StatusBarSettingsActivity::onEnter() {
     SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
   }
 
+  if (SETTINGS.statusBarProgressBarPosition > CrossPointSettings::PROGRESS_BAR_TOP) {
+    SETTINGS.statusBarProgressBarPosition = CrossPointSettings::PROGRESS_BAR_BOTTOM;
+  }
+
   if (SETTINGS.xtcStatusBarMode >= XTC_STATUS_BAR_ITEMS) {
     SETTINGS.xtcStatusBarMode = CrossPointSettings::XTC_STATUS_BAR_MODE::XTC_STATUS_BAR_HIDE;
   }
 
-  if (SETTINGS.statusBarClock >= STATUS_BAR_CLOCK_ITEMS) {
-    SETTINGS.statusBarClock = CrossPointSettings::STATUS_BAR_CLOCK_MODE::STATUS_BAR_CLOCK_HIDE;
+  if (SETTINGS.statusBarTimeLeft >= CrossPointSettings::STATUS_BAR_TIME_LEFT_COUNT) {
+    SETTINGS.statusBarTimeLeft = CrossPointSettings::TIME_LEFT_HIDE;
   }
 
   // Labels never change (unlike the values, which track live SETTINGS
   // state), so they're set once here rather than every buildScreen() call.
   for (int i = 0; i < visibleItemCount; i++) {
-    rowItems_[i].label = I18N.get(menuNames[i]);
+    rowItems_[i].label = I18N.get(menuNames[visibleItems_[i]]);
     rowItems_[i].actionValue = static_cast<int16_t>(i);
   }
 }
@@ -117,7 +128,7 @@ void StatusBarSettingsActivity::activateIndex(const int index) {
 }
 
 void StatusBarSettingsActivity::handleSelection() {
-  switch (nav.selected) {
+  switch (visibleItems_[nav.selected]) {
     case ITEM_CHAPTER_PAGE_COUNT:
       SETTINGS.statusBarChapterPageCount = (SETTINGS.statusBarChapterPageCount + 1) % 2;
       break;
@@ -144,8 +155,18 @@ void StatusBarSettingsActivity::handleSelection() {
         SETTINGS.saveToFile();
       });
       return;
+    case ITEM_PROGRESS_BAR_POSITION:
+      optionPopup.show(StrId::STR_PROGRESS_BAR_POSITION, progressBarPositionNames, 2,
+                       SETTINGS.statusBarProgressBarPosition, [this](int idx) {
+                         SETTINGS.statusBarProgressBarPosition = idx;
+                         SETTINGS.saveToFile();
+                       });
+      return;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
+      break;
+    case ITEM_BATTERY_CURRENT:
+      SETTINGS.statusBarBatteryCurrent = !SETTINGS.statusBarBatteryCurrent;
       break;
     case ITEM_XTC_STATUS_BAR:
       optionPopup.show(StrId::STR_XTC_STATUS_BAR, xtcStatusBarNames, XTC_STATUS_BAR_ITEMS, SETTINGS.xtcStatusBarMode,
@@ -154,9 +175,13 @@ void StatusBarSettingsActivity::handleSelection() {
                          SETTINGS.saveToFile();
                        });
       return;
-    case ITEM_CLOCK:
-      SETTINGS.statusBarClock = (SETTINGS.statusBarClock + 1) % STATUS_BAR_CLOCK_ITEMS;
-      break;
+    case ITEM_TIME_LEFT:
+      optionPopup.show(StrId::STR_TIME_LEFT, timeLeftNames, CrossPointSettings::STATUS_BAR_TIME_LEFT_COUNT,
+                       SETTINGS.statusBarTimeLeft, [this](int idx) {
+                         SETTINGS.statusBarTimeLeft = idx;
+                         SETTINGS.saveToFile();
+                       });
+      return;
     default:
       return;
   }
@@ -164,19 +189,23 @@ void StatusBarSettingsActivity::handleSelection() {
 }
 
 std::string StatusBarSettingsActivity::rowValueText(const int index) {
-  switch (index) {
+  switch (visibleItems_[index]) {
+
     case ITEM_PROGRESS_BAR:
       return I18N.get(progressBarNames[SETTINGS.statusBarProgressBar]);
     case ITEM_PROGRESS_BAR_THICKNESS:
       return I18N.get(progressBarThicknessNames[SETTINGS.statusBarProgressBarThickness]);
+    case ITEM_PROGRESS_BAR_POSITION:
+      return I18N.get(progressBarPositionNames[SETTINGS.statusBarProgressBarPosition]);
     case ITEM_TITLE:
       return I18N.get(titleNames[SETTINGS.statusBarTitle]);
+
     case ITEM_XTC_STATUS_BAR:
       return I18N.get(xtcStatusBarNames[SETTINGS.xtcStatusBarMode]);
-    case ITEM_CLOCK:
-      return I18N.get(statusBarClockNames[SETTINGS.statusBarClock]);
+    case ITEM_TIME_LEFT:
+      return I18N.get(timeLeftNames[SETTINGS.statusBarTimeLeft]);
     default:
-      return "";
+      return {};
   }
 }
 
@@ -186,7 +215,8 @@ void StatusBarSettingsActivity::buildScreen(UiScreen& screen) {
   // bar) so the list never runs underneath it, plus the button-hints row below.
   // The preview is pinned directly above the hints (see render()), so the band
   // is just the bar + its label, not a floating gap.
-  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  const int statusBarHeight =
+      UITheme::getStatusBarHeight() + UITheme::getReaderTopClockOffset() + UITheme::getReaderTopClockHeight(renderer);
   const auto previewFooter =
       static_cast<int16_t>(statusBarHeight + verticalPreviewTextPadding + metrics.verticalSpacing);
   screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
@@ -200,10 +230,23 @@ void StatusBarSettingsActivity::buildScreen(UiScreen& screen) {
   for (int i = 0; i < visibleItemCount; i++) {
     rowValues_[i] = rowValueText(i);
     rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
+    switch (visibleItems_[i]) {
+      case ITEM_CHAPTER_PAGE_COUNT:
+        GUI.setCheckboxRow(rowItems_[i], SETTINGS.statusBarChapterPageCount);
+        break;
+      case ITEM_BOOK_PROGRESS_PERCENTAGE:
+        GUI.setCheckboxRow(rowItems_[i], SETTINGS.statusBarBookProgressPercentage);
+        break;
+      case ITEM_BATTERY:
+        GUI.setCheckboxRow(rowItems_[i], SETTINGS.statusBarBattery);
+        break;
+      case ITEM_BATTERY_CURRENT:
+        GUI.setCheckboxRow(rowItems_[i], SETTINGS.statusBarBatteryCurrent);
+        break;
+      default:
+        break;
+    }
   }
-  GUI.setCheckboxRow(rowItems_[ITEM_CHAPTER_PAGE_COUNT], SETTINGS.statusBarChapterPageCount);
-  GUI.setCheckboxRow(rowItems_[ITEM_BOOK_PROGRESS_PERCENTAGE], SETTINGS.statusBarBookProgressPercentage);
-  GUI.setCheckboxRow(rowItems_[ITEM_BATTERY], SETTINGS.statusBarBattery);
 
   fui::ListProps props;
   props.items = rowItems_;
@@ -242,12 +285,24 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   }
 
   // Anchor the preview as a footer directly above the button hints.
-  GUI.drawStatusBar(renderer, 75, 8, 32, title, metrics.buttonHintsHeight, 0, false);
+  char timeLeft[32]{};
+  if (SETTINGS.statusBarTimeLeft != CrossPointSettings::TIME_LEFT_HIDE) {
+    BookReadingStats::formatDuration(1800, timeLeft, sizeof(timeLeft));
+  }
+  const int previewHeight =
+      UITheme::getStatusBarHeight() + UITheme::getReaderTopClockOffset() + UITheme::getReaderTopClockHeight(renderer);
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const int previewTop = renderer.getScreenHeight() - bottom - previewHeight - metrics.buttonHintsHeight - 4;
+  GUI.drawStatusBar(renderer, 75, 8, 32, title, metrics.buttonHintsHeight, 0, false, false, false, timeLeft,
+                    previewTop);
+  GUI.drawReaderTopClock(renderer, previewTop + UITheme::getReaderTopClockOffset(),
+                         SETTINGS.clockFormat == 1 ? "12:34 PM" : "12:34");
 
-  renderer.drawCenteredText(UI_10_FONT_ID,
-                            renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() -
-                                metrics.buttonHintsHeight - verticalPreviewTextPadding,
-                            tr(STR_PREVIEW));
+  renderer.drawCenteredText(
+      UI_10_FONT_ID,
+      renderer.getScreenHeight() - previewHeight - metrics.buttonHintsHeight - verticalPreviewTextPadding,
+      tr(STR_PREVIEW));
 
   renderer.displayBuffer();
 }

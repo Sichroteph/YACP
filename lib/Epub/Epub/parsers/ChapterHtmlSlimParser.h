@@ -52,6 +52,17 @@ class ChapterHtmlSlimParser {
   float lineCompression;
   bool extraParagraphSpacing;
   uint8_t paragraphIndentSpaces = 2;
+  bool forceParagraphIndents = false;
+  bool guideReadingEnabled = false;
+  bool publisherPageNumbers = false;
+  struct PendingPublisherMarker { uint32_t offset; char label[16]; };
+  // Bounded look-ahead, allocated only if a chapter actually contains enabled annotations.
+  static constexpr unsigned MAX_PENDING_PUBLISHER_MARKERS = 64;
+  std::unique_ptr<PendingPublisherMarker[]> pendingPublisherMarkers;
+  uint8_t pendingPublisherMarkerCount = 0;
+  void addPublisherMarker(const char* label);
+  void attachPublisherMarkers(uint32_t endOffset, int16_t y);
+
   int8_t characterSpacing = 0;
   uint8_t wordSpacingPercent = 100;
   uint8_t paragraphAlignment;
@@ -320,6 +331,9 @@ class ChapterHtmlSlimParser {
         tocAnchors(std::move(tocAnchors)) {}
 
   ~ChapterHtmlSlimParser();
+  void setGuideReading(const bool enabled) { guideReadingEnabled = enabled; }
+  void setPublisherPageNumbers(const bool enabled) { publisherPageNumbers = enabled; }
+  void setForceParagraphIndents(const bool enabled) { forceParagraphIndents = enabled; }
   void setTextSpacing(const int8_t character, const uint8_t wordPercent) {
     characterSpacing = character;
     wordSpacingPercent = wordPercent;

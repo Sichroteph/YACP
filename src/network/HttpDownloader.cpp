@@ -2,7 +2,10 @@
 
 #include <Arduino.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <ResumableFetch.h>
+#include <esp_crt_bundle.h>
+#include <esp_http_client.h>
 
 #include <algorithm>
 #include <functional>
@@ -307,4 +310,45 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
   LOG_DBG("HTTP", "Downloaded %zu bytes", downloaded);
   return OK;
+}
+
+// Authenticate the GitHub release metadata independently of the bulk transfer.
+bool HttpDownloader::fetchVerifiedMetadata(const std::string& url, const DataCallback& onData) {
+  if (!url.starts_with("https://")) {
+    LOG_ERR("HTTP", "OTA metadata requires HTTPS");
+    return false;
+  }
+  WifiPowerSaveGuard psGuard;
+  esp_http_client_config_t config = {};
+  config.url = url.c_str();
+  config.crt_bundle_attach = esp_crt_bundle_attach;
+  config.timeout_ms = HTTP_TIMEOUT_MS;
+  config.buffer_size = 2048;
+  config.buffer_size_tx = 512;
+  config.disable_auto_redirect = true;
+  auto client = esp_http_client_init(&config);
+  if (!client) {
+    LOG_ERR("HTTP", "Could not allocate verified metadata client");
+    return false;
+  }
+  esp_http_client_set_header(client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+  bool good = esp_http_client_open(client, 0) == ESP_OK;
+  if (good) {
+    good = esp_http_client_fetch_headers(client) >= 0 && esp_http_client_get_status_code(client) == 200;
+    // The bounded response chunk exceeds the reader's small stack budget.
+    auto chunk = makeUniqueNoThrow<uint8_t[]>(512);
+    good = good && bool(chunk);
+    while (good) {
+      const int n = esp_http_client_read(client, reinterpret_cast<char*>(chunk.get()), 512);
+      if (n <= 0) {
+        good = n == 0 && esp_http_client_is_complete_data_received(client);
+        break;
+      }
+      good = onData(chunk.get(), static_cast<size_t>(n));
+    }
+    esp_http_client_close(client);
+  }
+  esp_http_client_cleanup(client);
+  if (!good) LOG_ERR("HTTP", "Verified OTA metadata request failed");
+  return good;
 }

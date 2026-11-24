@@ -1,5 +1,6 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
+#include <Logging.h>
 
 // Global HalDisplay instance
 HalDisplay display;
@@ -129,6 +130,12 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
   }
 
   einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
+}
+
+void HalDisplay::displayMonochromeReinforcement(bool turnOffScreen) {
+  const auto started = millis();
+  const bool settled = einkDisplay.displayMonochromeReinforcement(turnOffScreen);
+  LOG_DBG("HAL", "Magic Flash UC8279: %s, %lu ms", settled ? "mono pass" : "clean baseline", millis() - started);
 }
 
 void HalDisplay::preconditionGrayscale() { einkDisplay.preconditionGrayscale(); }

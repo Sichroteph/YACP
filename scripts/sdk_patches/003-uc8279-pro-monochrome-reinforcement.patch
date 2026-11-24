@@ -1,0 +1,126 @@
+diff --git a/libs/display/FreeInkDisplay/include/FreeInkDisplay.h b/libs/display/FreeInkDisplay/include/FreeInkDisplay.h
+--- a/libs/display/FreeInkDisplay/include/FreeInkDisplay.h
++++ b/libs/display/FreeInkDisplay/include/FreeInkDisplay.h
+@@ -130,6 +130,7 @@
+   // follows. X3 uses the OEM differential base waveform; other panels display
+   // normally with `fallback` mode. See PanelDriver::displayGrayscaleBase.
+   void displayGrayscaleBase(RefreshMode fallback = HALF_REFRESH, bool turnOffScreen = false);
++  bool displayMonochromeReinforcement(bool turnOffScreen = false);
+   // Starts a mode-bound pass. Absolute uploads must cover both complete planes
+   // (full buffers or consecutive strips per plane) before displayGrayBuffer().
+   // False means the requested mode is unavailable; no base was painted.
+diff --git a/libs/display/FreeInkDisplay/src/FreeInkDisplay.cpp b/libs/display/FreeInkDisplay/src/FreeInkDisplay.cpp
+--- a/libs/display/FreeInkDisplay/src/FreeInkDisplay.cpp
++++ b/libs/display/FreeInkDisplay/src/FreeInkDisplay.cpp
+@@ -990,6 +990,23 @@
+   syncPendingAsync();
+   _shadowValid = false;
+   _driver->beginGrayscale(_bus, frameBuffer, GrayscaleMode::Overlay, toInternal(fallback), turnOffScreen);
++}
++
++bool FreeInkDisplay::displayMonochromeReinforcement(bool turnOffScreen) {
++  cancelGrayscalePass();
++  if (!_driver) return false;
++  if (!_inverted && !_inversionDirty) {
++    DisplayPmLock pmLock;
++    syncPendingAsync();
++    if (_driver->displayMonochromeReinforcement(_bus, frameBuffer, turnOffScreen)) {
++      _grayPassFailed = false;
++      _shadowValid = false;
++      _redRamSynced = true;
++      return true;
++    }
++  }
++  displayBuffer(FULL_REFRESH, turnOffScreen);
++  return false;
+ }
+ 
+ void FreeInkDisplay::preconditionGrayscale() {
+diff --git a/libs/display/FreeInkDisplay/src/driver/PanelDriver.h b/libs/display/FreeInkDisplay/src/driver/PanelDriver.h
+--- a/libs/display/FreeInkDisplay/src/driver/PanelDriver.h
++++ b/libs/display/FreeInkDisplay/src/driver/PanelDriver.h
+@@ -61,6 +61,14 @@
+   virtual void displayWindow(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, uint16_t x, uint16_t y, uint16_t w,
+                              uint16_t h, bool turnOff) {
+     display(bus, fb, prev, RefreshMode::Fast, turnOff);
++  }
++
++  // Return false without bus writes when a dedicated B/W settle is unavailable.
++  virtual bool displayMonochromeReinforcement(EpdBus& bus, const uint8_t* fb, bool turnOff) {
++    (void)bus;
++    (void)fb;
++    (void)turnOff;
++    return false;
+   }
+ 
+   // True when displayStart() defers (returns true) rather than completing
+diff --git a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
+--- a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
++++ b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
+@@ -755,6 +755,35 @@
+   _directGrayPass = false;
+ }
+ 
++bool Uc8279X4Driver::displayMonochromeReinforcement(EpdBus& bus, const uint8_t* fb, bool turnOff) {
++  if (!fb ||
++      (BoardConfig::ACTIVE.board != BoardConfig::Board::XteinkX4Pro &&
++       BoardConfig::ACTIVE.board != BoardConfig::Board::XteinkX4) ||
++      BoardConfig::ACTIVE.displayController != BoardConfig::DisplayController::UC8279 ||
++      BoardConfig::ACTIVE.displayControllerVariant != 0x68)
++    return false;
++  if (!_oldPlaneValid || _needFullClear || _redriveAfterGray || _directGrayOnPanel || _absoluteGrayPlanes) {
++    return false;
++  }
++  bus.waitBusy(" 8279_magic_ready");
++  // PON can reload MTP registers. Settle-table configuration must follow it.
++  powerOnIfNeeded(bus, " 8279_magic_PON");
++  streamPlane(bus, CMD_DTM2, fb);
++  runGrayscalePrecondition(bus, true);
++  streamPlane(bus, CMD_DTM1, fb);
++  _grayBaseValid = false;
++  _absoluteInput = false;
++  _absoluteGrayPlanes = false;
++  _oldPlaneValid = true;
++  _needFullClear = false;
++  if (turnOff && _isScreenOn) {
++    bus.cmd(CMD_POWER_OFF);
++    bus.waitBusy(" 8279_magic_POF");
++    _isScreenOn = false;
++  }
++  return true;
++}
++
+ void Uc8279X4Driver::displayGrayscaleBase(EpdBus& bus, const uint8_t* fb, RefreshMode fallback, bool turnOff) {
+   if (!fb) return;
+   // Match the UC8179 sibling: an explicit Full/Half clean, or a
+@@ -800,8 +829,8 @@
+ // PSR(REG=1) -> PFS -> gate scan -> CDI 0xD7 -> CCSET -> TSSET(fast) -> upload
+ // the 5 settle LUTs -> PON -> DRF -> PTOUT. Requires a valid previous page in
+ // DTM1 and the new base in DTM2.
+-void Uc8279X4Driver::runGrayscalePrecondition(EpdBus& bus) {
+-  if (!_oldPlaneValid || !_grayRefreshedOnce) return;
++void Uc8279X4Driver::runGrayscalePrecondition(EpdBus& bus, bool monochrome) {
++  if (!_oldPlaneValid || (!monochrome && !_grayRefreshedOnce)) return;
+   bus.waitBusy(" 8279x4_gray_pre_ready");
+ 
+   const uint16_t xEnd = static_cast<uint16_t>(_w - 1);
+diff --git a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.h b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.h
+--- a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.h
++++ b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.h
+@@ -117,6 +117,7 @@
+   // absolute AA path self-cleans per page). The pure-B/W menu keeps its Half
+   // scrub because it arrives through display()/displayStart, not this entry.
+   void displayGrayscaleBase(EpdBus& bus, const uint8_t* fb, RefreshMode fallback, bool turnOff) override;
++  bool displayMonochromeReinforcement(EpdBus& bus, const uint8_t* fb, bool turnOff) override;
+ 
+  private:
+   void initController(EpdBus& bus);
+@@ -136,7 +137,7 @@
+   // the UC8279_aa_prebw_mid settle waveform drives that transition without an OTP
+   // GC flash. Ported from the UC8179 sibling; the base is restored to DTM1 after.
+   void transitionGrayscaleBase(EpdBus& bus, const uint8_t* fb, bool turnOff);
+-  void runGrayscalePrecondition(EpdBus& bus);
++  void runGrayscalePrecondition(EpdBus& bus, bool monochrome = false);
+ 
+   const Uc8279X4Config& _cfg;
+ 

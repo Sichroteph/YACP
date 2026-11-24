@@ -108,13 +108,20 @@ bool HalClock::syncFromNTP() {
       dt.minute = static_cast<uint8_t>(timeinfo.tm_min);
       dt.second = static_cast<uint8_t>(timeinfo.tm_sec);
       dt.weekday = static_cast<uint8_t>(timeinfo.tm_wday);
-      const bool ok = _sdkRtc.set(dt);
+      bool ok = _sdkRtc.set(dt);
+      Rtc::DateTime verified;
+      if (ok) {
+        ok = _sdkRtc.now(verified) && verified.year == dt.year && verified.month == dt.month &&
+             verified.day == dt.day && verified.hour == dt.hour && verified.minute == dt.minute;
+      }
       if (ok) {
         _cachedUtc = epochFromUtc(dt);
         _hasCachedTime = true;
         _lastPollMs = 0;
         LOG_INF("CLK", "RTC set to %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day, dt.hour, dt.minute,
                 dt.second);
+      } else {
+        LOG_ERR("CLK", "RTC write or readback failed after NTP sync");
       }
       setTimezone(savedTz);
       return ok;

@@ -30,7 +30,8 @@ class EpubReaderMenuActivity final : public UiListActivity {
     GO_HOME,
     SYNC,
     DELETE_CACHE,
-    DICTIONARY
+    DICTIONARY,
+    READING_STATS
   };
 
   struct MenuItem {
@@ -57,7 +58,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
   // fixed-capacity array avoids any heap allocation for the row list. Labels
   // are set once in the constructor (buildMenuRowItems()); buildScreen()
   // only refreshes rows whose values reflect live state.
-  static constexpr size_t MAX_MENU_ITEMS = 19;
+  static constexpr size_t MAX_MENU_ITEMS = 20;
   freeink::ui::ListItem menuRowItems[MAX_MENU_ITEMS]{};
   void buildMenuRowItems();
 
@@ -73,6 +74,10 @@ class EpubReaderMenuActivity final : public UiListActivity {
   void drawChrome() override;
 
   void closeCancelled();
+  void openCustomInterval();
+  void updateCustomIntervalLabel();
+  bool customIntervalRequested = false;
+  char customIntervalLabel[64]{};
 
   // Fixed menu layout
   std::vector<MenuItem> menuItems;
@@ -84,7 +89,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
   uint8_t selectedPageTurnOption = 0;
   const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                 StrId::STR_LANDSCAPE_CCW};
-  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1", "3", "6", "12"};
+  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1", "3", "6", "12", customIntervalLabel};
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;

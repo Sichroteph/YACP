@@ -7,6 +7,7 @@
 
 #include "KOReaderSyncClient.h"
 #include "ProgressMapper.h"
+#include "YacpSmartSync.h"
 #include "activities/Activity.h"
 #include "components/UiAppHost.h"
 
@@ -67,8 +68,7 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   int selectedOption = 0;
 
   // Timed return for successful smart-sync terminal states.
-  unsigned long autoReturnAt = 0;
-  static constexpr unsigned long AUTO_RETURN_DELAY_MS = 1200;
+  yacpSync::ReturnDelay autoReturn;
 
   // Tracks whether this session activated WiFi. Set in onEnter past the credentials
   // check; checked in onExit to decide whether to silent-reboot. Can't rely on
@@ -85,7 +85,7 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   void performUpload();
   bool smartSyncEnabled() const;
   void markAutoReturn();
-  void completeAlreadySynced();
+  void completePluginSync();
   void ensureEpubLoaded();
   void saveProgressAndReturn(int spineIndex, int page);
   void returnToReader();

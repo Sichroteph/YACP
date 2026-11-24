@@ -1,0 +1,14 @@
+{
+  "reference": "complete local YACP snapshot before the CrossPoint 1.6.5 reconstruction",
+  "source_files": [
+    {
+      "path": "scripts/build_yacp_logo.py",
+      "sha256": "61dd1e4ed9b9881b53800ba81e678bf393e8bcecf51b34076ada35ad9e3c577e"
+    },
+    {
+      "path": "assets/brand/yacp-logo.svg",
+      "sha256": "e1761117e69fe99fcfdc94e477feb3c4d4cc0d1b253e13faba8b7b834b035e88"
+    }
+  ],
+  "generator_policy": "One preserved geometry generates public SVG/PNG, the pre-rotated 120-pixel firmware bitmap and the compressed device-portal SVG. Source hashes identify the preserved reference inputs."
+}

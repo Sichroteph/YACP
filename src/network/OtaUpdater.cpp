@@ -1,243 +1,213 @@
 #include "OtaUpdater.h"
 
-// clang-format off
-// HttpDownloader.h pulls Arduino/SdFat, whose macros collide with lwip's
-// ip4_addr.h unless seen first. Pin this order; clang-format would otherwise sort
-// the local header last and break the build.
 #include "HttpDownloader.h"
+#include <BoardConfig.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <ReleaseJsonParser.h>
+#include <esp_app_desc.h>
 #include <esp_ota_ops.h>
-// clang-format on
+#include <mbedtls/sha256.h>
 
 #include <algorithm>
 #include <cstring>
-#include <string>
 
-#include "FirmwareBoardTag.h"
 #include "FirmwareFlasher.h"
+#include "YacpReleasePolicy.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/Sichroteph/YACP/releases/latest";
+constexpr char stagePath[] = "/.crosspoint/yacp-ota-update.bin";
+constexpr char assetPrefix[] = "https://github.com/Sichroteph/YACP/releases/download/";
+
+const char* variant() {
+#if FREEINK_DEVICE_X4PRO
+#ifdef YACP_XLARGE
+  return "x4pro-xlarge";
+#else
+  return "x4pro";
+#endif
+#elif FREEINK_DEVICE_X4CLASSIC
+#ifdef YACP_XLARGE
+  return "x4c-xlarge";
+#else
+  return "x4c";
+#endif
+#elif FREEINK_DEVICE_X3 || FREEINK_DEVICE_X4
+#ifdef YACP_XLARGE
+  return "xlarge";
+#else
+  return "tiny";
+#endif
+#else
+  return nullptr;
+#endif
+}
+
+bool matchesAsset(const char* name) {
+  const char* selected = variant();
+  return selected && yacp_release::matchesVariant(name, selected);
+}
+
+// After downloading, release the TLS session before allocating this buffer.
+// Maintenance only: one fallible 1 KiB allocation instead of a large stack frame.
+OtaUpdater::OtaUpdaterError verifyStaged(size_t expectedSize, const uint8_t (&expected)[32], const char* tag) {
+  auto buffer = makeUniqueNoThrow<uint8_t[]>(1024);
+  if (!buffer) {
+    LOG_ERR("OTA", "No memory for SD verification");
+    return OtaUpdater::OOM_ERROR;
+  }
+  HalFile file;
+  if (!Storage.openFileForRead("OTA", stagePath, file)) return OtaUpdater::INTERNAL_UPDATE_ERROR;
+  ScopedCleanup closeFile{[&file] { file.close(); }};
+  if (file.size() != expectedSize) {
+    LOG_ERR("OTA", "Downloaded size differs from release");
+    return OtaUpdater::INTERNAL_UPDATE_ERROR;
+  }
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  ScopedCleanup freeHash{[&sha] { mbedtls_sha256_free(&sha); }};
+  if (mbedtls_sha256_starts(&sha, 0) != 0) {
+    LOG_ERR("OTA", "Cannot initialize SHA-256");
+    return OtaUpdater::INTERNAL_UPDATE_ERROR;
+  }
+  size_t remaining = expectedSize;
+  while (remaining) {
+    const size_t count = std::min(remaining, size_t{1024});
+    if (file.read(buffer.get(), count) != static_cast<int>(count) ||
+        mbedtls_sha256_update(&sha, buffer.get(), count) != 0) {
+      LOG_ERR("OTA", "Cannot hash staged file");
+      return OtaUpdater::INTERNAL_UPDATE_ERROR;
+    }
+    remaining -= count;
+  }
+  uint8_t actual[32];
+  if (mbedtls_sha256_finish(&sha, actual) != 0 || std::memcmp(actual, expected, sizeof(actual))) {
+    LOG_ERR("OTA", "Release SHA-256 mismatch");
+    return OtaUpdater::INTERNAL_UPDATE_ERROR;
+  }
+
+  // ESP image header + first segment header precede the application descriptor.
+  // Require the embedded YACP version/variant as well as the downloaded filename.
+  char embedded[32] = {}, wanted[48] = {};
+  const char* suffix = variant();
+  if (!std::strcmp(suffix, "x4pro")) suffix = "x4pro-tiny";
+  if (!std::strcmp(suffix, "x4c")) suffix = "x4c-tiny";
+  if (*tag == 'v') ++tag;
+  const int length = std::snprintf(wanted, sizeof(wanted), "%s-%s", tag, suffix);
+  if (length <= 0 || length >= static_cast<int>(sizeof(embedded)) ||
+      !file.seek(24 + 8 + offsetof(esp_app_desc_t, version)) ||
+      file.read(embedded, sizeof(embedded)) != sizeof(embedded) ||
+      std::memcmp(embedded, wanted, length + 1)) {
+    LOG_ERR("OTA", "Embedded version/variant differs from release");
+    return OtaUpdater::WRONG_DEVICE_ERROR;
+  }
+  return OtaUpdater::OK;
+}
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
-  LOG_DBG("OTA", "Checking for update (current: %s)", CROSSPOINT_VERSION);
+  updateAvailable = false;
+  latestVersion.clear();
+  otaUrl.clear();
+  otaSize = totalSize = processedSize = 0;
+  std::memset(expectedSha256, 0, sizeof(expectedSha256));
+  if (!variant()) return NO_UPDATE;
+  LOG_DBG("OTA", "Checking YACP update (current: %s)", CROSSPOINT_VERSION);
 
-  // Stream the ~32KB release JSON straight into the parser as it arrives.
-  // Buffering the whole body in a std::string would add a growing allocation
-  // on top of the TLS session's heap during the fetch; with -fno-exceptions an
-  // OOM there aborts. fetchUrl handles the verified-https GET, redirects, and
-  // User-Agent (see HttpDownloader).
-  // Heap-allocated: the parser embeds a 2 KB JSON token buffer.
-  auto releaseParserPtr = makeUniqueNoThrow<ReleaseJsonParser>();
-  if (!releaseParserPtr) {
-    LOG_ERR("OTA", "OOM: release parser");
+  // The fixed parser exceeds 2 KiB, so do not put it on the activity stack.
+  // Stream the response and free this one fallible allocation before downloading.
+  auto parser = makeUniqueNoThrow<ReleaseJsonParser>();
+  if (!parser) {
+    LOG_ERR("OTA", "No memory for release parser");
     return OOM_ERROR;
   }
-  ReleaseJsonParser& releaseParser = *releaseParserPtr;
-  releaseParser.setFirmwareAssetName("");
-  // Each board updates from crosspoint-<version>-<device>.bin. The combined
-  // C3 image uses x3-x4; other asset suffixes match their firmware board tag.
-  const bool isX4 = board_tag::boardNameLen() == 2 && memcmp(board_tag::boardName(), "x4", 2) == 0;
-  char assetSuffix[20] = "-x3-x4";
-  if (!isX4) {
-    snprintf(assetSuffix, sizeof(assetSuffix), "-%.*s", static_cast<int>(board_tag::boardNameLen()),
-             board_tag::boardName());
-  }
-  char assetName[48] = {};
-  bool assetNameSet = false;
-  const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&](const uint8_t* data, size_t len) {
-    size_t offset = 0;
-    while (!assetNameSet && offset < len) {
-      releaseParser.feed(reinterpret_cast<const char*>(data + offset), 1);
-      offset++;
-      if (releaseParser.foundTag()) {
-        snprintf(assetName, sizeof(assetName), "crosspoint-%s%s.bin", releaseParser.getTagName(), assetSuffix);
-        releaseParser.setFirmwareAssetName(assetName);
-        assetNameSet = true;
-      }
-    }
-    if (offset < len) releaseParser.feed(reinterpret_cast<const char*>(data + offset), len - offset);
-    return true;
-  });
-  if (!ok) {
-    LOG_ERR("OTA", "Release check fetch failed");
+  parser->setFirmwareAssetMatcher(matchesAsset);
+  if (!HttpDownloader::fetchVerifiedMetadata(latestReleaseUrl, [&](const uint8_t* data, size_t size) {
+        parser->feed(reinterpret_cast<const char*>(data), size);
+        return true;
+      })) {
+    LOG_ERR("OTA", "Verified release check failed");
     return HTTP_ERROR;
   }
-
-  LOG_DBG("OTA", "Parser results: tag=%s firmware=%s", releaseParser.foundTag() ? "yes" : "no",
-          releaseParser.foundFirmware() ? "yes" : "no");
-
-  if (!releaseParser.foundTag()) {
-    LOG_ERR("OTA", "No tag_name in release JSON");
+  yacp_release::Version version;
+  if (!parser->complete() || !parser->foundTag() || !yacp_release::parseVersion(parser->getTagName(), version)) {
+    LOG_ERR("OTA", "Invalid or incomplete YACP release metadata");
     return JSON_PARSE_ERROR;
   }
-
-  if (!releaseParser.foundFirmware()) {
-    LOG_INF("OTA", "No %s asset in latest release", assetName);
-    return NO_UPDATE;
+  if (!parser->foundFirmware()) return NO_UPDATE;
+  char expectedName[64];
+  if (!yacp_release::assetName(expectedName, sizeof(expectedName), parser->getTagName(), variant()) ||
+      std::strcmp(expectedName, parser->getSelectedAssetName()) ||
+      !yacp_release::digest(parser->getFirmwareDigest(), expectedSha256) ||
+      parser->getFirmwareSize() < 64 * 1024 || parser->getFirmwareSize() > 16 * 1024 * 1024 ||
+      std::strncmp(parser->getFirmwareUrl(), assetPrefix, sizeof(assetPrefix) - 1)) {
+    LOG_ERR("OTA", "Missing or inconsistent YACP asset metadata");
+    return JSON_PARSE_ERROR;
   }
-
-  latestVersion = releaseParser.getTagName();
-  otaUrl = releaseParser.getFirmwareUrl();
-  otaSize = releaseParser.getFirmwareSize();
-  totalSize = otaSize;
+  latestVersion = parser->getTagName();
+  otaUrl = parser->getFirmwareUrl();
+  otaSize = parser->getFirmwareSize();
+  totalSize = otaSize * 2;
   updateAvailable = true;
-
-  LOG_DBG("OTA", "Found update: tag=%s size=%zu", latestVersion.c_str(), otaSize);
-  LOG_DBG("OTA", "Firmware URL: %s", otaUrl.c_str());
   return OK;
 }
 
 bool OtaUpdater::isUpdateNewer() const {
-  if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSPOINT_VERSION) {
-    return false;
-  }
-
-  int currentMajor, currentMinor, currentPatch;
-  int latestMajor, latestMinor, latestPatch;
-
-  const auto currentVersion = CROSSPOINT_VERSION;
-
-  // semantic version check (only match on 3 segments)
-  sscanf(latestVersion.c_str(), "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
-  sscanf(currentVersion, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
-
-  /*
-   * Compare major versions.
-   * If they differ, return true if latest major version greater than current major version
-   * otherwise return false.
-   */
-  if (latestMajor != currentMajor) return latestMajor > currentMajor;
-
-  /*
-   * Compare minor versions.
-   * If they differ, return true if latest minor version greater than current minor version
-   * otherwise return false.
-   */
-  if (latestMinor != currentMinor) return latestMinor > currentMinor;
-
-  /*
-   * Check patch versions.
-   */
-  if (latestPatch != currentPatch) return latestPatch > currentPatch;
-
-  // If we reach here, it means all segments are equal.
-  // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if
-  // the segments are equal, since RC builds are pre-release versions.
-  if (strstr(currentVersion, "-rc") != nullptr) {
-    return true;
-  }
-
-  return false;
+  return updateAvailable && yacp_release::newer(latestVersion.c_str(), CROSSPOINT_VERSION);
 }
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
 
 OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgress, void* ctx) {
-  if (!isUpdateNewer()) {
-    return UPDATE_OLDER_ERROR;
-  }
-
-  // esp_https_ota is hardwired to esp-tls/mbedTLS, whose precompiled build on this
-  // package can't negotiate TLS 1.3 (see SecureClient.h). Drive the OTA partition
-  // ourselves and stream the firmware through HttpDownloader, which runs over
-  // wolfSSL when FREEINK_NET_WOLFSSL is set, reusing its redirect handling for the
-  // GitHub -> CDN hop.
-  const esp_partition_t* updatePartition = esp_ota_get_next_update_partition(nullptr);
-  if (!updatePartition) {
-    LOG_ERR("OTA", "No OTA partition available");
+  if (!isUpdateNewer()) return UPDATE_OLDER_ERROR;
+  const esp_partition_t* partition = esp_ota_get_next_update_partition(nullptr);
+  if (!partition || otaSize > partition->size) {
+    LOG_ERR("OTA", "YACP asset does not fit the inactive OTA partition");
     return INTERNAL_UPDATE_ERROR;
   }
-
-  esp_ota_handle_t otaHandle = 0;
-  esp_err_t esp_err = esp_ota_begin(updatePartition, OTA_SIZE_UNKNOWN, &otaHandle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_ota_begin failed: %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
-  }
-
+  if (!Storage.ensureDirectoryExists("/.crosspoint")) return INTERNAL_UPDATE_ERROR;
   processedSize = 0;
-  int lastReportedPct = -1;
-  bool flashOk = true;
-  // The image streams in chunks; only the first bytes carry the header. Buffer
-  // the first 14 bytes so we can read chip_id (esp_image_header_t offset 12)
-  // and reject a wrong-MCU image before it overwrites the OTA partition.
-  uint8_t hdr[14];
-  size_t hdrLen = 0;
-  bool wrongChip = false;
-  // All S3 boards share a chip_id, so also scan the stream for the embedded
-  // board tag (FirmwareBoardTag.h). An untagged image passes; a tag naming a
-  // different board aborts the download. The wrong image may partially land in
-  // the inactive OTA slot, but esp_ota_abort() below means it never becomes
-  // the boot target.
-  board_tag::Scanner tagScanner;
-  const bool fetchOk = HttpDownloader::fetchUrl(otaUrl, [&](const uint8_t* data, size_t len) {
-    if (hdrLen < sizeof(hdr)) {
-      const size_t take = std::min(len, sizeof(hdr) - hdrLen);
-      std::memcpy(hdr + hdrLen, data, take);
-      hdrLen += take;
-      if (hdrLen == sizeof(hdr)) {
-        uint16_t imageChip;
-        std::memcpy(&imageChip, hdr + 12, sizeof(imageChip));
-        const uint16_t deviceChip = firmware_flash::runningPartitionChipId();
-        if (deviceChip != 0xFFFF && imageChip != deviceChip) {
-          LOG_ERR("OTA", "wrong chip: image=0x%04X device=0x%04X", imageChip, deviceChip);
-          wrongChip = true;
-          return false;  // abort the transfer
-        }
-      }
+  int lastPercent = -1;
+  auto report = [&] {
+    const int percent = static_cast<int>(static_cast<uint64_t>(processedSize) * 100 / totalSize);
+    if (onProgress && percent != lastPercent) {
+      lastPercent = percent;
+      onProgress(ctx);
     }
-    tagScanner.feed(data, len);
-    if (tagScanner.mismatch()) {
-      LOG_ERR("OTA", "wrong board: image=%s device=%.*s", tagScanner.foundName(),
-              static_cast<int>(board_tag::boardNameLen()), board_tag::boardName());
-      return false;  // abort the transfer
-    }
-    if (esp_ota_write(otaHandle, data, len) != ESP_OK) {
-      flashOk = false;
-      return false;  // abort the transfer
-    }
-    processedSize += len;
-    // Fire the callback only on whole-percent change. Per-chunk updates wake the
-    // render task, whose framebuffer work contends with TLS on the internal arena,
-    // and e-ink can't repaint faster than a percent tick anyway.
-    if (onProgress && totalSize > 0) {
-      const int pct = static_cast<int>(static_cast<uint64_t>(processedSize) * 100 / totalSize);
-      if (pct != lastReportedPct) {
-        lastReportedPct = pct;
-        onProgress(ctx);
-      }
-    }
-    return true;
+  };
+  const auto download = HttpDownloader::downloadToFile(otaUrl, stagePath, [&](size_t count, size_t) {
+    processedSize = std::min(count, otaSize);
+    report();
   });
-
-  if (wrongChip || tagScanner.mismatch()) {
-    LOG_ERR("OTA", "Firmware install aborted: wrong device");
-    esp_ota_abort(otaHandle);
-    return WRONG_DEVICE_ERROR;
+  if (download != HttpDownloader::OK) {
+    LOG_ERR("OTA", "YACP download failed: %d", download);
+    return download == HttpDownloader::FILE_ERROR ? INTERNAL_UPDATE_ERROR : HTTP_ERROR;
   }
-
-  if (!fetchOk || !flashOk) {
-    LOG_ERR("OTA", "Firmware install failed (%s)", flashOk ? "download" : "flash write");
-    esp_ota_abort(otaHandle);
-    return flashOk ? HTTP_ERROR : INTERNAL_UPDATE_ERROR;
+  const auto verified = verifyStaged(otaSize, expectedSha256, latestVersion.c_str());
+  if (verified != OK) return verified;
+  // CrossPoint validates the complete image, chip and board BEFORE any erase.
+  // Never bypass that validation, even after the independent release hash check.
+  struct Progress {
+    OtaUpdater* updater;
+    ProgressCallback callback;
+    void* context;
+    int lastPercent;
+  } progress{this, onProgress, ctx, lastPercent};
+  const auto result = firmware_flash::flashFromSdPath(stagePath, [](size_t written, size_t, void* context) {
+    auto& p = *static_cast<Progress*>(context);
+    p.updater->processedSize = p.updater->otaSize + written;
+    const int percent = static_cast<int>(static_cast<uint64_t>(p.updater->processedSize) * 100 / p.updater->totalSize);
+    if (p.callback && percent != p.lastPercent) {
+      p.lastPercent = percent;
+      p.callback(p.context);
+    }
+  }, &progress);
+  if (result != firmware_flash::Result::OK) {
+    LOG_ERR("OTA", "YACP install failed: %s", firmware_flash::resultName(result));
+    if (result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD) return WRONG_DEVICE_ERROR;
+    return result == firmware_flash::Result::OOM ? OOM_ERROR : INTERNAL_UPDATE_ERROR;
   }
-
-  esp_err = esp_ota_end(otaHandle);  // verifies the written image
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_ota_end failed: %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
-  }
-
-  esp_err = esp_ota_set_boot_partition(updatePartition);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_ota_set_boot_partition failed: %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
-  }
-
-  LOG_INF("OTA", "Update completed");
+  LOG_INF("OTA", "YACP image verified and installed");
   return OK;
 }

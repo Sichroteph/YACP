@@ -10,10 +10,16 @@
 #include "network/HttpDownloader.h"
 
 struct OpdsServer {
+  static constexpr uint8_t INHERIT_FILENAME = 255;
   std::string name;
   std::string url;
   std::string username;
   std::string password;  // Plaintext in memory; obfuscated with hardware key on disk
+
+  uint8_t filenameFormat = INHERIT_FILENAME;
+  uint8_t effectiveFilenameFormat(uint8_t global) const {
+    return filenameFormat < 3 ? filenameFormat : (global < 3 ? global : 0);
+  }
 
   // Extra headers sent with every request to this server (e.g. a Cloudflare
   // Access service token). Fixed-size to avoid vector growth on the settings

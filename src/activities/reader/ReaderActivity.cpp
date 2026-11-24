@@ -23,7 +23,10 @@
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
                                std::string bookPath, const bool allowFastInitialRefresh)
     : Activity(name, renderer, mappedInput), bookPath(std::move(bookPath)) {
-  if (allowFastInitialRefresh) {
+  if (allowFastInitialRefresh && BoardConfig::isX4Pro()) {
+    proMagicWakePending = !FsHelpers::hasXtcExtension(this->bookPath);
+    if (proMagicWakePending) pagesUntilFullRefresh = 1;
+  } else if (allowFastInitialRefresh) {
     const int refreshFrequency = SETTINGS.getRefreshFrequency();
     pagesUntilFullRefresh = refreshFrequency > 1 ? refreshFrequency : 2;
   }
@@ -56,6 +59,7 @@ void ReaderActivity::notePageTurn(const bool forward, const bool succeeded) {
 
 void ReaderActivity::onEnter() {
   Activity::onEnter();
+  mappedInput.setReaderMode(true);
 
   // Heap ledger for field crash reports: free vs largest block distinguishes a
   // leak (free falls) from fragmentation (free stable, largest collapses).
@@ -96,6 +100,7 @@ void ReaderActivity::rememberBookOnceRendered() {
 
 void ReaderActivity::onExit() {
   Activity::onExit();
+  mappedInput.setReaderMode(false);
 
   // Keep rebuildable font buffers from pinning the heap between reading sessions.
   if (auto* fontCache = renderer.getFontCacheManager()) {
@@ -161,7 +166,7 @@ void ReaderActivity::flushReaderSession() {
 
 bool ReaderActivity::handleBackNavigation() {
   return ReaderUtils::handleBackNavigation(mappedInput, activityManager, bookPath.c_str(),
-                                           {this, [](void* ctx) { static_cast<ReaderActivity*>(ctx)->onGoHome(); }});
+                                           {this, [](void* ctx) { static_cast<ReaderActivity*>(ctx)->goReaderHome(); }});
 }
 
 void ReaderActivity::clearEndOfBookOptionsIfNeeded() {
@@ -187,7 +192,7 @@ bool ReaderActivity::handleEndOfBookMenu(const bool suppressConfirmRelease) {
       activityManager.goToReader(openPath);
       return true;
     case EndOfBookOptions::Action::GoHome:
-      onGoHome();
+      goReaderHome();
       return true;
     case EndOfBookOptions::Action::LastPage:
       onReturnFromEndOfBook();
@@ -210,7 +215,7 @@ bool ReaderActivity::handleEndOfBookPageTurn(const bool prevTriggered, const boo
     return true;
   }
   if (nextTriggered) {
-    onGoHome();
+    goReaderHome();
   } else if (prevTriggered) {
     onReturnFromEndOfBook();
     requestUpdate();
@@ -218,23 +223,63 @@ bool ReaderActivity::handleEndOfBookPageTurn(const bool prevTriggered, const boo
   return true;
 }
 
+bool ReaderActivity::handlePendingReinforcementTurn() {
+  if (pendingReinforcementTurn == 0) return false;
+  RenderLock lock(RenderLock::Mode::Try);
+  if (!lock.ownsLock()) return false;
+  const int step = pendingReinforcementTurn;
+  pendingReinforcementTurn = 0;
+  reinforcementInterrupt.clear();
+  if (step == -1 || step == 1)
+    pageTurn(step > 0);
+  else
+    skipPages(step);
+  requestUpdate();
+  return true;
+}
+
 void ReaderActivity::loop() {
+  if (ReaderUtils::handleSideSleep(mappedInput, activityManager)) return;
+  if (handlePendingReinforcementTurn()) return;
   rememberBookOnceRendered();
   clearEndOfBookOptionsIfNeeded();
   if (handleEndOfBookMenu()) return;
   if (handleFormatInput()) return;
   if (handleBackNavigation()) return;
 
+  const auto sideMode = ReaderUtils::sideLongPressMode();
+  if (sideMode == CrossPointSettings::SIDE_LONG_FONT_SIZE ||
+      sideMode == CrossPointSettings::SIDE_LONG_ORIENTATION_CHANGE) {
+    const bool top = mappedInput.wasLongPressed(MappedInputManager::Button::Up, ReaderUtils::SKIP_HOLD_MS);
+    const bool bottom = mappedInput.wasLongPressed(MappedInputManager::Button::Down, ReaderUtils::SKIP_HOLD_MS);
+    if (top || bottom) {
+      handleTextShortcut(sideMode == CrossPointSettings::SIDE_LONG_FONT_SIZE, top);
+      return;
+    }
+  }
+
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
-  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
+  auto [prevTriggered, nextTriggered, fromTilt, fromSide] = ReaderUtils::detectPageTurn(mappedInput);
   prevTriggered = prevTriggered || touch.prev;
   nextTriggered = nextTriggered || touch.next;
   if (!prevTriggered && !nextTriggered) return;
   if (handleEndOfBookPageTurn(prevTriggered, nextTriggered)) return;
 
   const unsigned long heldMs = (touch.prev || touch.next) ? touch.heldMs : mappedInput.getHeldTime();
-  const bool skip =
-      !fromTilt && SETTINGS.longPressButtonBehavior == SETTINGS.CHAPTER_SKIP && heldMs >= ReaderUtils::SKIP_HOLD_MS;
+  const auto behavior = ReaderUtils::pageLongPressBehavior(fromSide && !(touch.prev || touch.next));
+  if (!fromTilt && heldMs >= ReaderUtils::SKIP_HOLD_MS &&
+      (behavior == SETTINGS.FONT_SIZE_CHANGE || behavior == SETTINGS.ORIENTATION_CHANGE)) {
+    handleTextShortcut(behavior == SETTINGS.FONT_SIZE_CHANGE, nextTriggered);
+    return;
+  }
+  const bool skip = !fromTilt && behavior == SETTINGS.CHAPTER_SKIP && heldMs >= ReaderUtils::SKIP_HOLD_MS;
+
+  if (hasInterruptibleTextRefresh() && SETTINGS.supportsUc8279MagicFlash() && SETTINGS.isMagicFlash()) {
+    pendingReinforcementTurn = (prevTriggered ? -1 : 1) * (skip ? 10 : 1);
+    reinforcementInterrupt.request();
+    handlePendingReinforcementTurn();
+    return;
+  }
 
   const bool changed = skip ? skipPages(prevTriggered ? -10 : 10) : pageTurn(!prevTriggered);
   // A skip is navigation, not reading: it never counts toward session dwell.
@@ -271,7 +316,7 @@ void ReaderActivity::render(RenderLock&&) {
 bool ReaderActivity::handleForcedRefresh() {
   {
     RenderLock lock(*this);
-    pagesUntilFullRefresh = 1;
+    pagesUntilFullRefresh = 0;
     forcedRefreshPending = true;
   }
   requestUpdate();

@@ -13,13 +13,14 @@
 #include "../../../../src/fontIds.h"
 #include "../CjkBreaks.h"
 
-size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const uint16_t textBytes) {
+size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const bool hasGuide, const uint16_t textBytes) {
   // Layout documented in TextBlock.h: 16-bit arrays first, then 8-bit arrays, then text.
   size_t size =
       static_cast<size_t>(wordCount) * (sizeof(SourceRange) + sizeof(uint16_t) + sizeof(int16_t) + sizeof(uint8_t));
   if (hasFocus) {
     size += static_cast<size_t>(wordCount) * (sizeof(uint16_t) + sizeof(uint8_t));
   }
+  if (hasGuide) size += static_cast<size_t>(wordCount) * sizeof(int16_t);
   return size + textBytes;
 }
 
@@ -35,6 +36,10 @@ void TextBlock::bindArenaPointers() {
     focusSplitXArr = reinterpret_cast<const uint16_t*>(base + off);
     off += wc * 2;
   }
+  if (guidePresent) {
+    guideDotXArr = reinterpret_cast<const int16_t*>(base + off);
+    off += wc * 2;
+  }
   stylesArr = base + off;
   off += wc;
   if (focusPresent) {
@@ -48,7 +53,8 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& focusBoundary,
                      const std::vector<uint16_t>& focusSplitX, const BlockStyle& blockStyle,
                      std::vector<std::string> rubyTexts, std::vector<LinkSpan> linkSpans,
-                     const std::vector<SourceRange>& ranges, const uint16_t paragraphStartWord)
+                     const std::vector<SourceRange>& ranges, const uint16_t paragraphStartWord,
+                     const int16_t* guideDots)
     : blockStyle(blockStyle),
       paragraphStartWord(paragraphStartWord),
       rubyTexts(std::move(rubyTexts)),
@@ -78,6 +84,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
 
   numWords = static_cast<uint16_t>(words.size());
   focusPresent = hasFocus;
+  guidePresent = guideDots != nullptr;
   if (numWords == 0) {
     return;  // valid empty block, no arena
   }
@@ -95,7 +102,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
   }
   textBytes = static_cast<uint16_t>(totalText);
 
-  const size_t size = arenaSize(numWords, focusPresent, textBytes);
+  const size_t size = arenaSize(numWords, focusPresent, guidePresent, textBytes);
   arena = makeUniqueNoThrow<uint8_t[]>(size);
   if (!arena) {
     // Evict rebuildable caches (SD-font mini data, render glyph cache) and
@@ -112,6 +119,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     return;
   }
   bindArenaPointers();
+  if (guidePresent) memcpy(const_cast<int16_t*>(guideDotXArr), guideDots, numWords * sizeof(int16_t));
 
   // Pass 2: fill. Mutable aliases of the const views bound above.
   auto* textOff = const_cast<uint16_t*>(textOffArr);
@@ -367,6 +375,12 @@ void TextBlock::render(const GfxRenderer& renderer, const int sectionFontId, con
       renderer.drawText(wordFont, drawX, wordY, word, true, currentStyle, baseDir, tracking);
     }
 
+    // Included in the normal font-cache scan, so SD glyphs are loaded before drawing.
+    // Positions are cached at layout time; no word measurement on page turns.
+    if (guidePresent && guideDotXArr[i] != INT16_MIN) {
+      renderer.drawText(fontId, x + guideDotXArr[i], wordY, "\xc2\xb7", true, currentStyle, BidiUtils::BidiBaseDir::LTR);
+    }
+
     // Horizontal ruby text rendering
     if (blockHasRuby && i < rubyTexts.size() && !rubyTexts[i].empty() &&
         (wordStyle(i) & EpdFontFamily::RUBY_CONTINUE) == 0) {
@@ -465,11 +479,11 @@ bool TextBlock::serialize(HalFile& file) const {
   // exactly the on-disk layout (see TextBlock.h), so one write covers all
   // per-word arrays and the text blob.
   serialization::writePod(file, numWords);
-  serialization::writePod(file, static_cast<uint8_t>(focusPresent ? 1 : 0));
+  serialization::writePod(file, static_cast<uint8_t>((focusPresent ? 1 : 0) | (guidePresent ? 2 : 0)));
   serialization::writePod(file, textBytes);
   serialization::writePod(file, paragraphStartWord);
   if (numWords > 0) {
-    const size_t size = arenaSize(numWords, focusPresent, textBytes);
+    const size_t size = arenaSize(numWords, focusPresent, guidePresent, textBytes);
     if (file.write(arena.get(), size) != size) {
       LOG_ERR("TXB", "Serialization failed: arena write (%u bytes)", static_cast<uint32_t>(size));
       return false;
@@ -542,10 +556,15 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   block->numWords = wc;
   block->textBytes = textBytes;
   block->paragraphStartWord = paragraphStartWord;
-  block->focusPresent = hasFocus != 0;
+  if ((hasFocus & ~3u) != 0) {
+    LOG_ERR("TXB", "Deserialization failed: invalid text layout flags");
+    return nullptr;
+  }
+  block->focusPresent = (hasFocus & 1) != 0;
+  block->guidePresent = (hasFocus & 2) != 0;
 
   if (wc > 0) {
-    const size_t size = arenaSize(wc, block->focusPresent, textBytes);
+    const size_t size = arenaSize(wc, block->focusPresent, block->guidePresent, textBytes);
     block->arena = makeUniqueNoThrow<uint8_t[]>(size);
     if (!block->arena) {
       LOG_ERR("TXB", "OOM: arena %u bytes", static_cast<uint32_t>(size));

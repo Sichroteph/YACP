@@ -30,11 +30,19 @@ class Activity {
   virtual ~Activity() = default;
   virtual void onEnter();
   virtual void onExit();
-  // Last chance to queue activity-owned state before sleep events are drained.
+  // Input-task notifications. ActivityManager holds the render lock here;
+  // implementations must not acquire it again.
+  virtual void onCovered() {}
+  virtual void onUncovered() {}
   virtual void prepareForSleep() {}
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}
+
+  // Optional fast path for a live frontlight change. The render task holds
+  // the lock; returning true means the activity updated and displayed only
+  // the affected indicator instead of rebuilding the whole screen.
+  virtual bool renderFrontlightIndicator(RenderLock&&) { return false; }
 
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.
@@ -50,8 +58,11 @@ class Activity {
   virtual bool requiresExclusiveStorageLoop() const { return false; }
   virtual bool isReaderActivity() const { return false; }
   virtual bool acceptsRemoteInput() const { return false; }
+  virtual bool usesReaderColors() const { return false; }
   // Returns true when the activity schedules its own forced refresh.
   virtual bool handleForcedRefresh() { return false; }
+  virtual uint8_t readerPowerAction(bool) const { return 23; }
+  virtual void queueReaderAction(uint8_t) {}
   virtual bool isHomeActivity() const { return false; }
   virtual bool handleHomeGesture() { return false; }
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }

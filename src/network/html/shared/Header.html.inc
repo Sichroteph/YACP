@@ -14,6 +14,7 @@
     <nav class="nav-links desktop-nav">
       <a href="/">Home</a>
       <a href="/files">File Manager</a>
+      <a href="/sleep-images">Sleep images</a>
       <a href="/settings">Settings</a>
       <a href="/fonts">Fonts</a>
       <a href="/plugins">Plugins</a>
@@ -30,6 +31,7 @@
     <nav class="nav-links mobile-links">
       <a href="/">Home</a>
       <a href="/files">File Manager</a>
+      <a href="/sleep-images">Sleep images</a>
       <a href="/settings">Settings</a>
       <a href="/fonts">Fonts</a>
       <a href="/plugins">Plugins</a>

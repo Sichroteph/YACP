@@ -1,3 +1,4 @@
+#include "util/BookPathMove.h"
 #include "FileBrowserActivity.h"
 
 #include <FsHelpers.h>
@@ -29,35 +30,6 @@ namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 constexpr size_t NAME_BUFFER_SIZE = 500;
 
-std::string getBookCachePath(const std::string& path) {
-  const char* prefix = nullptr;
-  if (FsHelpers::hasReflowableBookExtension(path)) {
-    prefix = "epub_";
-  } else if (FsHelpers::hasXtcExtension(path)) {
-    prefix = "xtc_";
-  } else {
-    return "";
-  }
-  return std::string("/.crosspoint/") + prefix + std::to_string(std::hash<std::string>{}(path));
-}
-
-bool moveStatePath(const std::string& oldPath, const std::string& newPath, bool& moved) {
-  moved = false;
-  if (oldPath.empty() || !Storage.exists(oldPath.c_str())) return true;
-  if (Storage.exists(newPath.c_str())) {
-    LOG_ERR("FileBrowser", "Rename state target already exists: %s", newPath.c_str());
-    return false;
-  }
-  moved = Storage.rename(oldPath.c_str(), newPath.c_str());
-  if (!moved) LOG_ERR("FileBrowser", "Failed to move rename state: %s -> %s", oldPath.c_str(), newPath.c_str());
-  return moved;
-}
-
-void rollBackStatePath(const std::string& oldPath, const std::string& newPath, const bool moved) {
-  if (moved && !Storage.rename(newPath.c_str(), oldPath.c_str())) {
-    LOG_ERR("FileBrowser", "Failed to roll back rename state: %s -> %s", newPath.c_str(), oldPath.c_str());
-  }
-}
 }  // namespace
 
 std::string getFileExtension(const std::string& filename);
@@ -155,7 +127,8 @@ void FileBrowserActivity::provideRow(void* ctx, const uint16_t index, fui::ListI
   const std::string& entry = self->files[index];
   formatFileName(entry, self->rowNameBuf, sizeof(self->rowNameBuf));
   item.label = self->rowNameBuf;
-  formatFileExtension(entry, self->rowExtBuf, sizeof(self->rowExtBuf));
+  self->rowExtBuf[0] = '\0';
+  if (!SETTINGS.hideFileExtension) formatFileExtension(entry, self->rowExtBuf, sizeof(self->rowExtBuf));
   if (self->rowExtBuf[0] != '\0') {
     item.value = self->rowExtBuf;
   }
@@ -480,30 +453,7 @@ void FileBrowserActivity::renameSelectedFile(const std::string& oldPath, const s
     return;
   }
 
-  const std::string oldCachePath = getBookCachePath(oldPath);
-  const std::string newCachePath = getBookCachePath(newPath);
-  const bool hasBookmarks = FsHelpers::hasReflowableBookExtension(oldPath);
-  const std::string oldBookmarkPath = hasBookmarks ? BookmarkUtil::getBookmarkPath(oldPath) : "";
-  const std::string newBookmarkPath = hasBookmarks ? BookmarkUtil::getBookmarkPath(newPath) : "";
-  bool cacheMoved = false;
-  bool bookmarksMoved = false;
-  if (!moveStatePath(oldCachePath, newCachePath, cacheMoved)) return;
-  if (!moveStatePath(oldBookmarkPath, newBookmarkPath, bookmarksMoved)) {
-    rollBackStatePath(oldCachePath, newCachePath, cacheMoved);
-    return;
-  }
-  if (!ClippingStore::moveBook(oldPath, newPath)) {
-    LOG_ERR("FileBrowser", "Failed to rename file: %s -> %s", oldPath.c_str(), newPath.c_str());
-    rollBackStatePath(oldBookmarkPath, newBookmarkPath, bookmarksMoved);
-    rollBackStatePath(oldCachePath, newCachePath, cacheMoved);
-    return;
-  }
-
-  RECENT_BOOKS.updatePath(oldPath, newPath, oldCachePath, newCachePath);
-  if (APP_STATE.openEpubPath == oldPath) {
-    APP_STATE.openEpubPath = newPath;
-    if (!APP_STATE.saveToFile()) LOG_ERR("FileBrowser", "Failed to save renamed open-book path");
-  }
+  if (!BookPathMove::move(oldPath, newPath)) return;
 
   {
     RenderLock lock(*this);
@@ -650,9 +600,9 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   // Tap opens/navigates; long-press shows entry actions (physical buttons stay in loop()).
   props.inputMask = fui::InputTouch | fui::InputLongPress;
   props.valueInset = 8;  // air between the extension and the row edge
-  // Names use up to two small-font lines; shared list layout sizes each row.
+  // CrossPoint sizes and hit-tests the selected one/two-line layout together.
   fui::TextStyle label = screen.theme().smallText;
-  label.maxLines = 2;
+  label.maxLines = SETTINGS.fileBrowserDisplay == 0 ? 1 : 2;
   props.labelText = label;
 
   // The trailing value here is just the short extension: skip the balanced

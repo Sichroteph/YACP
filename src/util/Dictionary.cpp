@@ -851,7 +851,7 @@ void Dictionary::stemVariants(const std::string& word, std::vector<std::string>&
 }
 
 bool Dictionary::lookup(const char* word, std::string& definitionOut, std::string& matchedHeadwordOut,
-                        LookupResult* outResult) {
+                        LookupResult* outResult, const bool exactHeadword) {
   const auto setResult = [outResult](LookupResult r) {
     if (outResult) *outResult = r;
   };

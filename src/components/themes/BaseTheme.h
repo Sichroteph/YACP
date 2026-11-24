@@ -186,8 +186,8 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .scrollBarWidth = 4,
                                  .scrollBarRightOffset = 5,
                                  .homeTopPadding = 40,
-                                 .homeCoverHeight = 400,
-                                 .homeCoverTileHeight = 400,
+                                 .homeCoverHeight = 320,
+                                 .homeCoverTileHeight = 320,
                                  .homeRecentBooksCount = 1,
                                  .homeContinueReadingInMenu = false,
                                  .homeMenuTopOffset = 10,
@@ -278,6 +278,9 @@ class BaseTheme {
   // Edge inset drawHeader uses for the clock/battery status line (detached
   // layouts hug the corner with a legacy 12px inset instead of the padding).
   static int headerStatusInset();
+  static Rect readerTopClockBounds(const GfxRenderer& renderer, int topY = -1);
+  static void drawReaderTopClock(const GfxRenderer& renderer, int topY = -1, const char* previewTime = nullptr,
+                                 bool clearBackground = false);
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
                              const char* rightLabel = nullptr) const;
   virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
@@ -293,7 +296,9 @@ class BaseTheme {
   static void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,
                             std::string title, const int paddingBottom = 0, const int textYOffset = 0,
                             const bool fillMargin = true, const bool isPageBookmarked = false,
-                            const bool pageCountEstimated = false);
+                            const bool pageCountEstimated = false, const char* timeLeft = nullptr,
+                            const int progressBarTopY = -1, const uint32_t referencePage = 0,
+                            const uint32_t referencePageCount = 0);
   static void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label);
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode = false,
                              int contentStartX = 0, int contentWidth = 0) const;

@@ -125,7 +125,13 @@ void HalGPIO::update() {
   const uint8_t pageButtons = inputMgr.capacitivePageButtonMask();
   capacitivePagePressed = (pageButtons & ~previousCapacitivePageButtons) != 0;
   previousCapacitivePageButtons = pageButtons;
+  usbStateChanged = false;
+  const uint32_t now = millis();
+  constexpr uint32_t X3_USB_POLL_MS = 1000;
+  if (deviceIsX3() && usbSampled && static_cast<uint32_t>(now - lastUsbPollMs) < X3_USB_POLL_MS) return;
   const bool connected = isUsbConnected();
+  usbSampled = true;
+  lastUsbPollMs = now;
   usbStateChanged = (connected != lastUsbConnected);
   lastUsbConnected = connected;
 }
@@ -156,6 +162,15 @@ bool HalGPIO::rawInputActive() {
   // The Xteink ladder idles at the ADC full-scale rail (~4095); every button band sits below 3900.
   constexpr int kIdleRailMin = 4000;
   return (g1.raw >= 0 && g1.raw < kIdleRailMin) || (g2.raw >= 0 && g2.raw < kIdleRailMin);
+}
+
+uint8_t HalGPIO::samplePhysicalLadderButtons() {
+  InputManager::ButtonAdcSample first{}, second{};
+  inputMgr.readButtonAdc(first, second);
+  uint8_t mask = 0;
+  if (first.button >= BTN_BACK && first.button <= BTN_RIGHT) mask |= 1u << first.button;
+  if (second.button == BTN_UP || second.button == BTN_DOWN) mask |= 1u << second.button;
+  return mask;
 }
 
 unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
@@ -238,10 +253,26 @@ bool HalGPIO::verifyPowerButtonWakeup() {
 }
 
 bool HalGPIO::isUsbConnected() const {
-  if (!deviceIsX3() && BoardConfig::ACTIVE.usbDetect >= 0) {
+  static const BatteryMonitor battery;
+  if (deviceIsX3()) {
+    // X3 lacks a USB detect line. Positive battery current indicates charging.
+    for (uint8_t attempt = 0; attempt < 2; ++attempt) {
+      int16_t currentMa = 0;
+      if (battery.readCurrentMilliamps(currentMa)) {
+        batteryCurrentSample.store(0x10000u | static_cast<uint16_t>(currentMa), std::memory_order_relaxed);
+        return currentMa > 0;
+      }
+      delay(2);
+    }
+    if (batteryCurrentSample.exchange(0, std::memory_order_relaxed) & 0x10000u) {
+      LOG_ERR("GPIO", "X3 current sample unavailable");
+    }
+    return false;
+  }
+  if (BoardConfig::ACTIVE.usbDetect >= 0) {
     return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
   }
-  // X3 uses GPIO20 for I2C, not USB detection. Boards without a digital
+  // Other boards without a digital
   // USB-detect line (e.g. Sticky, whose PWR_IN_VOLT is an analog
   // divider): infer external power from charging state instead. BatteryMonitor
   // picks the board's best source — charger IC status, gauge Current() sign, or
@@ -249,7 +280,6 @@ bool HalGPIO::isUsbConnected() const {
   // A charger IC that reports its input rail (BQ25896, SGM41562, M5 PMIC)
   // answers directly; otherwise infer from charging state, where charge
   // termination at 100% reads as "not connected".
-  static const BatteryMonitor battery;
   bool known = false;
   const bool present = battery.isExternalPowerPresent(&known);
   if (known) return present;

@@ -7,14 +7,15 @@
 
 class ButtonRemapActivity final : public Activity, private UiAppHost {
  public:
-  explicit ButtonRemapActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("ButtonRemap", renderer, mappedInput), UiAppHost(renderer) {}
+  explicit ButtonRemapActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool reader = false)
+      : Activity("ButtonRemap", renderer, mappedInput), UiAppHost(renderer), readerMode(reader) {}
 
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
 
  private:
+  const bool readerMode;
   // Rendering task state.
 
   // Index of the logical role currently awaiting input.

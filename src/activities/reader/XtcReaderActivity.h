@@ -6,6 +6,7 @@
 #include <string>
 
 #include "ReaderActivity.h"
+#include "ProgressCheckpoint.h"
 
 class XtcReaderActivity final : public ReaderActivity {
   std::shared_ptr<Xtc> xtc;
@@ -22,7 +23,10 @@ class XtcReaderActivity final : public ReaderActivity {
   void openChapterSelection();
   void renderStatusBarOverlay(GfxRenderer& renderer, StatusBarOverlayPosition position) const;
   StatusBarInfo getStatusBarInfo() const;
-  void saveProgress() const;
+  ProgressCheckpoint progressCheckpoint;
+  void saveProgress();
+  void onExit() override;
+  void prepareForSleep() override;
   void loadProgress();
 
   bool loadBook() override;

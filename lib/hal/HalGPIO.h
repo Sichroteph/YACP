@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <InputManager.h>
+#include <atomic>
 
 // Display SPI pins (custom pins for XteinkX4, not hardware SPI defaults)
 #define EPD_SCLK 8   // SPI Clock
@@ -47,6 +48,11 @@ class HalGPIO {
   bool usbStateChanged = false;
   uint8_t previousCapacitivePageButtons = 0;
   bool capacitivePagePressed = false;
+  bool usbSampled = false;
+  uint32_t lastUsbPollMs = 0;
+  // The existing X3 USB poll publishes signed current plus a validity bit
+  // atomically. Reader painting never initiates another I2C transaction.
+  mutable std::atomic<uint32_t> batteryCurrentSample{0};
 
  public:
   enum class DeviceType : uint8_t { X4, X3 };
@@ -86,6 +92,9 @@ class HalGPIO {
   // expander key, one I2C read), without going through the debounced state.
   // Cheap enough to call every few ms.
   bool rawInputActive();
+  // Physical ladder keys for C3 boot chords; no debounce or user remapping.
+  // Boards without this ladder return zero. Called only during startup.
+  uint8_t samplePhysicalLadderButtons();
   bool hasTouch() const;
   // Capacitive Home key reported by the touch controller (X4 Pro). The tap
   // event fires on release and excludes a long hold.
@@ -128,6 +137,13 @@ class HalGPIO {
 
   // Check if USB is connected
   bool isUsbConnected() const;
+  bool isUsbConnectedCached() const { return lastUsbConnected; }
+  bool getCachedBatteryCurrent(int16_t& currentMa) const {
+    const uint32_t sample = batteryCurrentSample.load(std::memory_order_relaxed);
+    if (!deviceIsX3() || !(sample & 0x10000u)) return false;
+    currentMa = static_cast<int16_t>(static_cast<uint16_t>(sample));
+    return true;
+  }
 
   // Whether a cold boot with no USB detected can be trusted to mean a held
   // power button (Xteink-style button-energized rail with reliable USB

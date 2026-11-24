@@ -39,7 +39,7 @@ class TextSettingsActivity final : public UiTabListActivity {
     ScreenMargin,
     Count
   };
-  enum class StyleRow { FocusReading, Hyphenation, EmbeddedStyle, AntiAliasing, Count };
+  enum class StyleRow { FocusReading, Hyphenation, EmbeddedStyle, AntiAliasing, GuideDots, PublisherPages, ReaderDark, Count };
 
   // --- UiTabListActivity contract ---
   int listCount() const override;
@@ -61,6 +61,7 @@ class TextSettingsActivity final : public UiTabListActivity {
   // installed point sizes. Call after any family change.
   void rebuildSizeList();
   void confirmLayoutRow(int row);
+  void openLineHeightPicker();
   void confirmStyleRow(int row);
   // Applies the row at the given list index for the active tab (Confirm and tap share this).
   void activateRow(int row);
@@ -94,6 +95,7 @@ class TextSettingsActivity final : public UiTabListActivity {
 
   const SdCardFontRegistry* registry_;
   OptionPopup optionPopup_;
+  bool lineHeightPickerRequested_ = false;
   std::vector<FontEntry> fonts_;
   std::vector<SizeEntry> sizes_;
   textsettings::PreviewLayout previewLayout_;  // cached preview line layout; relaid only on setting/geometry change

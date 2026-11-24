@@ -11,7 +11,6 @@
 #include <array>
 #include <cstring>
 #include <ctime>
-#include <functional>
 
 #include "clippings/ClippingPreview.h"
 
@@ -19,7 +18,6 @@ namespace {
 constexpr uint8_t LEGACY_VERSION = 1;
 constexpr uint8_t LAYOUT_VERSION = 3;
 constexpr uint8_t VERSION = 4;
-constexpr char CLIPPINGS_DIR[] = "/.crosspoint/clippings";
 constexpr size_t TEXT_COPY_BUFFER_SIZE = 128;
 constexpr size_t HEADER_STRING_MAX = CLIPPING_TEXT_MAX;
 
@@ -32,11 +30,6 @@ bool truncateDeletionTail(HalFile& journal) {
     return false;
   }
   return true;
-}
-
-std::string storeFilePathForBook(const std::string& filePath, const std::string& bookType) {
-  return std::string(CLIPPINGS_DIR) + "/" + bookType + "_" + std::to_string(std::hash<std::string>{}(filePath)) +
-         ".bin";
 }
 
 void copyBounded(char* dst, const size_t dstSize, const char* src) {
@@ -60,14 +53,13 @@ bool copyBytes(HalFile& in, HalFile& out, uint16_t length) {
   }
   return true;
 }
-constexpr const char* STORE_SUFFIXES[] = {"", ".bak", ".tmp", ".deleted", ".migrate.bak"};
 enum class MovePhase { Check, Move, Rollback };
 
 bool moveStoreFiles(const std::string& from, const std::string& to, const MovePhase phase) {
-  const std::string source = storeFilePathForBook(from, "epub");
-  const std::string target = storeFilePathForBook(to, "epub");
+  const std::string source = ClippingStore::filePathForBook(from, "epub");
+  const std::string target = ClippingStore::filePathForBook(to, "epub");
   if (source == target) return true;
-  return std::all_of(std::begin(STORE_SUFFIXES), std::end(STORE_SUFFIXES), [&](const char* suffix) {
+  return std::all_of(ClippingStore::FILE_SUFFIXES.begin(), ClippingStore::FILE_SUFFIXES.end(), [&](const char* suffix) {
     const std::string oldPath = source + suffix;
     const std::string newPath = target + suffix;
     if (phase == MovePhase::Check) {
@@ -152,7 +144,7 @@ bool ClippingStore::loadForBook(const std::string& filePath, const std::string& 
   bookTitle = title;
   bookAuthor = author;
 
-  storeFilePath = storeFilePathForBook(filePath, bookType);
+  storeFilePath = filePathForBook(filePath, bookType);
   const std::string backup = storeFilePath + ".bak";
   if (!Storage.exists(storeFilePath.c_str()) && Storage.exists(backup.c_str()) &&
       !Storage.rename(backup.c_str(), storeFilePath.c_str())) {
@@ -536,7 +528,7 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
     return false;
   }
   Storage.mkdir("/.crosspoint");
-  Storage.mkdir(CLIPPINGS_DIR);
+  Storage.mkdir(DIRECTORY);
 
   const std::string tmpPath = storeFilePath + ".tmp";
   const std::string backupPath = storeFilePath + ".bak";
@@ -651,9 +643,9 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
 }
 
 bool ClippingStore::deleteForFilePath(const std::string& filePath, const std::string& bookType) {
-  const std::string path = storeFilePathForBook(filePath, bookType);
+  const std::string path = filePathForBook(filePath, bookType);
   bool ok = true;
-  for (const char* suffix : STORE_SUFFIXES) {
+  for (const char* suffix : FILE_SUFFIXES) {
     const std::string sidecar = path + suffix;
     if (Storage.exists(sidecar.c_str()) && !Storage.remove(sidecar.c_str())) {
       LOG_ERR("CLIP", "Failed deleting clipping state: %s", sidecar.c_str());

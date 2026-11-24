@@ -33,9 +33,8 @@ class CrossPointWebServerActivity final : public Activity {
   // Network mode
   NetworkMode networkMode = NetworkMode::JOIN_NETWORK;
   bool isApMode = false;
-  // Set when re-entered after the heap-defrag reboot: skip mode selection, go
-  // straight to Join Network, and don't reboot again.
-  bool startInJoinNetwork = false;
+  bool joinNetworkOnEnter = false;
+  NetworkMode initialNetworkMode = NetworkMode::JOIN_NETWORK;
 
   // Web server - owned by this activity
   std::unique_ptr<CrossPointWebServer> webServer;
@@ -68,8 +67,10 @@ class CrossPointWebServerActivity final : public Activity {
 
  public:
   explicit CrossPointWebServerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                       bool startInJoinNetwork = false)
-      : Activity("CrossPointWebServer", renderer, mappedInput), startInJoinNetwork(startInJoinNetwork) {}
+                                      bool joinNetworkOnEnter = false,
+                                      NetworkMode initialNetworkMode = NetworkMode::JOIN_NETWORK)
+      : Activity("CrossPointWebServer", renderer, mappedInput), joinNetworkOnEnter(joinNetworkOnEnter),
+        initialNetworkMode(initialNetworkMode) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

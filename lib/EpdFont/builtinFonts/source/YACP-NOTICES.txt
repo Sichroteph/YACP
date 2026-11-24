@@ -1,0 +1,100 @@
+YACP embedded font sources
+
+Source files preserved from the local YACP reference. Each notice below is extracted from the font metadata.
+The SIL Open Font License 1.1 text is in YACP-OFL.txt.
+
+Bitter\Bitter-Bold.ttf
+SHA-256: 391582a3004c7600b7234123c3c810b8c2c5ed3c90af7f087fe55f003cc075bf
+Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org
+https://openfontlicense.org
+
+Bitter\Bitter-BoldItalic.ttf
+SHA-256: 65fad0650e416aebb4a7f6893633907f0e10ea153974b0c69f9074b611c259c4
+Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org
+https://openfontlicense.org
+
+Bitter\Bitter-Italic.ttf
+SHA-256: 94d45873d15c5ccaa5c1427389427c70654bab8061687ad626fcf69eba3fde21
+Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org
+https://openfontlicense.org
+
+Bitter\Bitter-Regular.ttf
+SHA-256: 47e5644d61a44c8f086a695cbecf96efd208e3bcb3e9dc46043989d38a9134f9
+Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org
+https://openfontlicense.org
+
+LexendDeca\LexendDeca-Bold.ttf
+SHA-256: b7fd349e9d1330d2e39fda62e3f2167335d89fbc6996c7812599bdaa0f12a642
+Copyright 2019 The Lexend Project Authors (https://github.com/googlefonts/lexend)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL
+https://scripts.sil.org/OFL
+
+LexendDeca\LexendDeca-BoldItalic.ttf
+SHA-256: 4c257cb370a592c56622aaed9c82183200806a1fd74bd05c9641563a33e1b6b4
+Copyright 2019 The Lexend Project Authors (https://github.com/googlefonts/lexend)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL
+https://scripts.sil.org/OFL
+
+LexendDeca\LexendDeca-Italic.ttf
+SHA-256: 2b2d45a5925c66987283af3cbcd5598147aff1249ec32d83ccfdf2a1e8e9ecc1
+Copyright 2019 The Lexend Project Authors (https://github.com/googlefonts/lexend)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL
+https://scripts.sil.org/OFL
+
+LexendDeca\LexendDeca-Regular.ttf
+SHA-256: 434707ddcc72cb6f0949469f77c67b92bdaf86dc26ec9ab53e3f21fe8f7b0721
+Copyright 2019 The Lexend Project Authors (https://github.com/googlefonts/lexend)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL
+https://scripts.sil.org/OFL
+
+ChareInk7\ChareInk7-Bold.ttf
+SHA-256: eb15d161bc3a502d38b36f9d21213b70de2829c0b0deaee6d8b11f5ed5da0968
+Copyright (c) 1997-2025 SIL Global
+Copyright (c) 1997-2025 SIL Global (https://www.sil.org/) with Reserved Font Names "Charis" and "SIL".
+https://openfontlicense.org
+
+ChareInk7\ChareInk7-BoldItalic.ttf
+SHA-256: 46cbd0c18db49cea92daa8ade2005a718e3c4291f8b946c43fd5d60f5ffa690c
+Copyright (c) 1997-2025 SIL Global
+Copyright (c) 1997-2025 SIL Global (https://www.sil.org/) with Reserved Font Names "Charis" and "SIL".
+https://openfontlicense.org
+
+ChareInk7\ChareInk7-Italic.ttf
+SHA-256: 423907cf74085ba52d7f47af04492ab4631fcfa8376d546b23b2ce901c467d06
+Copyright (c) 1997-2025 SIL Global
+Copyright (c) 1997-2025 SIL Global (https://www.sil.org/) with Reserved Font Names "Charis" and "SIL".
+https://openfontlicense.org
+
+ChareInk7\ChareInk7-Regular.ttf
+SHA-256: 1033d3f4a263530e844e8828ba1cd1b367d470dc5074b2ca60cb91cf92b2c850
+Copyright (c) 1997-2025 SIL Global
+Copyright (c) 1997-2025 SIL Global (https://www.sil.org/) with Reserved Font Names "Charis" and "SIL".
+https://openfontlicense.org
+
+NotoEmoji\NotoEmoji-Regular.ttf
+SHA-256: 575bc0aa43e620a0c440a07010c30f3b3b70148bd89679162040bfda08fe3856
+Copyright 2013 Google LLC
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This Font Software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the SIL Open Font License for the specific language, permissions and limitations governing your use of this Font Software.
+http://scripts.sil.org/OFL
+
+NotoSansCJKsc\NotoSansCJKsc-Regular.otf
+SHA-256: 2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b
+© 2014-2021 Adobe (http://www.adobe.com/).
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This Font Software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the SIL Open Font License for the specific language, permissions and limitations governing your use of this Font Software.
+http://scripts.sil.org/OFL
+
+NotoSymbols\NotoSansSymbols-Regular.ttf
+SHA-256: 5d46a0efce63b053f90087901c91547ce73e1591e5fd3ede745c74ca906ab7ab
+Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL
+https://scripts.sil.org/OFL
+
+NotoSymbols\NotoSansSymbols2-Regular.ttf
+SHA-256: f67f40c65f929f029827ab37cfdc4897dfd9ae3c28d9e98ba46e0d52e39eb97e
+Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols)
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL
+https://scripts.sil.org/OFL

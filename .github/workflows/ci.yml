@@ -2,7 +2,7 @@ name: CI (build)
 
 on:
   push:
-    branches: [develop]
+    branches: [master, main, chore/sync-crosspoint]
   pull_request:
 
 permissions:
@@ -33,78 +33,54 @@ jobs:
           PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix
           git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
 
-  cppcheck:
+  source-policy:
+    name: YACP source and layout checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "latest"
-          enable-cache: false
+      - name: Register this fresh YACP checkout
+        run: python scripts/check_yacp_source.py --register
 
-      - name: Install PlatformIO Core
+      - name: Install workflow parser
+        run: python -m pip install PyYAML==6.0.3
+
+      - name: Prepare host checks from a clean checkout
         run: |
-          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
-          # platform-espressif32's builder/main.py imports these unconditionally; its own
-          # penv bootstrap (builder/penv_setup.py) is supposed to install them automatically
-          # but isn't picking them up reliably in this runner image, so pin them explicitly.
-          uv pip install --system -U "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
-            "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" "urllib3<2" \
-            "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" "bitstring>=4.3.1" \
-            "reedsolo>=1.5.3,<1.8" "esp-idf-size>=2.0.0" "esp-coredump>=1.14.0"
+          mkdir -p qa-artifacts
+          python scripts/gen_i18n.py
 
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.platformio
-          key: pio-v2-${{ runner.os }}-${{ hashFiles('platformio.ini', 'scripts/patch_pioarduino_cache.py') }}
-          restore-keys: pio-v2-${{ runner.os }}-
+      - name: Verify source authority failure paths
+        run: python -m unittest discover -s test -p 'test_yacp*.py' -v
 
-      - name: Install cppcheck runtime dependency
+      - name: Check bounded Home menu geometry
         run: |
-          # pioarduino's Linux cppcheck binary links against libpcre.so.3.
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libpcre3
+          mkdir -p qa-artifacts
+          g++ -std=c++17 -Isrc test/yacp_home_layout/HomeMenuLayoutTest.cpp -o qa-artifacts/home-layout-check
+          qa-artifacts/home-layout-check
 
-      - name: Run cppcheck
-        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+      - name: Check the existing board tag scanner at every chunk boundary
+        run: |
+          mkdir -p qa-artifacts
+          g++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined -DFREEINK_DEVICE_X3=1 -Itest/yacp_install -Isrc/network test/yacp_install/BoardTagTest.cpp src/network/FirmwareBoardTag.cpp -o qa-artifacts/board-tag-check
+          qa-artifacts/board-tag-check
 
   build:
-    name: Build ${{ matrix.env }}
+    name: Build all six YACP profiles
+    needs: source-policy
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Short board-specific names keep pull-request artifacts easy to identify.
-        # The release workflow applies the published crosspoint-<version>-<device>.bin names.
-        include:
-          - env: default
-            asset: firmware.bin
-          - env: sticky
-            asset: firmware-sticky.bin
-          - env: x4pro
-            asset: firmware-x4pro.bin
-          - env: x4c
-            asset: firmware-x4c.bin
-          - env: papermono
-            asset: firmware-papermono.bin
-          - env: metalio_eink4
-            asset: firmware-metalio_eink4.bin
-          - env: eego_a4
-            asset: firmware-eego_a4.bin
-          - env: picco
-            asset: firmware-picco.bin
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - uses: actions/setup-python@v6
@@ -117,12 +93,9 @@ jobs:
           version: "latest"
           enable-cache: false
 
-      - name: Install PlatformIO Core
+      - name: Install pinned PlatformIO Core and builder dependencies
         run: |
           uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
-          # platform-espressif32's builder/main.py imports these unconditionally; its own
-          # penv bootstrap (builder/penv_setup.py) is supposed to install them automatically
-          # but isn't picking them up reliably in this runner image, so pin them explicitly.
           uv pip install --system -U "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
             "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" "urllib3<2" \
             "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" "bitstring>=4.3.1" \
@@ -132,47 +105,58 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-v3-${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'scripts/patch_pioarduino_cache.py') }}
-          restore-keys: pio-v3-${{ runner.os }}-${{ matrix.env }}-
+          key: yacp-pio-v1-${{ runner.os }}-${{ hashFiles('platformio.ini', '.yacp-source.json', 'scripts/patch_pioarduino_cache.py') }}
+          restore-keys: yacp-pio-v1-${{ runner.os }}-
 
-      - name: Pin pioarduino core inside the platform penv
+      - name: Register this fresh YACP checkout
+        run: python scripts/check_yacp_source.py --register
+
+      - name: Install font rasterizer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfreetype6
+
+      - name: Pin the nested framework builder core
         run: |
           set -euo pipefail
-          # Envs with custom_sdkconfig (default, sticky) run a nested `pio run` from
-          # ~/.platformio/penv. The platform bootstraps that penv with an open-ended
-          # "pioarduino>=6.1.19", which now resolves to 6.2.0. That core wants
-          # tool-scons 4.11.1 while platform 55.03.311 pins 4.8.1; the two keep
-          # reinstalling over each other and the running SCons loses its package
-          # mid-build ("No module named 'SCons.Tool.FortranCommon'"). Keep the penv
-          # core on the same version as the outer core installed above.
-          # See https://github.com/pioarduino/platform-espressif32/issues/529
-          pio pkg install -e ${{ matrix.env }}
-          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
+          pio pkg install -e tiny
+          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19" \
+            "freetype-py==2.5.1" "fonttools==4.61.1" "Pillow==12.1.0" "PyYAML==6.0.3"
           ~/.platformio/penv/bin/pio --version
 
-      - name: Build ${{ matrix.env }} firmware
+      - name: Reserve a diagnostic range for this workflow run
+        env:
+          YACP_CI_RUN: ${{ github.run_number }}
+          YACP_CI_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          set -euo pipefail
-          pio run -e ${{ matrix.env }} | tee pio.log
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          path = Path('platformio.ini')
+          text = path.read_text(encoding='utf-8')
+          pattern = r'(?m)^(crossink_version\s*=\s*)([^\s]+-yacp\.)(\d+)(\s*)$'
+          match = re.search(pattern, text)
+          if not match:
+              raise SystemExit('Expected a numbered YACP diagnostic version')
+          seed = int(match[3]) + int(os.environ['YACP_CI_RUN']) * 1000 + int(os.environ['YACP_CI_ATTEMPT']) * 10
+          text = text[:match.start()] + match[1] + match[2] + str(seed) + match[4] + text[match.end():]
+          path.write_text(text, encoding='utf-8')
+          PY
 
-      - name: Extract firmware stats
-        run: |
-          set -euo pipefail
-          ram_line="$(grep -E "RAM:\\s" -m1 pio.log || true)"
-          flash_line="$(grep -E "Flash:\\s" -m1 pio.log || true)"
-          echo "ram_line=${ram_line}" >> "$GITHUB_OUTPUT"
-          echo "flash_line=${flash_line}" >> "$GITHUB_OUTPUT"
-          {
-            echo "## ${{ matrix.env }} firmware build stats"
-            if [ -n "$ram_line" ]; then echo "- ${ram_line}"; else echo "- RAM: not found"; fi
-            if [ -n "$flash_line" ]; then echo "- ${flash_line}"; else echo "- Flash: not found"; fi
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and verify all three Standard firmware profiles
+        run: python scripts/build_yacp.py all-local --pio ~/.platformio/penv/bin/pio
 
-      - name: Upload firmware artifact
+      - name: Retain verified images and build evidence
+        if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.asset }}
-          path: .pio/build/${{ matrix.env }}/firmware.bin
+          name: YACP-build-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            qa-artifacts/bin/*.bin
+            qa-artifacts/bin/*.json
+            qa-artifacts/build-*.log
+            qa-artifacts/ticket-*.json
           if-no-files-found: error
 
   unit-tests:
@@ -209,7 +193,7 @@ jobs:
     needs:
       - build
       - clang-format
-      - cppcheck
+      - source-policy
       - unit-tests
     if: always()
     runs-on: ubuntu-latest

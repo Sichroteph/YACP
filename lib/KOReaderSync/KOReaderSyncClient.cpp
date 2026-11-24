@@ -215,7 +215,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   return SERVER_ERROR;
 }
 
-KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress) {
+KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress, const char* deviceName) {
   lastHttpCode = 0;
   if (!KOREADER_STORE.hasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
@@ -256,7 +256,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   }
   doc["progress"] = progress.progress;
   doc["percentage"] = progress.percentage;
-  doc["device"] = DEVICE_NAME;
+  doc["device"] = deviceName && deviceName[0] ? deviceName : DEVICE_NAME;
   doc["device_id"] = DEVICE_ID;
   if (progress.position.has_value() && KOREADER_STORE.supportsRichProgress()) {
     // Enhanced position is opt-in by server type; strict KOSync never receives it.

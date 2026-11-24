@@ -2,10 +2,11 @@
 
 #include "OpdsServerStore.h"
 #include "activities/UiListActivity.h"
+#include "components/OptionPopup.h"
 
 /**
  * Edit screen for a single OPDS server.
- * Shows Name, URL, Username, Password fields and a Delete option.
+ * Edits the connection, custom headers and filename format.
  * Used for both adding new servers and editing existing ones.
  */
 class OpdsSettingsActivity final : public UiListActivity {
@@ -16,16 +17,19 @@ class OpdsSettingsActivity final : public UiListActivity {
   explicit OpdsSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int serverIndex = -1);
 
   void onEnter() override;
+  void render(RenderLock&&) override;
 
  private:
   int serverIndex;
   OpdsServer editServer;
   bool isNewServer = false;
   bool showSaveError = false;
+  OptionPopup optionPopup;
 
   int listCount() const override { return getMenuItemCount(); }
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
+  bool handleCustomInput() override;
   const char* headerTitle() const override;
   void drawFooter() override;
 
@@ -33,12 +37,8 @@ class OpdsSettingsActivity final : public UiListActivity {
   void handleSelection();
   bool saveServer();
 
-  // Row storage: at most 7 rows (Name/URL/Username/Password/2 custom headers
-  // + Delete, see BASE_ITEMS in the .cpp), so a fixed-capacity array avoids
-  // any heap allocation for the row list. Labels are set once in the
-  // constructor (they never change); buildScreen() only refreshes the value
-  // pointers.
-  static constexpr int MAX_MENU_ITEMS = 7;
+  // Four connection fields, the custom headers, filename format and Delete.
+  static constexpr int MAX_MENU_ITEMS = 6 + OpdsServer::MAX_CUSTOM_HEADERS;
   freeink::ui::ListItem fieldRowItems[MAX_MENU_ITEMS]{};
 
   // Masked "Name: ******" display text for the two custom header rows.

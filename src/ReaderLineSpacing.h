@@ -2,6 +2,8 @@
 
 #include <I18n.h>
 
+#include <algorithm>
+#include <array>
 #include <iterator>
 
 #include "CrossPointSettings.h"
@@ -14,3 +16,11 @@ inline constexpr StrId LINE_SPACING_IDS[] = {
 inline constexpr float LINE_SPACING_MULTIPLIERS[] = {1.0f, 1.1f, 1.2f, 1.3f, 1.45f, 1.6f, 1.75f};
 static_assert(std::size(LINE_SPACING_IDS) == CrossPointSettings::LINE_COMPRESSION_COUNT);
 static_assert(std::size(LINE_SPACING_MULTIPLIERS) == CrossPointSettings::LINE_COMPRESSION_COUNT);
+
+inline constexpr int CUSTOM_LINE_SPACING_INDEX = std::size(LINE_SPACING_IDS);
+inline constexpr auto LINE_SPACING_PICKER_IDS = [] {
+  std::array<StrId, CUSTOM_LINE_SPACING_INDEX + 1> labels{};
+  std::copy(std::begin(LINE_SPACING_IDS), std::end(LINE_SPACING_IDS), labels.begin());
+  labels.back() = StrId::STR_CUSTOM;
+  return labels;
+}();

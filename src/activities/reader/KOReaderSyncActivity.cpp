@@ -2,6 +2,9 @@
 
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#ifndef SIMULATOR
+#include <HalNetwork.h>
+#endif
 #include <I18n.h>
 #include <Logging.h>
 #include <TrustedTime.h>
@@ -107,9 +110,9 @@ bool KOReaderSyncActivity::smartSyncEnabled() const {
   return KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART;
 }
 
-void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
+void KOReaderSyncActivity::markAutoReturn() { autoReturn.start(static_cast<uint32_t>(millis())); }
 
-void KOReaderSyncActivity::completeAlreadySynced() {
+void KOReaderSyncActivity::completePluginSync() {
   {
     RenderLock lock(*this);
     state = SYNC_COMPLETE;
@@ -127,6 +130,10 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
 
   LOG_DBG("KOSync", "WiFi connected, starting sync");
 
+#ifndef SIMULATOR
+  // KOReader sync needs unfragmented TCP packets; ordinary WiFi uses CrossPoint's path.
+  halNetwork.enableTcpDontFragmentOnStation();
+#endif
   // Keep the station fully awake for the short sync transaction. The web server
   // does the same because ESP32 modem sleep can introduce multi-second network
   // stalls that surface as HTTP timeouts. WiFi is torn down when this activity exits.
@@ -142,7 +149,7 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
     requestUpdate(true);
 
     pluginevents::drain(&renderer);
-    completeAlreadySynced();
+    completePluginSync();
     return;
   }
 
@@ -316,13 +323,15 @@ void KOReaderSyncActivity::performSync() {
   const ProgressComparison comparison =
       compareProgress(localPosition, localProgress.percentage, remotePosition, remoteProgress.percentage);
   if (smartSyncEnabled()) {
+    const auto smartDecision = yacpSync::decision(localPosition, localProgress.percentage,
+                                                 remotePosition, remoteProgress.percentage);
     LOG_DBG("KOSync", "Smart decision: doc=%s result=%d local=%.6f remote=%.6f remoteXpath=%s mapped=%d/%d",
-            primaryHash.c_str(), static_cast<int>(comparison), localProgress.percentage, remoteProgress.percentage,
+            primaryHash.c_str(), static_cast<int>(smartDecision), localProgress.percentage, remoteProgress.percentage,
             remoteProgress.progress.c_str(), remotePosition.spineIndex, remotePosition.pageNumber);
-    switch (comparison) {
+    switch (smartDecision) {
       case ProgressComparison::Synchronized:
-        completeAlreadySynced();
-        return;
+        // Equality keeps YACP's explicit Apply/Upload choice.
+        break;
       case ProgressComparison::LocalAhead:
         performUpload();
         return;
@@ -418,9 +427,9 @@ void KOReaderSyncActivity::performUpload() {
 
   KOReaderSyncClient::Error result;
   {
-    // Restore power-save before esp_wifi_stop below; set_ps on a stopped radio fails.
+    // Restore power-save before stopping the radio below.
     WifiPowerSaveGuard psGuard;
-    result = KOReaderSyncClient::updateProgress(progress);
+    result = KOReaderSyncClient::updateProgress(progress, SETTINGS.getEffectiveDeviceName());
   }
 
   // Drop the radio while user reads the result; full teardown happens at silent reboot.
@@ -440,7 +449,7 @@ void KOReaderSyncActivity::performUpload() {
     RenderLock lock(*this);
     state = UPLOAD_COMPLETE;
   }
-  markAutoReturn();
+  if (smartSyncEnabled()) markAutoReturn();
   requestUpdate(true);
 }
 
@@ -733,7 +742,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
 void KOReaderSyncActivity::loop() {
   if (state == NO_CREDENTIALS || state == SYNC_FAILED || state == UPLOAD_COMPLETE || state == SYNC_COMPLETE) {
-    if (autoReturnAt != 0 && millis() >= autoReturnAt) {
+    if (autoReturn.due(static_cast<uint32_t>(millis()))) {
       returnToReader();
       return;
     }

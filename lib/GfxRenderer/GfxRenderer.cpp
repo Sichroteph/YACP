@@ -2409,6 +2409,11 @@ void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
   display.displayGrayscaleBase(applyPromotedRefresh(fallback), fadingFix);
 }
 
+void GfxRenderer::displayGrayscaleBaseIntermediate(HalDisplay::RefreshMode fallback) const {
+  absoluteGrayPlanes = false;
+  display.displayGrayscaleBase(fallback, false);
+}
+
 bool GfxRenderer::displayGrayscaleBase(HalDisplay::GrayscaleMode mode, HalDisplay::RefreshMode fallback) const {
   absoluteGrayPlanes = false;
   if (!display.displayGrayscaleBase(mode, promotedRefreshPending_ ? promotedRefresh_ : fallback, fadingFix))
@@ -2416,6 +2421,15 @@ bool GfxRenderer::displayGrayscaleBase(HalDisplay::GrayscaleMode mode, HalDispla
   promotedRefreshPending_ = false;
   absoluteGrayPlanes = mode != HalDisplay::GrayscaleMode::Overlay;
   return true;
+}
+
+void GfxRenderer::displayMonochromeReinforcement() const {
+  absoluteGrayPlanes = false;
+#ifdef SIMULATOR
+  display.displayGrayscaleBase(HalDisplay::FAST_REFRESH, fadingFix);
+#else
+  display.displayMonochromeReinforcement(fadingFix);
+#endif
 }
 
 void GfxRenderer::preconditionGrayscale() const { display.preconditionGrayscale(); }

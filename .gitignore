@@ -33,3 +33,16 @@ lib/EpdFont/scripts/output/
 sdkconfig.sticky
 sdkconfig.x4pro
 flake.*
+
+/lib/EpdFont/builtinFonts/yacp/
+/dist/
+/qa-artifacts/
+
+/.pio-simulator/
+/fs_/
+/src/images/YacpLogo.generated.json
+
+# Canonical YACP agent context is shared project documentation.
+!.claude/
+.claude/*
+!.claude/CONTEXT.md

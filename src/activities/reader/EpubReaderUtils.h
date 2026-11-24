@@ -8,12 +8,14 @@
 #include <vector>
 
 #include "ProgressFile.h"
+#include "ProgressCheckpoint.h"
 
 namespace EpubReaderUtils {
 
 // Persists reader progress for an EPUB to its cache directory. Returns true on success.
 inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int pageCount,
-                         std::optional<uint32_t> visibleTextOffset = std::nullopt) {
+                         std::optional<uint32_t> visibleTextOffset = std::nullopt,
+                         ProgressCheckpoint* checkpoint = nullptr, bool defer = false) {
   if (spineIndex < 0 || spineIndex > 0xFFFF || pageNumber < 0 || pageNumber > 0xFFFF || pageCount < 0 ||
       pageCount > 0xFFFF) {
     LOG_ERR("ERS", "Progress values out of range: spine=%d page=%d count=%d", spineIndex, pageNumber, pageCount);
@@ -33,6 +35,10 @@ inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int p
     data[8] = (*visibleTextOffset >> 16) & 0xFF;
     data[9] = (*visibleTextOffset >> 24) & 0xFF;
     dataSize = sizeof(data);
+  }
+  if (checkpoint) {
+    const uint32_t key = (static_cast<uint32_t>(spineIndex) << 16) | static_cast<uint16_t>(pageNumber);
+    return checkpoint->observe(epub.getCachePath(), data, dataSize, key, !defer);
   }
   if (!ProgressFile::writeAtomic(epub.getCachePath(), data, dataSize)) {
     return false;
