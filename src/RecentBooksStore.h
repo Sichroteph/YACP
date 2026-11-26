@@ -33,7 +33,7 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
 
   // Add a book to the recent list (moves to front if already exists)
   void addBook(const std::string& path, const std::string& title, const std::string& author,
-               const std::string& coverBmpPath);
+               const std::string& coverBmpPath, bool resuming = false);
 
   void updateBook(const std::string& path, const std::string& title, const std::string& author,
                   const std::string& coverBmpPath);
@@ -64,4 +64,4 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
 };
 
 // Helper macro to access recent books store
-#define RECENT_BOOKS RecentBooksStore::getInstance()
+#define RECENT_BOOKS RecentBooksStore::getLoadedInstance()

@@ -99,6 +99,13 @@ class PersistableStore : public PersistableStoreBase {
     return instance;
   }
 
+  static T& getLoadedInstance() {
+    auto& instance = getInstance();
+    static const bool loaded = instance.loadFromFile();
+    (void)loaded;
+    return instance;
+  }
+
   bool saveToFile() const {
     std::lock_guard<std::mutex> lock(storeMutex);
     JsonDocument doc;

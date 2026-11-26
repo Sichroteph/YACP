@@ -1,6 +1,9 @@
 #include "EpubReaderActivity.h"
+
+#include "util/WakeRefreshTrace.h"
 #include "BookStatsActivity.h"
 #include "TimeLeftEstimate.h"
+#include "util/BootTiming.h"
 #include "activities/network/CrossPointWebServerActivity.h"
 #include "activities/network/NetworkModeSelectionActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -307,7 +310,7 @@ bool EpubReaderActivity::loadBook() {
   if (!CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub")) {
     LOG_ERR("CLIP", "Failed to load clippings for %s", epub->getPath().c_str());
   }
-  if (SETTINGS.trackReadingStats) ensureReadingSession();
+  if (SETTINGS.trackReadingStats && !wakeTextPage.valid) ensureReadingSession();
   return true;
 }
 
@@ -512,6 +515,7 @@ int EpubReaderActivity::bookPercentFor(const ChapterPosition& position) const {
 }
 
 void EpubReaderActivity::openReaderMenu() {
+  loadRetainedPageMetadata();
   pauseReadingSession();
   pendingManualTurn = 0;
   reinforcementInterrupt.clear();
@@ -756,6 +760,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
 }
 
 void EpubReaderActivity::openFootnoteSelect(const bool reopenMenuOnCancel) {
+  loadRetainedPageMetadata();
   if (!section || currentPageFootnotes.empty()) return;
   if (currentPageFootnotes.size() == 1) {
     navigateToHref(currentPageFootnotes[0].href, true);
@@ -2060,6 +2065,78 @@ bool EpubReaderActivity::skipLoopDelay() {
   return overlay == Overlay::None && !buildHeapPaused && backgroundBuildWanted();
 }
 
+reader_refresh::WakeTextPage EpubReaderActivity::retainedTextPage() const {
+  const bool positionChanged = section &&
+      (paintedTextPage.chapter != currentSpineIndex || paintedTextPage.page != section->currentPage);
+  const bool messagePending = showBookmarkMessage || showClippingMessage || showDictionaryMessage ||
+                              showFontDamagedMessage || pendingSyncSaveError;
+  if (!section || pageBufferStale || overlay != Overlay::None || footnoteDepth != 0 || positionChanged ||
+      messagePending || !paintedTextPage.valid) {
+    wake_refresh_trace::event("sleep.reject.page",
+                              (!section ? 1 : 0) | (pageBufferStale ? 2 : 0) | (positionChanged ? 4 : 0),
+                              static_cast<int>(overlay), (footnoteDepth != 0 ? 1 : 0) | (messagePending ? 2 : 0) |
+                              (!paintedTextPage.valid ? 4 : 0));
+    return {};
+  }
+  auto page = paintedTextPage;
+  if (page.valid) page.book = std::hash<std::string>{}(bookPath);
+  return page;
+}
+
+void EpubReaderActivity::loadRetainedPageMetadata() {
+  if (!retainedPageMetadataPending.load(std::memory_order_acquire)) return;
+  RenderLock lock(*this);
+  if (!retainedPageMetadataPending.exchange(false) || !section) return;
+  if (auto page = section->loadPage(section->currentPage)) {
+    currentPageFootnotes = std::move(page->footnotes);
+  }
+}
+
+bool EpubReaderActivity::tryAdoptRetainedPage() {
+  const auto retained = std::exchange(wakeTextPage, {});
+  if (!retained.valid || retained.transition == reader_refresh::WakeTransition::None || !gpio.supportsReaderWakePreview() ||
+      display.isInverted() || SETTINGS.isTextAntiAliasingEnabled() || overlay != Overlay::None || forcedRefreshPending ||
+      !section || section->isPartial() || section->isBuilding() || section->currentPage < 0 ||
+      section->currentPage >= section->pageCount) {
+    return false;
+  }
+  const auto offset = section->getVisibleTextOffsetForPage(static_cast<uint16_t>(section->currentPage));
+  const reader_refresh::WakeTextPage resolved{
+      std::hash<std::string>{}(bookPath), offset.value_or(0),
+      static_cast<uint16_t>(currentSpineIndex), static_cast<uint16_t>(section->currentPage),
+      appliedOrientation, offset.has_value(), reader_refresh::WakeTransition::None};
+  if (!retained.matches(resolved)) {
+    wake_refresh_trace::event("reader.reject.position");
+    return false;
+  }
+
+  // Boot already painted this frame. Adopt it only after the current section
+  // and reading position resolve to the same page.
+  pagesUntilFullRefresh = std::max(SETTINGS.getRefreshFrequency(), 2);
+  currentPageVisibleOffset = *offset;
+  currentPageFootnotes.clear();
+  updateBookmarkFlag();
+  paintedTextPage = retained;
+  lastSavedSpineIndex = currentSpineIndex;
+  lastSavedPage = section->currentPage;
+  lastSavedPageCount = section->pageCount;
+  pageBufferStale = false;
+  reusedWakePage = true;
+  retainedPageMetadataPending.store(true, std::memory_order_release);
+  const auto now = millis();
+  lastRenderCompleteMs = now;
+  readingPageShownAt.store(now, std::memory_order_relaxed);
+  readingPagePending.store(true, std::memory_order_release);
+  markPageRendered();
+  PowerHistory::recordReaderPageDisplay();
+  boot_timing::retainedPage.store(static_cast<uint8_t>(retained.transition), std::memory_order_relaxed);
+#ifdef SIMULATOR
+  LOG_INF("ERS", "Restored retained wake frame: mode=%u chapter=%d page=%d",
+          static_cast<unsigned>(retained.transition), currentSpineIndex, section->currentPage);
+#endif
+  return true;
+}
+
 void EpubReaderActivity::renderBook() {
   currentPageLinks.clear();
   if (!epub) return;
@@ -2137,6 +2214,7 @@ void EpubReaderActivity::renderBook() {
             ? std::nullopt
             : cachedVisibleTextOffset;
     if (!cacheComplete) {
+      wakeTextPage = {};
       if (section->isPartial()) {
         LOG_DBG("ERS", "Partial cache found (%d pages), resuming build...", section->pageCount);
       } else {
@@ -2326,6 +2404,12 @@ void EpubReaderActivity::renderBook() {
 
   applyDeferredReposition();
 
+  if (wakeTextPage.valid) {
+    const bool adopted = tryAdoptRetainedPage();
+    wake_refresh_trace::event("reader.adopt", adopted);
+    if (adopted) return;
+  }
+  retainedPageMetadataPending.store(false, std::memory_order_release);
   renderer.clearScreen();
 
   if (section->pageCount == 0) {
@@ -2558,11 +2642,20 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool requestedReinforcement = reinforcementRequested;
   reinforcementRequested = false;
   const bool manualRefreshPending = forcedRefreshPending;
+  const bool needsTextGrayscale =
+      gpio.supportsReaderWakePreview() ? SETTINGS.isTextAntiAliasingEnabled() : SETTINGS.textAntiAliasing != 0;
+  paintedTextPage = {};
+  if (gpio.supportsReaderWakePreview() && !needsTextGrayscale && !page->hasImages() && overlay == Overlay::None &&
+      footnoteDepth == 0) {
+    paintedTextPage = {0, page->visibleTextOffset, static_cast<uint16_t>(currentSpineIndex),
+                       static_cast<uint16_t>(section->currentPage), appliedOrientation, true,
+                       reader_refresh::WakeTransition::None};
+  }
   const bool manualReinforcement =
       requestedReinforcement && gpio.deviceIsX3() && !pageHasImages && renderer.grayscaleCapabilities().supported();
   forcedRefreshPending = false;
+  wake_refresh_trace::event("reader.paint", pagesUntilFullRefresh, pageHasImages, manualRefreshPending);
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
-  const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
   const bool needsAnyGrayscale = needsTextGrayscale || (pageHasImages && !BoardConfig::isEegoA4());
   const bool absoluteImageGrayscale = pageHasImages && !gpio.deviceIsX3() &&
                                       display.getController() == HalDisplay::Controller::UC8279 &&
@@ -3706,6 +3799,7 @@ void EpubReaderActivity::applyReaderTextSettings() {
 // The More panel carries everything the classic list menu offers except the
 // two entries that have their own tool (chapters -> Contents, text -> Text).
 void EpubReaderActivity::buildMoreActions() {
+  loadRetainedPageMetadata();
   using MA = EpubReaderMenuActivity::MenuAction;
   EpubReaderMenuActivity::buildMenuItems(moreItems, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
                                          CLIPPINGS.hasClippings());

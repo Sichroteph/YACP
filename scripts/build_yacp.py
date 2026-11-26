@@ -17,15 +17,21 @@ from patch_yacp_sdk import apply_patches
 ROOT = Path(__file__).resolve().parents[1]
 ENVIRONMENTS = ("tiny", "x4pro", "x4c")
 SIMULATORS = ("simulator", "simulator_x3", "simulator_x4_pro", "simulator_x4_pro_uc8279", "simulator_x4_classic")
+X3_WAKE_ONLY_FLAG = "-DYACP_X3_WAKE_ONLY_TEST=1"
+X3_WAKE_FIRST_TURN_FLAG = "-DYACP_X3_WAKE_ONLY_TEST=2"
 
 
 def build(environment, pio, wsl_mirror=None, *, wsl_distro="Ubuntu",
-          wsl_pio="/home/christophe/.platformio/penv/bin/pio"):
+          wsl_pio="/home/christophe/.platformio/penv/bin/pio", x3_wake_only=0):
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     simulator = environment in SIMULATORS
     if not simulator and environment not in ENVIRONMENTS:
         raise ValueError(f"Unsupported YACP build environment: {environment}")
+    if x3_wake_only and environment != "tiny":
+        raise ValueError("The X3 wake experiment requires tiny")
+    diagnostic_flag = {1: X3_WAKE_ONLY_FLAG, 2: X3_WAKE_FIRST_TURN_FLAG}.get(x3_wake_only)
+    diagnostic = {1: "x3-wake-only", 2: "x3-wake-first-turn"}.get(x3_wake_only)
     if simulator != bool(wsl_mirror):
         raise ValueError("A simulator build requires --wsl-mirror; firmware builds must not use it")
     if simulator:
@@ -58,6 +64,10 @@ def build(environment, pio, wsl_mirror=None, *, wsl_distro="Ubuntu",
         updated = text[:match.start()] + match[1] + version + match[4] + text[match.end():]
         config.write_bytes(updated.encode("utf-8"))
         env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+        if diagnostic_flag:
+            env["PLATFORMIO_BUILD_FLAGS"] = "\n".join(
+                flag for flag in (env.get("PLATFORMIO_BUILD_FLAGS"), diagnostic_flag) if flag
+            )
         manifest_path = artifacts / f"source-{environment}-{version}.json"
         manifest_path.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
         ticket_path = artifacts / f"ticket-{environment}-{version}.json"
@@ -110,6 +120,9 @@ def build(environment, pio, wsl_mirror=None, *, wsl_distro="Ubuntu",
     ticket = json.loads(ticket_path.read_text(encoding="utf-8"))
     if not ticket.get("consumed"):
         raise ValueError("Compilation did not execute the YACP source guard")
+    diagnostic_flags = {X3_WAKE_ONLY_FLAG, X3_WAKE_FIRST_TURN_FLAG}.intersection(ticket.get("build_flags", []))
+    if diagnostic_flags != ({diagnostic_flag} if diagnostic_flag else set()):
+        raise ValueError("X3 wake experiment flag does not match the build request")
     if simulator:
         # PlatformIO may clean another environment on a config change. Preserve
         # a versioned host program before the next build, just as for firmware.
@@ -129,7 +142,10 @@ def build(environment, pio, wsl_mirror=None, *, wsl_distro="Ubuntu",
         return 0
     binary = Path(env.get("PLATFORMIO_BUILD_DIR", ROOT / ".pio/build")) / environment / "firmware.bin"
     identity = verify_image(binary.read_bytes(), environment, version)
-    destination = artifacts / "bin" / f"YACP-{version}-{environment}.bin"
+    binary_dir = artifacts / "bin"
+    if diagnostic:
+        binary_dir /= diagnostic
+    destination = binary_dir / f"YACP-{version}-{environment}.bin"
     destination.parent.mkdir(exist_ok=True)
     with binary.open("rb") as source, destination.open("xb") as output:
         shutil.copyfileobj(source, output)
@@ -138,6 +154,8 @@ def build(environment, pio, wsl_mirror=None, *, wsl_distro="Ubuntu",
               "sha256": digest, "build_succeeded": True, "hardware_validated": False,
               "migration_validated": False, "identity": identity,
               "source": provenance, "build_ticket": ticket}
+    if diagnostic:
+        report["diagnostic"] = diagnostic
     # Preserve symbols for size/crash analysis before PlatformIO clears a target.
     with (binary.parent / "firmware.elf").open("rb") as source, destination.with_suffix(".elf").open("xb") as output:
         shutil.copyfileobj(source, output)
@@ -154,7 +172,14 @@ if __name__ == "__main__":
     parser.add_argument("--wsl-distro", default="Ubuntu", help="WSL distribution used for simulator builds")
     parser.add_argument("--wsl-pio", default="/home/christophe/.platformio/penv/bin/pio",
                         help="Absolute path to PlatformIO inside the selected WSL distribution")
+    diagnostics = parser.add_mutually_exclusive_group()
+    diagnostics.add_argument("--x3-wake-only", action="store_const", const=1, dest="x3_wake_only",
+                             help="Build a diagnostic Tiny image only for X3")
+    diagnostics.add_argument("--x3-wake-first-turn", action="store_const", const=2, dest="x3_wake_only",
+                             help="Build the X3 wake experiment with a live reader after preview")
     args = parser.parse_args()
+    if args.x3_wake_only and args.environment != "tiny":
+        parser.error("X3 wake diagnostics require tiny")
     with build_lock(ROOT):
         if args.environment == "all-local":
             if args.wsl_mirror:
@@ -165,4 +190,4 @@ if __name__ == "__main__":
                     raise SystemExit(status)
             raise SystemExit(0)
         raise SystemExit(build(args.environment, args.pio, args.wsl_mirror,
-                               wsl_distro=args.wsl_distro, wsl_pio=args.wsl_pio))
+                               wsl_distro=args.wsl_distro, wsl_pio=args.wsl_pio, x3_wake_only=args.x3_wake_only))

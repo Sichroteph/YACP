@@ -114,4 +114,4 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
 };
 
 // Helper macro to access credential store
-#define KOREADER_STORE KOReaderCredentialStore::getInstance()
+#define KOREADER_STORE KOReaderCredentialStore::getLoadedInstance()

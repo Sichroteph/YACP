@@ -1,5 +1,7 @@
 #include "CrossPointWebServerActivity.h"
 
+#include "util/WakeRefreshTrace.h"
+
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <FontCacheManager.h>
@@ -67,6 +69,7 @@ int barsForRssi(int rssi, int currentBars) {
 }  // namespace
 
 void CrossPointWebServerActivity::onEnter() {
+  wake_refresh_trace::save("/yacp-wake-trace.txt");
   Activity::onEnter();
 
   LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());

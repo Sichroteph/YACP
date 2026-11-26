@@ -61,4 +61,4 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
   bool hasServers() const { return !servers.empty(); }
 };
 
-#define OPDS_STORE OpdsServerStore::getInstance()
+#define OPDS_STORE OpdsServerStore::getLoadedInstance()

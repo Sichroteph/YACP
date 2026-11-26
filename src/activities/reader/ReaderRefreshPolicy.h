@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 
 namespace reader_refresh {
 
@@ -26,6 +27,23 @@ int reinforceMonochrome(Pass pass, const ReinforcementInterrupt* interrupt) {
   }
   return completed;
 }
+
+enum class WakeTransition : uint8_t { None, Moon, Cover, CustomMono, ProCoverFast, ProCustomGray };
+
+struct WakeTextPage {
+  uint64_t book;
+  uint32_t offset;
+  uint16_t chapter;
+  uint16_t page;
+  uint8_t orientation;
+  bool valid;
+  WakeTransition transition;
+
+  constexpr bool matches(const WakeTextPage& other) const {
+    return valid && other.valid && book == other.book && offset == other.offset && chapter == other.chapter &&
+           page == other.page && orientation == other.orientation;
+  }
+};
 
 enum class Action { Fast, Cleanup, Reinforce };
 

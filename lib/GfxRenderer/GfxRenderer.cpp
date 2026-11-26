@@ -1763,6 +1763,19 @@ void GfxRenderer::displayBuffer(HalDisplay::RefreshMode refreshMode) const {
   display.displayBuffer(refreshMode, fadingFix);
 }
 
+void GfxRenderer::restorePageFromSleepCover() const {
+#ifdef SIMULATOR
+  displayBuffer(HalDisplay::HALF_REFRESH);
+#else
+  const auto mode = applyPromotedRefresh(HalDisplay::HALF_REFRESH);
+  if (mode == HalDisplay::HALF_REFRESH) {
+    display.restorePageFromSleepCover(fadingFix);
+  } else {
+    display.displayBuffer(mode, fadingFix);
+  }
+#endif
+}
+
 void GfxRenderer::displayBufferAsync(HalDisplay::RefreshMode refreshMode) const {
   refreshMode = applyPromotedRefresh(refreshMode);
   // The async path has no turn-off-screen hook, which the sunlight fading fix

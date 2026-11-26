@@ -1,5 +1,7 @@
 #include "SleepActivity.h"
 
+#include "util/WakeRefreshTrace.h"
+
 #include <BitmapHelpers.h>
 #include <BmpToBmpConverter.h>
 #include <Epub.h>
@@ -31,7 +33,6 @@
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "images/MoonIcon.h"
 #include "images/YacpLogo120.generated.h"
 #include "util/BookGallery.h"
 #include "util/SleepImageCache.h"
@@ -717,18 +718,24 @@ void releaseSdFontCachesForDecode(const GfxRenderer& renderer) {
 
 }  // namespace
 
+bool SleepActivity::usesQuickResume(bool fromTimeout) {
+  return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
+         (fromTimeout &&
+          SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+}
+
+bool SleepActivity::showPreparationPopup(GfxRenderer& renderer) {
+  return renderer.getFrameBuffer() && drawSleepPopupPreservingFrame(renderer);
+}
+
 void SleepActivity::onEnter() {
   Activity::onEnter();
 #if defined(YACP_PERSONAL_GO)
   if (GoDgs::renderGoSleep(renderer)) return;
 #endif
 
-  const bool renderQuickResume =
-      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
-      (fromTimeout &&
-       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
-
-  if (renderQuickResume) {
+  if (usesQuickResume(fromTimeout)) {
+    wake_refresh_trace::event("sleep.image.moon");
     // Quick Resume keeps the current frame as-is, so the driver's inversion
     // state stays too: a night-mode page sleeps in night polarity, and the
     // moon icon inverts with it at transfer like any other draw.
@@ -754,7 +761,7 @@ void SleepActivity::onEnter() {
     if (APP_STATE.lastSleepFromReader) {
       ReaderUtils::applyOrientation(renderer, readerOrientation);
     }
-    drawSleepPopupPreservingFrame(renderer);
+    if (!popupAlreadyShown) drawSleepPopupPreservingFrame(renderer);
     if (APP_STATE.lastSleepFromReader) {
       renderer.setOrientation(GfxRenderer::Orientation::Portrait);
     }
@@ -766,13 +773,11 @@ void SleepActivity::onEnter() {
   }
 
   // Show popup with reader orientation only when going to sleep from reader
-  if (APP_STATE.lastSleepFromReader) {
-    ReaderUtils::applyOrientation(renderer, readerOrientation);
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
-    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-  } else {
+  if (!popupAlreadyShown) {
+    if (APP_STATE.lastSleepFromReader) ReaderUtils::applyOrientation(renderer, readerOrientation);
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
+  if (APP_STATE.lastSleepFromReader) renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
@@ -888,7 +893,11 @@ bool SleepActivity::renderBitmapSleepPath(const char* path) const {
                                        SETTINGS.sleepScreenCoverMode,
                                        SETTINGS.fadingFix};
       if (!cache->prepare(path, spec, renderer.getFrameBuffer(), renderer.getBufferSize())) cache.reset();
-      if (cache && renderCachedSleepImage(*cache, renderer)) return true;
+      if (cache && renderCachedSleepImage(*cache, renderer)) {
+        renderedBitmap = SleepBitmapRender::Grayscale;
+        wake_refresh_trace::event("sleep.image.cached_gray");
+        return true;
+      }
       if (!Storage.openFileForRead("SLP", path, file)) return false;
       if (bitmap.rewindToData() != BmpReaderError::Ok) {
         file.close();
@@ -925,6 +934,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
                             (adaptive || preserveBackground ||
                              SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
 
+  wake_refresh_trace::event("sleep.image.bitmap", hasGreyscale, preserveBackground, adaptive);
   const auto cacheFrame = [&](const bool reopenSource) {
     if (!cache) return true;
     // The renderer borrows Bitmap's existing HalFile; cache I/O never overlaps it.
@@ -981,6 +991,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
     renderer.displayGrayscaleBase(HalDisplay::HALF_REFRESH);
   } else {
     renderer.displayBuffer(kSleepClean);
+    if (!preserveBackground) renderedBitmap = SleepBitmapRender::Monochrome;
   }
 
   if (hasGreyscale) {
@@ -1012,10 +1023,12 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
       else
         renderer.copyGrayscaleMsbBuffers();
     }
-    if (ready)
+    if (ready) {
       renderer.displayGrayBuffer();
-    else
+      if (!preserveBackground) renderedBitmap = SleepBitmapRender::Grayscale;
+    } else {
       LOG_ERR("SLP", "Incomplete grayscale image; keeping the current display");
+    }
     renderer.setRenderMode(GfxRenderer::BW);
   }
 }
@@ -1195,13 +1208,27 @@ void SleepActivity::renderCoverSleepScreen() const {
   return (this->*renderNoCoverSleepScreen)();
 }
 
-void SleepActivity::renderLastScreenSleepScreen() const {
-  int top, right, bottom, left;
+namespace {
+int quickResumeMoonY(const GfxRenderer& renderer, int& left) {
+  int top, right, bottom;
   renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-  const int iconY = renderer.getScreenHeight() - bottom - MOONICON_HEIGHT;
+  return renderer.getScreenHeight() - bottom - MOONICON_HEIGHT;
+}
+}  // namespace
+
+bool SleepActivity::copyMoonBackground(GfxRenderer& renderer, uint8_t* data, bool restore) {
   static_assert(MOONICON_WIDTH == MOONICON_HEIGHT, "Sleep icon must be square");
-  renderer.fillRect(left, iconY, MOONICON_WIDTH, MOONICON_HEIGHT, false);
-  renderer.drawIcon(MoonIcon, left, iconY, MOONICON_WIDTH);
+  int left;
+  const int y = quickResumeMoonY(renderer, left);
+  return restore ? renderer.copyBufferToRegion(left, y, MOONICON_WIDTH, MOONICON_HEIGHT, data, MOON_BACKGROUND_BYTES)
+                 : renderer.copyRegionToBuffer(left, y, MOONICON_WIDTH, MOONICON_HEIGHT, data, MOON_BACKGROUND_BYTES);
+}
+
+void SleepActivity::renderLastScreenSleepScreen() const {
+  int left;
+  const int y = quickResumeMoonY(renderer, left);
+  renderer.fillRect(left, y, MOONICON_WIDTH, MOONICON_HEIGHT, false);
+  renderer.drawIcon(MoonIcon, left, y, MOONICON_WIDTH);
   // Only the moon differs from the displayed frame, so a differential FAST
   // update adds it without the flashing clean pass (which sweeps the panel
   // through the inverse — a full white flash on a night-mode page).

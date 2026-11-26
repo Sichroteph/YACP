@@ -12,11 +12,13 @@
 
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
+#include "reader/ReaderRefreshPolicy.h"
 #include "settings/SettingsSection.h"
 #include "util/ScreenshotInfo.h"
 
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
+enum class SleepBitmapRender;
 
 enum class HomeMenuItem {
   NONE,
@@ -105,8 +107,10 @@ class ActivityManager {
   void goToLibrary();
   void goToBrowser();
   void goToPlugins(bool showOpds);
-  void goToReader(std::string path, bool allowFastInitialRefresh = false);
-  void goToSleep(bool fromTimeout = false);
+  void goToReader(std::string path, bool allowFastInitialRefresh = false,
+                  const reader_refresh::WakeTextPage& wakeTextPage = {});
+  reader_refresh::WakeTextPage retainedReaderPage() const;
+  SleepBitmapRender goToSleep(bool fromTimeout, bool popupAlreadyShown);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();

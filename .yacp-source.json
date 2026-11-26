@@ -7,7 +7,9 @@
     "001-rtc-write-verification.patch",
     "002-explicit-ca-verification.patch",
     "003-uc8279-pro-monochrome-reinforcement.patch",
-    "004-bq27220-current.patch"
+    "004-bq27220-current.patch",
+    "x4pro-wake-trace.patch",
+    "x4pro-wake-trace-activations.patch"
   ],
   "hardware": {
     "tiny": [

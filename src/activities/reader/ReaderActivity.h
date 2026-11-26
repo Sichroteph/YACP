@@ -18,6 +18,10 @@ class ReaderActivity : public Activity {
   int pagesUntilFullRefresh = 0;  // 0: required cleanup; 1: periodic maintenance due.
   bool forcedRefreshPending = false;
   bool proMagicWakePending = false;
+  bool resumingBook = false;
+  bool reusedWakePage = false;  // Published by markPageRendered().
+  reader_refresh::WakeTextPage wakeTextPage{};
+  virtual reader_refresh::WakeTextPage retainedTextPage() const { return {}; }
   reader_refresh::ReinforcementInterrupt reinforcementInterrupt;
   int pendingReinforcementTurn = 0;  // Main-loop only: signed page/chapter step.
   bool handlePendingReinforcementTurn();

@@ -24,6 +24,11 @@
 #include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 #include <esp_heap_caps.h>
+#ifdef SIMULATOR
+#include <CredentialIntegrity.h>
+#else
+#include <esp_rom_crc.h>
+#endif
 #include <esp_wifi.h>
 #include <time.h>
 #include "WifiCredentialStore.h"
@@ -33,6 +38,9 @@
 #include <cstring>
 
 #include "util/BookPathMove.h"
+#include "util/BootTiming.h"
+#include "activities/boot_sleep/SleepActivity.h"
+#include "activities/reader/ReaderUtils.h"
 #include "util/LegacyMigration.h"
 #if defined(YACP_PERSONAL_GO)
 #include <ActivityLog.h>
@@ -44,12 +52,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "KOReaderCredentialStore.h"
-#include "LcpPassphraseStore.h"
 #include "MappedInputManager.h"
-#include "OpdsServerStore.h"
-#include "OpdsTokenStore.h"
-#include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "YacpFonts.h"
 #include "activities/Activity.h"
@@ -68,6 +71,8 @@
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
 #include "util/Timezones.h"
+#include "util/X3WakePage.h"
+#include "util/WakeRefreshTrace.h"
 
 #if CROSSPOINT_VECTOR_FONTS
 // Rendering (incl. FreeType TTF rasterization) runs on the Arduino loop task.
@@ -122,6 +127,8 @@ EpdFontFamily ui12FontFamily(12, &ui12RegularFont, &ui12BoldFont);
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
 RTC_NOINIT_ATTR uint32_t silentRebootTarget;
 RTC_NOINIT_ATTR uint32_t silentRebootPayload;
+
+static uint8_t wakeMoonBackground[SleepActivity::MOON_BACKGROUND_BYTES];
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
 constexpr uint32_t SILENT_REBOOT_TARGET_HOME = 0;
 constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
@@ -343,26 +350,209 @@ const bleturner::Host host{heap,          releaseCaches, deliver, yieldForRadio,
 }  // namespace pageturner
 
 constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
+constexpr char COVER_WAKE_FRAME_FILE[] = "/.crosspoint/cover_wake_frame.bin";
+constexpr char CUSTOM_WAKE_BASE_FILE[] = "/.crosspoint/custom_wake_base.bin";
 
-static void saveSleepFrameBuffer() {
-  HalFile file;
-  if (!Storage.openFileForWrite("SLP", SLEEP_FRAME_FILE, file)) return;
-  file.write(renderer.getFrameBuffer(), renderer.getBufferSize());
-  file.close();
+static bool readerWakePreviewDisplayed = false;
+static std::atomic<bool> captureWakeTurn{false};
+static std::atomic<uint8_t> wakeTurnButton{0};
+
+static void captureFirstWakeTurn(void*) {
+  constexpr uint8_t sides = (1u << HalGPIO::BTN_UP) | (1u << HalGPIO::BTN_DOWN);
+  uint8_t previous = 0;
+  uint8_t pressed = 0;
+  uint32_t pressedAt = 0;
+  while (captureWakeTurn.load(std::memory_order_acquire)) {
+    const uint8_t sample = gpio.samplePhysicalSideButtons();
+    if (sample == previous) {
+      if (sample == 0 && pressed != 0) {
+        if (millis() - pressedAt < ReaderUtils::SKIP_HOLD_MS) {
+          wakeTurnButton.store(pressed, std::memory_order_release);
+          break;
+        }
+        pressed = 0;
+      }
+      if (sample != 0 && sample != sides && pressed != sample) {
+        pressed = sample;
+        pressedAt = millis();
+      }
+    }
+    previous = sample;
+    delay(10);
+  }
+  vTaskDelete(nullptr);
 }
 
-static bool loadSleepFrameBuffer() {
+static void startWakeTurnCapture() {
+  captureWakeTurn.store(true, std::memory_order_release);
+  if (xTaskCreate(captureFirstWakeTurn, "Wake first turn", 2048, nullptr, 2, nullptr) != pdPASS) {
+    captureWakeTurn.store(false, std::memory_order_release);
+    LOG_ERR("BOOT", "Could not buffer the first side-button tap");
+  }
+}
+
+#if defined(YACP_X3_WAKE_ONLY_TEST)
+constexpr char WAKE_ONLY_FRAME[] = "/.crosspoint/x3-wake-only.bin";
+constexpr char WAKE_ONLY_PENDING[] = "/.crosspoint/x3-wake-only.tmp";
+constexpr char WAKE_ONLY_TIMING[] = "/.crosspoint/x3-wake-only-timing.txt";
+static bool wakeOnlyDisplayed = false;
+
+// A separate one-shot experiment. The normal boot path is used to get to the
+// sample page. The measured wake ends as soon as the cached image is visible.
+static bool showWakeOnlyPage(uint32_t gpioReady, uint32_t sdReady) {
   HalFile file;
-  if (!Storage.openFileForRead("SLP", SLEEP_FRAME_FILE, file)) return false;
-  const size_t bufferSize = display.getBufferSize();
-  const size_t bytesRead = file.read(display.getFrameBuffer(), bufferSize);
-  file.close();
-  if (bytesRead != bufferSize) {
-    Storage.remove(SLEEP_FRAME_FILE);
+  if (!Storage.exists(WAKE_ONLY_FRAME) || !Storage.openFileForRead("WAKETEST", WAKE_ONLY_FRAME, file)) return false;
+  const auto panelStart = millis();
+  display.begin(true);
+  const auto panelReady = millis();
+  const size_t size = display.getBufferSize();
+  const bool read = display.getFrameBuffer() && size != 0 && file.fileSize() == size &&
+                    file.read(display.getFrameBuffer(), size) == static_cast<int>(size);
+  const bool closed = file.close();
+  if (!read || !closed) {
+    Storage.remove(WAKE_ONLY_FRAME);
+    LOG_ERR("WAKETEST", "Stored test frame is unreadable");
     return false;
   }
-  Storage.remove(SLEEP_FRAME_FILE);
-  display.setInverted(APP_STATE.sleepFrameInverted);
+  const auto frameReady = millis();
+  display.setInverted(false);
+  display.restorePageFromSleepCover(false);
+  const auto visible = millis();
+  wakeOnlyDisplayed = true;
+#if YACP_X3_WAKE_ONLY_TEST == 2
+  boot_timing::mark(boot_timing::SavedPageVisible);
+  readerWakePreviewDisplayed = true;
+  startWakeTurnCapture();
+#endif
+
+  // Cleanup and instrumentation stay off the measured path.
+  if (!Storage.remove(WAKE_ONLY_FRAME)) LOG_ERR("WAKETEST", "Could not consume test frame");
+  const auto elapsed = [](uint32_t end) { return static_cast<unsigned long>(end - boot_timing::started); };
+  char timing[160];
+  const int length = snprintf(timing, sizeof(timing),
+                              "ms from setup: gpio=%lu sd=%lu panel_start=%lu panel_ready=%lu frame=%lu visible=%lu "
+                              "controller=%u\n",
+                              elapsed(gpioReady), elapsed(sdReady), elapsed(panelStart), elapsed(panelReady),
+                              elapsed(frameReady), elapsed(visible), static_cast<unsigned>(display.getController()));
+  LOG_INF("WAKETEST", "%s", timing);
+  if (length > 0 && static_cast<size_t>(length) < sizeof(timing) &&
+      Storage.openFileForWrite("WAKETEST", WAKE_ONLY_TIMING, file)) {
+    const bool written = file.write(timing, static_cast<size_t>(length)) == static_cast<size_t>(length);
+    if (!file.close() || !written) LOG_ERR("WAKETEST", "Could not save timing");
+  }
+  return true;
+}
+#endif
+
+static uint32_t wakeFrameCrc() {
+#ifdef SIMULATOR
+  return credential_integrity::crc32({reinterpret_cast<const char*>(renderer.getFrameBuffer()),
+                                      renderer.getBufferSize()});
+#else
+  return esp_rom_crc32_le(0, renderer.getFrameBuffer(), renderer.getBufferSize());
+#endif
+}
+
+static bool saveSleepFrameBuffer(const char* path) {
+  HalFile file;
+  if (!Storage.openFileForWrite("SLP", path, file)) return false;
+  const auto size = renderer.getBufferSize();
+  const bool complete = file.write(renderer.getFrameBuffer(), size) == size;
+  return file.close() && complete;
+}
+
+static bool loadSleepFrameBuffer(const char* path) {
+  HalFile file;
+  if (!display.getFrameBuffer() || !Storage.openFileForRead("SLP", path, file)) return false;
+  const size_t bufferSize = display.getBufferSize();
+  const bool complete = file.fileSize() == bufferSize &&
+                        file.read(display.getFrameBuffer(), bufferSize) == static_cast<int>(bufferSize);
+  const bool closed = file.close();
+  Storage.remove(path);
+  return closed && complete;
+}
+
+static uint32_t customWakeCrc(uint32_t page, uint32_t oldImage) {
+  return page ^ ((oldImage << 1) | (oldImage >> 31));
+}
+
+static bool showSavedReaderPage(const x3_wake::Snapshot& snapshot) {
+  wake_refresh_trace::event("preview.attempt", static_cast<int>(snapshot.page.transition));
+  if (snapshot.page.transition == reader_refresh::WakeTransition::CustomMono) {
+    if (!BoardConfig::isX4Pro() || display.getController() != HalDisplay::Controller::UC8279 ||
+        BoardConfig::ACTIVE.displayControllerVariant != 0x68) {
+      wake_refresh_trace::event("custom.reject.controller");
+      return false;
+    }
+    if (!x3_wake::matchesReaderData(snapshot)) {
+      wake_refresh_trace::event("custom.reject.reader_data");
+      return false;
+    }
+    if (!loadSleepFrameBuffer(CUSTOM_WAKE_BASE_FILE)) {
+      wake_refresh_trace::event("custom.reject.reference_file");
+      return false;
+    }
+
+    wake_refresh_trace::event("custom.reference.loaded");
+    const uint32_t oldImageCrc = wakeFrameCrc();
+    display.setInverted(false);
+    // Seed the controller with the pixels already on the glass, without an
+    // activation. Only paint after both saved frames have passed validation.
+    renderer.cleanupGrayscaleWithFrameBuffer();
+    if (!loadSleepFrameBuffer(COVER_WAKE_FRAME_FILE) ||
+        customWakeCrc(wakeFrameCrc(), oldImageCrc) != snapshot.frameCrc) {
+      wake_refresh_trace::event("custom.frames.rejected");
+      return false;
+    }
+    wake_refresh_trace::event("custom.frames.accepted");
+    renderer.setFadingFix(snapshot.fadingFix);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    boot_timing::mark(boot_timing::SavedPageVisible);
+    return true;
+  }
+  const bool moon = snapshot.page.transition == reader_refresh::WakeTransition::Moon;
+  if (!loadSleepFrameBuffer(moon ? SLEEP_FRAME_FILE : COVER_WAKE_FRAME_FILE) ||
+      wakeFrameCrc() != snapshot.frameCrc) {
+    wake_refresh_trace::event("preview.reject.frame");
+    LOG_ERR("SLP", "Reader wake frame missing or corrupt");
+    return false;
+  }
+  display.setInverted(false);
+  renderer.setFadingFix(snapshot.fadingFix);
+  if (moon) {
+    // The glass still shows the moon. Restore that baseline in the controller,
+    // replace the moon pixels in the host buffer, then update differentially.
+    renderer.cleanupGrayscaleWithFrameBuffer();
+    ReaderUtils::applyOrientation(renderer, snapshot.page.orientation);
+    const bool restored = SleepActivity::copyMoonBackground(renderer, wakeMoonBackground, true);
+    renderer.setOrientation(GfxRenderer::Portrait);
+    if (!restored) return false;
+    if (BoardConfig::isX4Pro() && display.getController() == HalDisplay::Controller::UC8279 &&
+        BoardConfig::ACTIVE.displayControllerVariant == 0x68) {
+      // The validated retained page is monochrome. Complete a normal B/W
+      // differential refresh so subsequent Magic Flash starts from that page.
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    } else {
+      renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+    }
+  } else if ((snapshot.page.transition == reader_refresh::WakeTransition::ProCoverFast ||
+              snapshot.page.transition == reader_refresh::WakeTransition::ProCustomGray) &&
+             BoardConfig::isX4Pro() && display.getController() == HalDisplay::Controller::UC8279 &&
+             BoardConfig::ACTIVE.displayControllerVariant == 0x68) {
+    // On wake there is no trustworthy B/W shadow of the gray cover. Force
+    // every pixel to take a differential transition with the opposite target
+    // in OLD RAM, and let the completed refresh commit the real text baseline.
+    wake_refresh_trace::event(snapshot.page.transition == reader_refresh::WakeTransition::ProCoverFast
+                                  ? "preview.cover.fast" : "preview.custom.gray.fast");
+    renderer.invertScreen();
+    renderer.cleanupGrayscaleWithFrameBuffer();
+    renderer.invertScreen();
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  } else {
+    wake_refresh_trace::event("preview.cover.half");
+    renderer.restorePageFromSleepCover();
+  }
+  boot_timing::mark(boot_timing::SavedPageVisible);
   return true;
 }
 
@@ -466,6 +656,8 @@ static bool holdSleepWhileUsbPowered() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
+  wake_refresh_trace::begin("sleep");
+  wake_refresh_trace::event("sleep.settings", fromTimeout, SETTINGS.sleepScreen, SETTINGS.sleepScreenCoverFilter);
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
 #if defined(YACP_PERSONAL_GO)
   if (!GoDgs::maintenanceFrame()) {
@@ -475,6 +667,17 @@ void enterDeepSleep(bool fromTimeout = false) {
 #endif
     APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
   APP_STATE.sleepFrameInverted = display.isInverted();
+
+  const bool isQuickResumeSleep = SleepActivity::usesQuickResume(fromTimeout);
+  bool sleepPopupShown = false;
+  if (gpio.supportsReaderWakePreview() && !fromTimeout && !isQuickResumeSleep
+#if defined(YACP_PERSONAL_GO)
+      && !GoDgs::maintenanceFrame()
+#endif
+  ) {
+    RenderLock lock;
+    sleepPopupShown = SleepActivity::showPreparationPopup(renderer);
+  }
 
   // Sleep may end in a power-off (battery death, latch); persist the clock
   // floor now so a later cold boot resumes from it.
@@ -486,10 +689,6 @@ void enterDeepSleep(bool fromTimeout = false) {
   if (!bluetoothStopped) LOG_ERR("SLP", "Bluetooth did not stop; deferring sleep-event delivery");
   deliverSleepPluginEvents(bluetoothStopped);
 
-  const bool isQuickResumeSleep =
-      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
-      (fromTimeout &&
-       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
   // Every sleep mode leaves a complete retained frame on the e-ink panel. Keep
   // it visible until the first useful reader or home paint replaces it.
   APP_STATE.showBootScreen = false;
@@ -499,20 +698,67 @@ void enterDeepSleep(bool fromTimeout = false) {
   PowerHistory::commitBeforeSleep(gpio.isUsbConnectedCached());
 #endif
 
-  APP_STATE.saveToFile();
+  const bool stateSaved = APP_STATE.saveToFile();
+#if defined(YACP_X3_WAKE_ONLY_TEST)
+  bool wakeOnlySaved = false;
+  if (gpio.deviceIsX3() && activityManager.isForegroundReader()) {
+    RenderLock renderLock;
+    if (!display.isInverted() && renderer.getFrameBuffer()) {
+      wakeOnlySaved = saveSleepFrameBuffer(WAKE_ONLY_PENDING);
+    }
+  }
+#endif
+  const bool coverMode = SETTINGS.sleepScreen == CrossPointSettings::COVER ||
+                         SETTINGS.sleepScreen == CrossPointSettings::COVER_CUSTOM;
+  const bool proCoverFast = SETTINGS.sleepScreen == CrossPointSettings::COVER &&
+                            BoardConfig::isX4Pro() && SETTINGS.supportsUc8279MagicFlash() && SETTINGS.isMagicFlash();
+  const bool customMagicWake = BoardConfig::isX4Pro() && SETTINGS.supportsUc8279MagicFlash() &&
+                               SETTINGS.isMagicFlash() && !fromTimeout && !isQuickResumeSleep &&
+                               SETTINGS.sleepScreen == CrossPointSettings::CUSTOM;
+  auto wakeTextPage = stateSaved && gpio.supportsReaderWakePreview() &&
+                              (isQuickResumeSleep || coverMode || customMagicWake)
+                          ? activityManager.retainedReaderPage()
+                          : reader_refresh::WakeTextPage{};
+  wake_refresh_trace::event("sleep.eligible", customMagicWake, wakeTextPage.valid, stateSaved);
+  uint32_t frameCrc = 0;
+  if (wakeTextPage.valid) {
+    if (isQuickResumeSleep) {
+      wakeTextPage.valid = SleepActivity::copyMoonBackground(renderer, wakeMoonBackground, false);
+      wakeTextPage.transition = reader_refresh::WakeTransition::Moon;
+    } else {
+      wakeTextPage.valid = saveSleepFrameBuffer(COVER_WAKE_FRAME_FILE);
+      if (wakeTextPage.valid) frameCrc = wakeFrameCrc();
+      wakeTextPage.transition = customMagicWake ? reader_refresh::WakeTransition::CustomMono
+                                : proCoverFast  ? reader_refresh::WakeTransition::ProCoverFast
+                                                : reader_refresh::WakeTransition::Cover;
+    }
+  }
 
-  activityManager.goToSleep(fromTimeout);
+  const auto sleepBitmap = activityManager.goToSleep(fromTimeout, sleepPopupShown);
+  if (wakeTextPage.valid && wakeTextPage.transition == reader_refresh::WakeTransition::CustomMono) {
+    if (sleepBitmap == SleepBitmapRender::Grayscale) {
+      // The normal Cover transition already handles a grayscale source without
+      // pretending the controller has a valid monochrome copy of that image.
+      wakeTextPage.transition = reader_refresh::WakeTransition::ProCustomGray;
+    } else {
+      wakeTextPage.valid = sleepBitmap == SleepBitmapRender::Monochrome && saveSleepFrameBuffer(CUSTOM_WAKE_BASE_FILE);
+      if (wakeTextPage.valid) frameCrc = customWakeCrc(frameCrc, wakeFrameCrc());
+    }
+  }
   if (BookPathMove::blocked() || LegacyMigration::blocked()) {
     deepSleepInProgress = false;
     LOG_ERR("MAIN", "Sleep postponed until book move recovery");
     return;
   }
 
+  wake_refresh_trace::event("sleep.frames", static_cast<int>(wakeTextPage.transition), wakeTextPage.valid,
+                            static_cast<int>(sleepBitmap));
   if (isQuickResumeSleep) {
-    saveSleepFrameBuffer();
-  } else if (Storage.exists(SLEEP_FRAME_FILE)) {
-    // A stale Quick Resume frame must not replace the selected sleep screen during wake.
-    Storage.remove(SLEEP_FRAME_FILE);
+    const bool saved = saveSleepFrameBuffer(SLEEP_FRAME_FILE);
+    wakeTextPage.valid = saved && wakeTextPage.valid;
+    if (wakeTextPage.valid) frameCrc = wakeFrameCrc();
+  } else {
+    if (Storage.exists(SLEEP_FRAME_FILE)) Storage.remove(SLEEP_FRAME_FILE);
   }
 
   // Tear down WiFi so the modem power domain isn't held alive across deep sleep.
@@ -532,6 +778,20 @@ void enterDeepSleep(bool fromTimeout = false) {
   }
   halTiltSensor.deepSleep();
   display.deepSleep();
+#if defined(YACP_X3_WAKE_ONLY_TEST)
+  if (wakeOnlySaved && !Storage.rename(WAKE_ONLY_PENDING, WAKE_ONLY_FRAME)) {
+    LOG_ERR("WAKETEST", "Could not arm the wake test");
+  }
+#endif
+  const bool savedWakeRecord = wakeTextPage.valid &&
+      x3_wake::save({wakeTextPage, frameCrc, 0, SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP,
+                    SETTINGS.fadingFix != 0},
+                   wakeMoonBackground);
+  wake_refresh_trace::event("sleep.record", savedWakeRecord);
+  wake_refresh_trace::save("/yacp-sleep-trace.txt");
+  if (wakeTextPage.valid && !savedWakeRecord) {
+    LOG_ERR("SLP", "Could not save reader wake record; the next wake will render normally");
+  }
 #if defined(YACP_PERSONAL_GO)
   GoDgs::armNextPoll();
 #endif
@@ -547,7 +807,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   powerManager.startDeepSleep(gpio);
 }
 
-void setupDisplayAndFonts(bool seamless = false) {
+static void initializeDisplay(bool seamless) {
 #if !FREEINK_MCU_C3
   // C3 resolves its controller in HalGPIO::begin() before SPI claims the
   // display pins. X4 Pro skips that C3-only path, so probe here before
@@ -560,9 +820,16 @@ void setupDisplayAndFonts(bool seamless = false) {
     }
   }
 #endif
-
   display.begin(seamless);
   renderer.begin();
+}
+
+void setupDisplayAndFonts(bool seamless = false, bool alreadyInitialized = false) {
+  if (!alreadyInitialized) {
+    initializeDisplay(seamless);
+  } else if (!seamless) {
+    renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
+  }
   activityManager.begin();
   LOG_DBG("MAIN", "Display initialized");
 
@@ -588,6 +855,8 @@ void setupDisplayAndFonts(bool seamless = false) {
 }
 
 void setup() {
+  wake_refresh_trace::begin("wake");
+  boot_timing::started = millis();
   BoardConfig::holdPowerRails();
 
 #ifdef ENABLE_SERIAL_LOG
@@ -600,6 +869,19 @@ void setup() {
 #if LOG_SERIAL_HAS_TX_TIMEOUT
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
 #endif
+#endif
+
+#if defined(YACP_X3_WAKE_ONLY_TEST)
+  gpio.begin();
+  const auto testGpioReady = millis();
+  const auto reset = esp_reset_reason();
+  if (gpio.deviceIsX3() && (reset == ESP_RST_POWERON || reset == ESP_RST_DEEPSLEEP) && Storage.begin()) {
+#if YACP_X3_WAKE_ONLY_TEST == 2
+    if (showWakeOnlyPage(testGpioReady, millis())) renderer.begin();
+#else
+    if (showWakeOnlyPage(testGpioReady, millis())) return;
+#endif
+  }
 #endif
 
   HalSystem::begin();
@@ -617,7 +899,9 @@ void setup() {
   silentRebootTarget = 0;
   silentRebootPayload = 0;
 
+#if !defined(YACP_X3_WAKE_ONLY_TEST)
   gpio.begin();
+#endif
   powerManager.begin();
 
   // Board TX-power ceiling. It can only be set once WiFi has started, so it is
@@ -632,10 +916,15 @@ void setup() {
   }
 
   const auto wakeupReason = gpio.getWakeupReason();
+  boot_timing::mark(boot_timing::Hardware);
   auto bootShortcut = boot_shortcut::Action::None;
 #if FREEINK_MCU_C3 && !defined(SIMULATOR)
   static_assert(HalGPIO::BTN_BACK == 0 && HalGPIO::BTN_UP == 4 && HalGPIO::BTN_DOWN == 5);
-  if (!isSilentReboot) {
+  if (!isSilentReboot
+#if YACP_X3_WAKE_ONLY_TEST == 2
+      && !wakeOnlyDisplayed
+#endif
+  ) {
     const uint8_t first = gpio.samplePhysicalLadderButtons();
     delay(8);
     bootShortcut = boot_shortcut::forBoot(first, gpio.samplePhysicalLadderButtons(),
@@ -647,7 +936,11 @@ void setup() {
   // click-to-wake is a setting, and an X4 battery power-off cuts all power, so
   // only SD state survives to the next boot.
   // The Metalio boots after the button is released, so it skips the check.
-  const bool wakeHoldVerified = wakeupReason != HalGPIO::WakeupReason::PowerButton || BoardConfig::isMetalioEInk4() ||
+  const bool wakeHoldVerified =
+#if YACP_X3_WAKE_ONLY_TEST == 2
+      wakeOnlyDisplayed ||
+#endif
+      wakeupReason != HalGPIO::WakeupReason::PowerButton || BoardConfig::isMetalioEInk4() ||
                                 gpio.verifyPowerButtonWakeup();
 
   // X4 Pro and X4 Classic both map BTN_UP to GPIO0 — an ESP32-S3 boot strap — so
@@ -662,9 +955,6 @@ void setup() {
                                     mappedInputManager.isPressed(recoveryButton);
 #endif
 
-  halTiltSensor.begin();
-  halClock.begin();
-
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
 #else
@@ -673,12 +963,26 @@ void setup() {
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
+#if defined(YACP_X3_WAKE_ONLY_TEST)
+  if (!Storage.ready() && !Storage.begin()) {
+#else
   if (!Storage.begin()) {
+#endif
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts(isSilentReboot);
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
     return;
   }
+  boot_timing::mark(boot_timing::SdMount);
+  const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
+  wake_refresh_trace::event("wake.cause", static_cast<int>(wakeupReason), wakeHoldVerified);
+  const bool allowPreview =
+      isSleepWake && !isSilentReboot && !rebootedFromPanic && bootShortcut == boot_shortcut::Action::None &&
+      !recoveryFirmwareMode;
+  auto savedPage =
+      gpio.supportsReaderWakePreview() ? x3_wake::consume(allowPreview, wakeMoonBackground) : x3_wake::Snapshot{};
+  wake_refresh_trace::event("wake.record", savedPage.page.valid, static_cast<int>(savedPage.page.transition),
+                            savedPage.clickToWake);
 #if defined(YACP_PERSONAL_GO)
   // Log before settings and migration so a timer wake that stops early is
   // distinguishable from a wake that never reached firmware setup.
@@ -686,6 +990,7 @@ void setup() {
                              static_cast<uint32_t>(esp_reset_reason()));
 #endif
 
+  ButtonNavigator::setMappedInputManager(mappedInputManager);
   if (recoveryFirmwareMode) {
     // Recovery must remain available even when migration is paused. It must
     // never load/resave the user's settings or reader state.
@@ -698,6 +1003,39 @@ void setup() {
     return;
   }
 
+  // This is a display-only preview of this device's last committed reading
+  // frame. A battery wake is POWERON and must still take the migration checks
+  // for a cold boot before opening or writing any reading state.
+  bool displayInitialized = false;
+#if YACP_X3_WAKE_ONLY_TEST == 2
+  displayInitialized = wakeOnlyDisplayed;
+  if (wakeOnlyDisplayed) {
+    // Adopt the fast-painted pixels only if they match the validated cover
+    // snapshot. Otherwise let the normal reader repaint the correct page.
+    if (!savedPage.page.valid || savedPage.page.transition != reader_refresh::WakeTransition::Cover ||
+        wakeFrameCrc() != savedPage.frameCrc || BookPathMove::hasPending() ||
+        !LegacyMigration::canPreviewSavedReaderPage() || !x3_wake::matchesReaderData(savedPage)) {
+      savedPage.page = {};
+    }
+  } else
+#endif
+  if (savedPage.page.valid && (wakeHoldVerified || savedPage.clickToWake) &&
+      !BookPathMove::hasPending() && LegacyMigration::canPreviewSavedReaderPage()) {
+    initializeDisplay(true);
+    displayInitialized = true;
+    readerWakePreviewDisplayed = showSavedReaderPage(savedPage);
+    wake_refresh_trace::event("preview.result", readerWakePreviewDisplayed);
+    if (readerWakePreviewDisplayed) {
+      startWakeTurnCapture();
+    } else {
+      savedPage.page = {};
+    }
+  } else {
+    savedPage.page = {};
+  }
+  halTiltSensor.begin();
+  halClock.begin();
+
   // Migration precedes every state/settings loader, including their resaves.
 #ifdef SIMULATOR
   const bool checkedSleepResume = false;
@@ -706,27 +1044,34 @@ void setup() {
   const bool checkedSleepResume = esp_reset_reason() == ESP_RST_DEEPSLEEP;
 #endif
   if (!LegacyMigration::run(checkedSleepResume)) {
-    setupDisplayAndFonts(false);
+    setupDisplayAndFonts(false, displayInitialized);
     activityManager.goToFullScreenMessage(
         LegacyMigration::sourceBackupFailed() ? tr(STR_BACKUP_STATS_FAILED) : tr(STR_ERROR_GENERAL_FAILURE));
     return;
   }
   HalSystem::checkPanic();
+  boot_timing::mark(boot_timing::DataCheck);
 
   const bool pendingBookMove = BookPathMove::hasPending();
-  const bool moveSnapshotsReady = BookPathMove::prepareRecovery();
+  const bool moveSnapshotsReady = !pendingBookMove || BookPathMove::prepareRecovery();
   if (!moveSnapshotsReady) {
     SETTINGS.loadFromFile();
     I18N.setLanguage(static_cast<Language>(SETTINGS.language));
-    setupDisplayAndFonts(false);
+    setupDisplayAndFonts(false, displayInitialized);
     activityManager.goToFullScreenMessage(tr(STR_ERROR_GENERAL_FAILURE));
     LOG_ERR("MAIN", "Move metadata recovery blocked; no state loaded or saved");
     return;
   }
+  auto wakeTextPage = savedPage.page.valid && !pendingBookMove && x3_wake::matchesReaderData(savedPage)
+                          ? savedPage.page
+                          : reader_refresh::WakeTextPage{};
   APP_STATE.loadFromFile();
   PowerHistory::begin(gpio.isUsbConnected());
-  const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
-  const bool isPersistedSleepWake = isSleepWake && !APP_STATE.showBootScreen;
+  // The early paint already established a monochrome panel baseline. Use it
+  // for a differential redraw even if we cannot adopt the cached reader page.
+  const bool hasWakeFrame = wakeTextPage.valid || readerWakePreviewDisplayed;
+  const bool isPersistedSleepWake =
+      isSleepWake && !APP_STATE.showBootScreen && (!gpio.deviceIsX3() || checkedSleepResume || hasWakeFrame);
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
@@ -740,9 +1085,8 @@ void setup() {
   if (gpio.hasTouch()) {
     SETTINGS.readerMenuStyle = CrossPointSettings::READER_MENU_TOOLBAR;
   }
-  const bool settingsFileExists = Storage.exists(CrossPointSettings::getFilePath());
   const bool settingsLoaded = SETTINGS.loadFromFile();
-  if (!settingsFileExists && !settingsLoaded && gpio.deviceIsX3()) {
+  if (!settingsLoaded && gpio.deviceIsX3() && !Storage.exists(CrossPointSettings::getFilePath())) {
     // CrossPoint's X3 no-flash reinforcement is YACP's Magic Flash behavior.
     // Existing files, including migrated settings, always retain the user's choices.
     // Keep the Classic cadence and smoothing preferences for a later mode
@@ -755,22 +1099,16 @@ void setup() {
   // Push the saved timezone's POSIX rule into the clock (migrating the legacy
   // UTC-offset setting on first boot after the update).
   timezones::applyToClock();
-  RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
-  KOREADER_STORE.loadFromFile();
-  OPDS_STORE.loadFromFile();
-  OPDS_TOKENS.loadFromFile();
-  LCP_PASSPHRASES.loadFromFile();
   UITheme::getInstance().reload();
-  ButtonNavigator::setMappedInputManager(mappedInputManager);
-  if (!moveSnapshotsReady || !BookPathMove::recover()) {
-    setupDisplayAndFonts(false);
+  if (pendingBookMove && !BookPathMove::recover()) {
+    setupDisplayAndFonts(false, displayInitialized);
     activityManager.goToFullScreenMessage(tr(STR_ERROR_GENERAL_FAILURE));
     LOG_ERR("MAIN", "Book move recovery blocked; repair SD state or restart to retry");
     return;
   }
   if (pendingBookMove && !LegacyMigration::repairTextAfterBookMove()) {
-    setupDisplayAndFonts(false);
+    setupDisplayAndFonts(false, displayInitialized);
     activityManager.goToFullScreenMessage(tr(STR_ERROR_GENERAL_FAILURE));
     LOG_ERR("MAIN", "TXT position conversion blocked after book move");
     return;
@@ -848,8 +1186,7 @@ void setup() {
   // skips the panel-clearing pass and the X3 initial-full-sync arming (see
   // HalDisplay::begin), so the first paint is FAST_REFRESH (~500ms) over the
   // retained frame and input dispatches against a visible UI.
-  // Only a verified deep-sleep wake may use the one-shot persisted flag.
-  // Otherwise a stale flag could suppress the splash on a cold boot.
+  // A battery-powered X3 relies on the validated SD snapshot rather than RTC.
   const BootResume resume = bootShortcut == boot_shortcut::Action::SafeHome ? BootResume::Splash
                             : isSilentReboot                                ? BootResume::Silent
                             : isPersistedSleepWake                          ? BootResume::SplashlessWake
@@ -857,39 +1194,81 @@ void setup() {
   bool allowFastInitialReaderRefresh = false;
   bool needsWakeRefresh = false;
 
-  setupDisplayAndFonts(resume != BootResume::Splash);
+#if defined(YACP_PERSONAL_GO)
+  const bool resumeGo = isPersistedSleepWake && GoDgs::hasPlayablePending();
+#endif
+  std::string bookToResume;
+  if (bootShortcut == boot_shortcut::Action::None && !recoveryFirmwareMode && !rebootedFromPanic &&
+      resume != BootResume::Silent &&
+#if defined(YACP_PERSONAL_GO)
+      !resumeGo &&
+#endif
+      APP_STATE.lastSleepFromReader && !APP_STATE.openEpubPath.empty() && APP_STATE.readerActivityLoadCount == 0 &&
+      !mappedInputManager.isPressed(MappedInputManager::Button::Back)) {
+    bookToResume.swap(APP_STATE.openEpubPath);
+    ++APP_STATE.readerActivityLoadCount;
+  }
+  if (resume == BootResume::SplashlessWake || !bookToResume.empty()) {
+    // Persist both guards together, before touching the retained frame or opening a book.
+    APP_STATE.showBootScreen = true;
+    if (!APP_STATE.saveToFile() && !bookToResume.empty()) {
+      LOG_ERR("BOOT", "Could not save resume guard; opening Home");
+      APP_STATE.openEpubPath.swap(bookToResume);
+      --APP_STATE.readerActivityLoadCount;
+    }
+  }
+
+  boot_timing::mark(boot_timing::Stores);
+  wake_refresh_trace::event("wake.route", static_cast<int>(resume), displayInitialized, readerWakePreviewDisplayed);
+  setupDisplayAndFonts(resume != BootResume::Splash, displayInitialized);
+  boot_timing::mark(boot_timing::Display);
 
   switch (resume) {
     case BootResume::Silent:
       // Splash skipped: the routing block below picks the target activity; the
       // panel keeps showing the pre-reboot popup until that first paint lands.
       break;
-    case BootResume::SplashlessWake:
-      // One-shot flag: re-arm the splash for the next ordinary boot. Save
-      // before any painting so a hang in the blocking paint path can't strand
-      // us in a splashless-with-no-frame loop on the next boot.
-      APP_STATE.showBootScreen = true;
-      APP_STATE.saveToFile();
-      if (Storage.exists(SLEEP_FRAME_FILE) && loadSleepFrameBuffer()) {
+    case BootResume::SplashlessWake: {
+      if (wakeTextPage.valid && !bookToResume.empty() &&
+          wakeTextPage.book == std::hash<std::string>{}(bookToResume)) {
+        allowFastInitialReaderRefresh = true;
+        break;
+      }
+      wakeTextPage = {};
+      if (readerWakePreviewDisplayed && !bookToResume.empty() && !pendingBookMove && !SETTINGS.screenInverted &&
+          !SETTINGS.readerDarkMode) {
+        allowFastInitialReaderRefresh = true;
+        break;
+      }
+      if (displayInitialized) {
+        wake_refresh_trace::event("wake.promote.full");
+        renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
+        needsWakeRefresh = true;
+      } else if (loadSleepFrameBuffer(SLEEP_FRAME_FILE)) {
+        display.setInverted(APP_STATE.sleepFrameInverted);
         const bool proMagicWake = BoardConfig::isX4Pro() && SETTINGS.isMagicFlash() &&
                                   APP_STATE.lastSleepFromReader && !display.isInverted();
         if (gpio.deviceIsX3() || proMagicWake) {
-          // begin() clears the controller RAM. Restore the saved frame as the
-          // baseline for the first reader paint without refreshing the panel.
           renderer.cleanupGrayscaleWithFrameBuffer();
           allowFastInitialReaderRefresh = true;
         }
       } else {
-        // Clean the retained sleep image as part of the first Home paint.
         needsWakeRefresh = true;
       }
       break;
+    }
     case BootResume::Splash:
-      activityManager.goToBoot();
+      // On a normal power-on the first useful screen can do the initial panel
+      // sync. Keep the startup indicator on recovery and non-power-on routes.
+#ifndef SIMULATOR
+      if (esp_reset_reason() != ESP_RST_POWERON || bootShortcut != boot_shortcut::Action::None || rebootedFromPanic)
+#endif
+        activityManager.goToBoot();
       break;
   }
 
   // ActivityManager resolves subsequent reader/menu polarity on each render.
+  boot_timing::mark(boot_timing::ResumeFrame);
 
   if (bootShortcut == boot_shortcut::Action::SafeHome) {
     LOG_INF("MAIN", "Physical BACK boot shortcut: safe Home");
@@ -912,7 +1291,7 @@ void setup() {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
 #if defined(YACP_PERSONAL_GO)
-  } else if (isPersistedSleepWake && GoDgs::hasPlayablePending()) {
+  } else if (resumeGo) {
     auto go = GoDgs::makeGoActivity(renderer, mappedInputManager);
     if (go)
       activityManager.replaceActivity(std::move(go));
@@ -934,18 +1313,14 @@ void setup() {
     // through to the sleep-wake "resume reader" logic, which fires on stale
     // openEpubPath + lastSleepFromReader from a prior session.
     activityManager.goHome();
-  } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
-             mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
-    // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
-    // crashed (indicated by readerActivityLoadCount > 0)
+  } else if (bookToResume.empty()) {
+    wake_refresh_trace::event("wake.home", APP_STATE.lastSleepFromReader, APP_STATE.readerActivityLoadCount,
+                              APP_STATE.openEpubPath.empty());
     activityManager.goHome(HomeMenuItem::NONE, needsWakeRefresh);
   } else {
-    // Clear app state to avoid getting into a boot loop if the epub doesn't load
-    const auto path = APP_STATE.openEpubPath;
-    APP_STATE.openEpubPath = "";
-    APP_STATE.readerActivityLoadCount++;
-    APP_STATE.saveToFile();
-    activityManager.goToReader(path, allowFastInitialReaderRefresh);
+    const auto retainedPage = resume == BootResume::SplashlessWake ? wakeTextPage : reader_refresh::WakeTextPage{};
+    wake_refresh_trace::event("wake.reader", allowFastInitialReaderRefresh, retainedPage.valid);
+    activityManager.goToReader(std::move(bookToResume), allowFastInitialReaderRefresh, retainedPage);
   }
 
   if (resume == BootResume::Silent) {
@@ -973,9 +1348,19 @@ void setup() {
   }
 
   allowSleepAt = millis() + 2000;
+  boot_timing::mark(boot_timing::Routed);
 }
 
 void loop() {
+#if YACP_X3_WAKE_ONLY_TEST == 1
+  if (wakeOnlyDisplayed) {
+    gpio.update();
+    if (gpio.wasPressed(HalGPIO::BTN_BACK)) ESP.restart();
+    delay(10);
+    return;
+  }
+#endif
+  if (readerWakePreviewDisplayed) captureWakeTurn.store(false, std::memory_order_release);
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
   static unsigned long lastMemPrint = 0;
@@ -1061,7 +1446,18 @@ void loop() {
     if (line.startsWith("CMD:")) {
       String cmd = line.substring(4);
       cmd.trim();
-      if (cmd == "SCREENSHOT") {
+      if (cmd == "BOOT_TIMING") {
+        static constexpr const char* phaseNames[] = {"hardware", "sd_mount", "saved_page_visible", "data_check",
+                                                     "stores", "display", "resume_frame", "routed", "first_paint",
+                                                     "input_loop"};
+        static_assert(sizeof(phaseNames) / sizeof(phaseNames[0]) == boot_timing::PhaseCount);
+        logSerial.printf("BOOT_TIMING_MS_FROM_SETUP retained_page=%u\n",
+                         static_cast<unsigned>(boot_timing::retainedPage.load(std::memory_order_relaxed)));
+        for (size_t i = 0; i < boot_timing::PhaseCount; ++i) {
+          const auto stamp = boot_timing::stamps[i].load(std::memory_order_acquire);
+          if (stamp) logSerial.printf("%s=%lu\n", phaseNames[i], static_cast<unsigned long>(stamp - 1));
+        }
+      } else if (cmd == "SCREENSHOT") {
         const uint32_t bufferSize = display.getBufferSize();
         logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
         uint8_t* buf = display.getFrameBuffer();
@@ -1263,7 +1659,20 @@ void loop() {
   }
 
   const unsigned long activityStartTime = millis();
+  const bool firstPaintReady = boot_timing::stamps[boot_timing::FirstPaint].load(std::memory_order_acquire) != 0;
+  if (readerWakePreviewDisplayed && firstPaintReady && !wakePowerReleasePending) {
+    const auto physical = wakeTurnButton.load(std::memory_order_acquire);
+    if (physical != 0) {
+      const auto turn = mappedInputManager.sidePageClick(physical);
+      if (!activityManager.isForegroundReader() || turn == RemoteButton::None || activityManager.remoteClick(turn)) {
+        wakeTurnButton.store(0, std::memory_order_release);
+      }
+    }
+  }
   activityManager.loop();
+  if (firstPaintReady && !wakePowerReleasePending && !RenderLock::peek()) {
+    boot_timing::mark(boot_timing::InputLoop);
+  }
   const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;

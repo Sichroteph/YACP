@@ -175,10 +175,10 @@ uint8_t MappedInputManager::frontButtonForRole(const Button role) const {
 }
 
 bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const,
-                                   uint8_t* physicalButtons) const {
+                                   uint8_t* physicalButtons, uint8_t sampledButtons) const {
   const auto sideLayout = SETTINGS.sideButtonLayout;
   const auto readButton = [&](const uint8_t raw) {
-    const bool matched = (gpio.*fn)(raw);
+    const bool matched = fn ? (gpio.*fn)(raw) : raw <= HalGPIO::BTN_POWER && (sampledButtons & (1u << raw));
     if (physicalButtons && matched && raw <= HalGPIO::BTN_POWER) *physicalButtons |= 1u << raw;
     return matched;
   };
@@ -462,6 +462,15 @@ bool MappedInputManager::wasPowerConfirmClick() const {
   return gpio.wasReleased(HalGPIO::BTN_POWER) && gpio.getPowerButtonHeldTime() <= SETTINGS.getPowerButtonDuration();
 }
 #endif
+
+RemoteButton MappedInputManager::sidePageClick(uint8_t physicalMask) const {
+  const bool swapped = isNavDirectionSwapped();
+  if (mapButton(Button::PageForward, nullptr, nullptr, physicalMask))
+    return swapped ? RemoteButton::Previous : RemoteButton::Next;
+  if (mapButton(Button::PageBack, nullptr, nullptr, physicalMask))
+    return swapped ? RemoteButton::Next : RemoteButton::Previous;
+  return RemoteButton::None;
+}
 
 bool MappedInputManager::injectRemoteClick(const RemoteButton button) {
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || isPressed(Button::Confirm) || isPressed(Button::Back))

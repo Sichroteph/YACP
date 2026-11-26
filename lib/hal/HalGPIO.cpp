@@ -5,7 +5,9 @@
 #include <Preferences.h>
 #include <SPI.h>
 #include <XteinkDetect.h>
+#include <esp_attr.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 
 #if FREEINK_DEVICE_LILYGO
 #include <BoardT5S3.h>
@@ -15,9 +17,16 @@
 HalGPIO gpio;
 
 namespace {
+#if FREEINK_MCU_C3 && !defined(SIMULATOR)
+constexpr uint32_t X3_UC8279_WAKE = 0x58333666;
+RTC_NOINIT_ATTR uint32_t x3PanelWake;
+#endif
 constexpr char HW_NAMESPACE[] = "cphw";
 constexpr char NVS_KEY_DEV_OVERRIDE[] = "dev_ovr";  // 0=auto, 1=x4, 2=x3
 constexpr char NVS_KEY_DEV_CACHED[] = "dev_det";    // 0=unknown, 1=x4, 2=x3
+constexpr char NVS_KEY_X3_PANEL[] = "x3_panel_v1";
+constexpr uint8_t X3_PANEL_UC8253 = 1;
+constexpr uint8_t X3_PANEL_UC8279 = 2;
 
 enum class NvsDeviceValue : uint8_t { Unknown = 0, X4 = 1, X3 = 2 };
 
@@ -90,14 +99,54 @@ void HalGPIO::begin() {
   _deviceType = detectDeviceTypeWithFingerprint();
   BoardConfig::selectDevice(deviceIsX3() ? BoardConfig::Board::XteinkX3 : BoardConfig::Board::XteinkX4);
 
-  // Resolve the per-batch controller before SPI owns the display pins. FreeInk
-  // checks the OEM hw_calib/screenType value first, then falls back to its
-  // two-pass display-bus probe. X3's facade keys panel selection off the sibling
-  // board profile, so preserve a detected UC8279 through setDisplayX3().
-  freeink::applyXteinkDisplayController();
-  if (deviceIsX3() && BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8279) {
-    BoardConfig::selectDevice(BoardConfig::Board::XteinkX3Uc8279);
+  // The X3 UC8279 has a positive hardware ID. A default UC8253 verdict
+  // can come from an undriven bus, so only the positively identified variant
+  // can skip the probe on an ordinary deep-sleep wake.
+  bool retainedPanel = false;
+#ifndef SIMULATOR
+  const auto wakeCause = esp_sleep_get_wakeup_cause();
+  retainedPanel = deviceIsX3() && esp_reset_reason() == ESP_RST_DEEPSLEEP &&
+                  (wakeCause == ESP_SLEEP_WAKEUP_GPIO || wakeCause == ESP_SLEEP_WAKEUP_EXT1) &&
+                  x3PanelWake == X3_UC8279_WAKE;
+  x3PanelWake = 0;
+#endif
+#ifndef SIMULATOR
+  const auto reset = esp_reset_reason();
+  uint8_t cachedPanel = 0;
+  if (deviceIsX3() && (reset == ESP_RST_POWERON || reset == ESP_RST_DEEPSLEEP)) {
+    Preferences prefs;
+    if (prefs.begin(HW_NAMESPACE, true)) {
+      cachedPanel = prefs.getUChar(NVS_KEY_X3_PANEL, 0);
+      prefs.end();
+    }
   }
+  if (cachedPanel == X3_PANEL_UC8279) BoardConfig::selectDevice(BoardConfig::Board::XteinkX3Uc8279);
+  if (!retainedPanel && cachedPanel != X3_PANEL_UC8253 && cachedPanel != X3_PANEL_UC8279) {
+    freeink::applyXteinkDisplayController();
+  }
+#else
+  if (!retainedPanel) freeink::applyXteinkDisplayController();
+#endif
+  if (retainedPanel || (deviceIsX3() && BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8279)) {
+    BoardConfig::selectDevice(BoardConfig::Board::XteinkX3Uc8279);
+#ifndef SIMULATOR
+    x3PanelWake = X3_UC8279_WAKE;
+#endif
+  }
+#ifndef SIMULATOR
+  if (deviceIsX3() && cachedPanel != X3_PANEL_UC8253 && cachedPanel != X3_PANEL_UC8279) {
+    // The preparatory boot already resolved the controller on this unit. Do
+    // not reset and probe the same panel again on a battery wake.
+    const auto controller = BoardConfig::ACTIVE.displayController;
+    const uint8_t resolved = controller == BoardConfig::DisplayController::UC8279 ? X3_PANEL_UC8279 :
+                             controller == BoardConfig::DisplayController::UC8253 ? X3_PANEL_UC8253 : 0;
+    Preferences prefs;
+    if (resolved && prefs.begin(HW_NAMESPACE, false)) {
+      if (prefs.getUChar(NVS_KEY_X3_PANEL, 0) != resolved) prefs.putUChar(NVS_KEY_X3_PANEL, resolved);
+      prefs.end();
+    }
+  }
+#endif
 
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
 
@@ -232,6 +281,20 @@ bool HalGPIO::isXteinkDevice() const {
          BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4;
 }
 
+bool HalGPIO::supportsReaderWakePreview() const {
+  return isXteinkDevice() || BoardConfig::isX4Classic() || BoardConfig::isX4Pro();
+}
+
+uint8_t HalGPIO::samplePhysicalSideButtons() {
+  constexpr uint8_t mask = (1u << BTN_UP) | (1u << BTN_DOWN);
+  if (BoardConfig::ACTIVE.inputStyle == BoardConfig::InputStyle::XteinkAdcLadder) {
+    return samplePhysicalLadderButtons() & mask;
+  }
+  const auto& pins = BoardConfig::ACTIVE.input;
+  return (pins.up >= 0 && digitalRead(pins.up) == LOW ? 1u << BTN_UP : 0) |
+         (pins.down >= 0 && digitalRead(pins.down) == LOW ? 1u << BTN_DOWN : 0);
+}
+
 bool HalGPIO::verifyPowerButtonWakeup() {
   // M5Paper v1.1: the classic ESP32's reset-to-setup() latency exceeds a normal
   // wheel click, so a click wake is always released before this samples and
@@ -303,20 +366,23 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   const auto wakeupCause = esp_sleep_get_wakeup_cause();
   const auto resetReason = esp_reset_reason();
 
-  const bool usbConnected = isUsbConnected();
-
   if (resetReason == ESP_RST_DEEPSLEEP &&
       (wakeupCause == ESP_SLEEP_WAKEUP_GPIO || wakeupCause == ESP_SLEEP_WAKEUP_EXT1)) {
     return WakeupReason::PowerButton;
   }
-  if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && !usbConnected &&
+  if (wakeupCause != ESP_SLEEP_WAKEUP_UNDEFINED ||
+      (resetReason != ESP_RST_POWERON && resetReason != ESP_RST_UNKNOWN)) {
+    return WakeupReason::Other;
+  }
+  const bool usbConnected = isUsbConnected();
+  if (resetReason == ESP_RST_POWERON && !usbConnected &&
       coldBootImpliesPowerButton()) {
     return WakeupReason::PowerButton;
   }
-  if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_UNKNOWN && usbConnected) {
+  if (resetReason == ESP_RST_UNKNOWN && usbConnected) {
     return WakeupReason::AfterFlash;
   }
-  if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && usbConnected) {
+  if (resetReason == ESP_RST_POWERON && usbConnected) {
     return WakeupReason::AfterUSBPower;
   }
   return WakeupReason::Other;

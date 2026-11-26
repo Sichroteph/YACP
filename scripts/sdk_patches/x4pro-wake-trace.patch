@@ -1,0 +1,54 @@
+--- a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
++++ b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
+@@ -250,7 +250,15 @@
+ 
+ // Vendor runtime init: PSR, TRES (800x600), GSST (4x0), PFS, PLL, gate scan.
+ // PWR/VDCS/BTST stay panel-programmed (OTP/MTP) and are not written here.
++#ifdef YACP_X4PRO_WAKE_TRACE
++extern "C" void yacpWakeTrace(const char*, int, int, int);
++#define YACP_WAKE_TRACE(...) yacpWakeTrace(__VA_ARGS__)
++#else
++#define YACP_WAKE_TRACE(...) do {} while (false)
++#endif
++
+ void Uc8279X4Driver::initController(EpdBus& bus) {
++  YACP_WAKE_TRACE("uc8279.init", BoardConfig::ACTIVE.displayControllerVariant, 0, 0);
+   bus.cmd(CMD_PANEL_SETTING);
+   bus.data(_cfg.psr0);
+   bus.data(_cfg.psr1);
+@@ -419,8 +427,11 @@
+   // pages) AND the manual force-refresh; it MUST scrub, exactly like UC8179.
+   const bool scrub = (mode == RefreshMode::Half);
+   const bool fast = (mode == RefreshMode::Fast) && !_needFullClear && _oldPlaneValid;
++  YACP_WAKE_TRACE("uc8279.bw.route", static_cast<int>(mode), fast ? 0 : (scrub ? 1 : 2),
++                  (_oldPlaneValid ? 1 : 0) | (_needFullClear ? 2 : 0) | (_redriveAfterGray ? 4 : 0));
+ 
+   if (paintDestination) {
++    YACP_WAKE_TRACE("uc8279.gray_exit", 0, 0, 0);
+     streamPlane(bus, CMD_DTM1, fb, true);
+     streamPlane(bus, CMD_DTM2, fb);
+     startBwRefresh(bus, true);
+@@ -503,6 +514,7 @@
+   bus.data(static_cast<uint8_t>(_cfg.psr0 & 0xDF));  // REG cleared -> OTP (0x13)
+   bus.data(_cfg.psr1);
+   bus.cmd(CMD_DISPLAY_REFRESH);
++  YACP_WAKE_TRACE("uc8279.activate.bw", fast, 0, 0);
+   // Confirm the waveform started (BUSY dropped) before returning, so
+   // displayFinish() only rides out the completion edge.
+   {
+@@ -868,6 +880,7 @@
+ 
+   powerOnIfNeeded(bus, " 8279x4_gray_pre_PON");
+   bus.cmd(CMD_DISPLAY_REFRESH);
++  YACP_WAKE_TRACE(monochrome ? "uc8279.activate.magic" : "uc8279.activate.gray_base", 0, 0, 0);
+   bus.waitBusy(" 8279x4_gray_pre_DRF");
+   bus.cmd(CMD_PARTIAL_OUT);
+ }
+@@ -883,6 +896,7 @@
+     _oldPlaneValid = false;
+     return;
+   }
++  YACP_WAKE_TRACE("uc8279.reference.seed", _needFullClear, 0, 0);
+   // Re-seed the OLD plane (0x10) with the clean B/W frame the reader restored —
+   // same rationale as the UC8179 sibling. (displayGray already restored the base
+   // to both planes; this covers callers that reach cleanup by another route.)

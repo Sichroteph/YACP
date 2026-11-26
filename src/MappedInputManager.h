@@ -53,6 +53,7 @@ class MappedInputManager {
   void setPowerConfirmClickFrame(const bool clicked) { powerConfirmClickFrame = clicked; }
 #endif
   bool injectRemoteClick(RemoteButton button);
+  RemoteButton sidePageClick(uint8_t physicalMask) const;
   bool hasRemoteClick() const { return remoteInput.button != RemoteButton::None; }
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
@@ -152,7 +153,8 @@ class MappedInputManager {
 
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
-  bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const, uint8_t* physicalButtons = nullptr) const;
+  bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const, uint8_t* physicalButtons = nullptr,
+                 uint8_t sampledButtons = 0) const;
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
   // bookkeeping; the wrappers below give each edge its board meaning.
   bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;

@@ -270,6 +270,11 @@ class EpubReaderActivity final : public ReaderActivity {
   // orientation tile can move SETTINGS.orientation while this reader sits on
   // the activity stack, and Pop restores it without onEnter(), so the drift has
   // to be noticed here rather than assumed away.
+  reader_refresh::WakeTextPage paintedTextPage{};
+  std::atomic<bool> retainedPageMetadataPending{false};
+  void loadRetainedPageMetadata();
+  bool tryAdoptRetainedPage();
+  reader_refresh::WakeTextPage retainedTextPage() const override;
   uint8_t appliedOrientation = 0;
 
   // Modal shown when a protected book refuses to open (loan expired /

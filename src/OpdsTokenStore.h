@@ -49,4 +49,4 @@ class OpdsTokenStore : public PersistableStore<OpdsTokenStore> {
   bool put(const std::string& url, const OpdsTokens& tokens);
 };
 
-#define OPDS_TOKENS OpdsTokenStore::getInstance()
+#define OPDS_TOKENS OpdsTokenStore::getLoadedInstance()

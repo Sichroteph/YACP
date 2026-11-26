@@ -1,5 +1,7 @@
 #include "ActivityManager.h"
 
+#include "util/WakeRefreshTrace.h"
+
 #include <BlePageTurner.h>
 #include <BoardConfig.h>
 #include <FontCacheManager.h>
@@ -33,6 +35,7 @@
 #include "settings/SettingsListActivity.h"
 #include "util/BmpViewerActivity.h"
 #include "util/BookPathMove.h"
+#include "util/BootTiming.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 
@@ -95,6 +98,9 @@ void ActivityManager::renderTaskLoop() {
         currentActivity->render(std::move(lock));
       }
       paintedVisit.store(renderingVisit, std::memory_order_release);
+      if (currentActivity->isHomeActivity() || currentActivity->acceptsRemoteInput()) {
+        boot_timing::mark(boot_timing::FirstPaint);
+      }
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
     TaskHandle_t waiter = nullptr;
@@ -358,7 +364,8 @@ void ActivityManager::goToPlugins(bool showOpds) {
   replaceActivity(std::make_unique<PluginCatalogActivity>(renderer, mappedInput, showOpds, /*rootMode=*/true));
 }
 
-void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
+void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh,
+                                 const reader_refresh::WakeTextPage& wakeTextPage) {
   if (path.empty()) {
     goToFileBrowser("/");
     return;
@@ -376,14 +383,20 @@ void ActivityManager::goToReader(std::string path, const bool allowFastInitialRe
 
   auto activity = ReaderActivity::create(renderer, mappedInput, std::move(path), allowFastInitialRefresh);
   if (activity) {
+    activity->wakeTextPage = wakeTextPage;
+    activity->resumingBook = allowFastInitialRefresh;
     replaceActivity(std::move(activity));
   }
 }
 
-void ActivityManager::goToSleep(bool fromTimeout) {
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, fromTimeout, SETTINGS.orientation));
+SleepBitmapRender ActivityManager::goToSleep(bool fromTimeout, bool popupAlreadyShown) {
+  auto sleep = std::make_unique<SleepActivity>(renderer, mappedInput, fromTimeout, SETTINGS.orientation,
+                                                popupAlreadyShown);
+  const auto* const renderedSleep = sleep.get();
+  replaceActivity(std::move(sleep));
   if (pendingAction == PendingAction::Replace) pendingAction = PendingAction::ReplaceForSleep;
-  loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
+  loop();  // The next step is deep sleep, so the image must be rendered now.
+  return currentActivity.get() == renderedSleep ? renderedSleep->bitmapRender() : SleepBitmapRender::None;
 }
 
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }
@@ -451,6 +464,18 @@ bool ActivityManager::isReaderActivity() const {
   return std::any_of(stackActivities.begin(), stackActivities.end(),
                      [](const auto& activity) { return activity->isReaderActivity(); }) ||
          (currentActivity && currentActivity->isReaderActivity());
+}
+
+reader_refresh::WakeTextPage ActivityManager::retainedReaderPage() const {
+  RenderLock lock;
+  const bool reader = isRemoteReaderContext();
+  const bool redrawPending = requestedUpdate.load();
+  const bool inverted = display.isInverted();
+  if (!reader || redrawPending || inverted) {
+    wake_refresh_trace::event("sleep.reject.activity", !reader, redrawPending, inverted);
+    return {};
+  }
+  return static_cast<const ReaderActivity*>(currentActivity.get())->retainedTextPage();
 }
 
 bool ActivityManager::isForegroundReader() const {

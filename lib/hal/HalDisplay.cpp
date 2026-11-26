@@ -2,6 +2,8 @@
 #include <HalGPIO.h>
 #include <Logging.h>
 
+#include "../../src/util/WakeRefreshTrace.h"
+
 // Global HalDisplay instance
 HalDisplay display;
 
@@ -14,6 +16,8 @@ HalDisplay::~HalDisplay() {}
 HalDisplay::Controller HalDisplay::getController() const { return BoardConfig::ACTIVE.displayController; }
 
 void HalDisplay::begin(bool seamless) {
+  wake_refresh_trace::event("hal.init", seamless, static_cast<int>(getController()),
+                            BoardConfig::ACTIVE.displayControllerVariant);
   // Set X3-specific panel mode before initializing.
   if (gpio.deviceIsX3()) {
     einkDisplay.setDisplayX3();
@@ -61,6 +65,7 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
 }
 
 void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen) {
+  wake_refresh_trace::event("hal.bw.request", static_cast<int>(mode));
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
   }
@@ -68,7 +73,19 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
 }
 
+void HalDisplay::restorePageFromSleepCover(bool turnOffScreen) {
+  if (gpio.deviceIsX3() && getController() == Controller::UC8253) {
+    // After seamless begin(), UC8253 Half drives each pixel to its target
+    // independently of the previous plane. A forced resync would instead
+    // run a full waveform and an extra conditioning pass.
+    einkDisplay.displayBuffer(EInkDisplay::HALF_REFRESH, turnOffScreen);
+    return;
+  }
+  displayBuffer(HALF_REFRESH, turnOffScreen);
+}
+
 void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
+  wake_refresh_trace::event("hal.async.request", static_cast<int>(mode));
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
   }
@@ -109,6 +126,7 @@ uint8_t* HalDisplay::lendFrameBufferStorage(uint32_t* sizeOut) { return einkDisp
 void HalDisplay::returnFrameBufferStorage() { einkDisplay.returnBuildStorage(); }
 
 bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback, bool turnOffScreen) {
+  wake_refresh_trace::event("hal.gray_mode.request", static_cast<int>(fallback), static_cast<int>(mode));
   if (gpio.deviceIsX3() && fallback == HALF_REFRESH) einkDisplay.requestResync();
   return einkDisplay.displayGrayscaleBase(mode, static_cast<EInkDisplay::RefreshMode>(fallback), turnOffScreen);
 }
@@ -118,6 +136,7 @@ void HalDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* m
 }
 
 void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) {
+  wake_refresh_trace::event("hal.gray_base.request", static_cast<int>(fallback));
   // X3: a HALF fallback means the caller wants a clean base (e.g. the sleep
   // cover, a full-screen swap from arbitrary prior content). Without this, the
   // X3 grayscale base takes its gentle differential happy path and the prior
@@ -133,6 +152,7 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
 }
 
 void HalDisplay::displayMonochromeReinforcement(bool turnOffScreen) {
+  wake_refresh_trace::event("hal.magic.request");
   const auto started = millis();
   const bool settled = einkDisplay.displayMonochromeReinforcement(turnOffScreen);
   LOG_DBG("HAL", "Magic Flash UC8279: %s, %lu ms", settled ? "mono pass" : "clean baseline", millis() - started);
@@ -150,7 +170,10 @@ void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay
 
 void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) { einkDisplay.cleanupGrayscaleBuffers(bwBuffer); }
 
-void HalDisplay::displayGrayBuffer(bool turnOffScreen) { einkDisplay.displayGrayBuffer(turnOffScreen); }
+void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
+  wake_refresh_trace::event("hal.gray.request");
+  einkDisplay.displayGrayBuffer(turnOffScreen);
+}
 
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
   einkDisplay.writeGrayscalePlaneStrip(lsbPlane ? EInkDisplay::GRAY_PLANE_LSB : EInkDisplay::GRAY_PLANE_MSB, rows,

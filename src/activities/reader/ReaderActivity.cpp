@@ -1,5 +1,7 @@
 #include "ReaderActivity.h"
 
+#include "util/WakeRefreshTrace.h"
+
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -18,6 +20,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "XtcReaderActivity.h"
+#include "util/BootTiming.h"
 #include "util/PluginEvents.h"
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -29,6 +32,13 @@ ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedIn
   } else if (allowFastInitialRefresh) {
     const int refreshFrequency = SETTINGS.getRefreshFrequency();
     pagesUntilFullRefresh = refreshFrequency > 1 ? refreshFrequency : 2;
+  }
+  if (allowFastInitialRefresh && gpio.supportsReaderWakePreview() &&
+      boot_timing::stamps[boot_timing::SavedPageVisible].load(std::memory_order_acquire) != 0) {
+    // The early paint already synced the panel. Keep the next cleanup beyond
+    // the reattachment redraw and first page turn. Invalid caches still reset it.
+    proMagicWakePending = false;
+    pagesUntilFullRefresh = std::max(pagesUntilFullRefresh, 3);
   }
 }
 
@@ -50,9 +60,13 @@ std::unique_ptr<ReaderActivity> ReaderActivity::create(GfxRenderer& renderer, Ma
 
 void ReaderActivity::applyInitialOrientation() { ReaderUtils::applyOrientation(renderer, SETTINGS.orientation); }
 
-void ReaderActivity::disableFastInitialRefresh() { pagesUntilFullRefresh = 0; }
+void ReaderActivity::disableFastInitialRefresh() {
+  pagesUntilFullRefresh = 0;
+  wakeTextPage = {};
+}
 
 void ReaderActivity::notePageTurn(const bool forward, const bool succeeded) {
+  wake_refresh_trace::event("reader.turn", forward, succeeded);
   RenderLock lock(*this);
   readerSession.noteTurn(forward, succeeded);
 }
@@ -92,8 +106,12 @@ void ReaderActivity::rememberBookOnceRendered() {
   if (bookRemembered || !pageRendered.load(std::memory_order_acquire)) return;
   bookRemembered = true;
   APP_STATE.openEpubPath = bookPath;
-  APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(bookPath, getBookTitle(), getBookAuthor(), getBookThumbBmpPath());
+  if (!reusedWakePage) {
+    APP_STATE.saveToFile();
+    RECENT_BOOKS.addBook(bookPath, getBookTitle(), getBookAuthor(), getBookThumbBmpPath(), resumingBook);
+  }
+  // A validated wake already has the same reading position and recents; the
+  // normal sleep/exit path persists the in-memory book path and resets the guard.
   const pluginevents::Var openVars[] = {{"book", bookPath.c_str()}};
   pluginevents::emit(pluginevents::Event::ReaderOpen, openVars, 1);
 }

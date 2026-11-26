@@ -37,4 +37,4 @@ class LcpPassphraseStore : public PersistableStore<LcpPassphraseStore> {
   bool put(const std::string& provider, const std::string& userKeyHex);
 };
 
-#define LCP_PASSPHRASES LcpPassphraseStore::getInstance()
+#define LCP_PASSPHRASES LcpPassphraseStore::getLoadedInstance()

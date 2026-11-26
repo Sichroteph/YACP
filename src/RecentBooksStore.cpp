@@ -37,7 +37,14 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
 }
 
 void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
-                               const std::string& coverBmpPath) {
+                               const std::string& coverBmpPath, const bool resuming) {
+  if (resuming && !recentBooks.empty()) {
+    const auto& first = recentBooks.front();
+    if (first.path == path && first.title == title && first.author == author && first.coverBmpPath == coverBmpPath) {
+      return;
+    }
+  }
+
   // Drop stale entries first so a new add can't evict a valid book in their stead.
   pruneMissing();
 

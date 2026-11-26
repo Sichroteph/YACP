@@ -4,6 +4,8 @@ namespace LegacyMigration {
 // Runs before any settings/state loader. Original stores are retained outside
 // /.crosspoint; only a completely prepared directory becomes the active store.
 bool run(bool checkedDeepSleepResume = false);
+// Allows a read-only display preview. Does not authorize skipping run().
+bool canPreviewSavedReaderPage();
 // Call after recovering a pending book move, before opening the moved book.
 bool repairTextAfterBookMove();
 bool blocked();

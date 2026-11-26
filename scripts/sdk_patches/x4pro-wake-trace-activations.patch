@@ -1,0 +1,10 @@
+--- a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
++++ b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
+@@ -730,6 +730,7 @@
+   bus.data(_cfg.psr1);
+ 
+   bus.cmd(CMD_DISPLAY_REFRESH);
++  YACP_WAKE_TRACE("uc8279.activate.gray", _directGrayPass, 0, 0);
+   bus.waitBusy((_directGrayPass ? " 8279x4_DIRECT_GRAY_DRF" : " 8279x4_gray"));
+   // Vendor production behavior: the UC8279 AA path leaves analog power enabled
+   // between page refreshes (the UC8179 sibling does the same — its gray_aa sends

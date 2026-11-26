@@ -1197,6 +1197,12 @@ struct Migration {
 }  // namespace
 }  // namespace legacy
 
+bool LegacyMigration::canPreviewSavedReaderPage() {
+  return legacy::marker(legacy::CHECKED) && !Storage.exists(legacy::Migration::REPAIR) &&
+         !Storage.exists(legacy::Migration::SOURCE_BACKUP_PENDING) &&
+         !Storage.exists(legacy::Migration::UPGRADE_BACKUP_PENDING);
+}
+
 bool LegacyMigration::run(bool checkedDeepSleepResume) {
 #ifdef SIMULATOR
   checkedDeepSleepResume = checkedDeepSleepResume || std::getenv("YACP_TEST_DEEP_RESUME");
