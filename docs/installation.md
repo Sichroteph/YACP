@@ -5,6 +5,10 @@ nav_order: 14
 
 # Installation
 
+## Try YACP and go back
+
+Curious about YACP and want an easy way back to your current setup? Keep a copy of your current firmware and set your original microSD card aside. Use a spare card with a few books for the test. Download the YACP `.bin` for your exact model, plug the reader in over USB, then select your model and choose **Custom .bin** in the [CrossPoint web flasher](https://crosspointreader.com/#flash-tools) (see [Web Installer](#web-installer) below). To go back, reinstall your previous firmware using its usual flashing method and put your original card back in.
+
 ## Web Installer
 
 1. Download the appropriate `YACP-<version>-<variant>.bin` file from the
