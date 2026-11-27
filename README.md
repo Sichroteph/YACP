@@ -320,6 +320,8 @@ reader fonts are limited to Lexend Deca and Bitter; release builds are limited t
 
 Download binaries and checksums from [GitHub Releases](https://github.com/Sichroteph/YACP/releases/latest).
 
+To install over USB, open the [CrossPoint web flasher](https://crosspointreader.com/#flash-tools), select your model, and choose **Custom .bin**.
+
 | File | Intended font sizes |
 | --- | --- |
 | `YACP-<version>-tiny.bin` | 10, 12, 14, and 16 pt |
