@@ -2,6 +2,7 @@
 
 #include <CredentialIntegrity.h>
 #include <ObfuscationUtils.h>
+#include <ReadingDataPath.h>
 #include <esp_mac.h>
 
 #include <cmath>
@@ -21,6 +22,16 @@ constexpr char CHECKED[] = "/.crosspoint/data-checked-v3";
 constexpr char BOOK_MOVE[] = "/book-move.bin";
 bool failed = false;
 bool backupFailed = false;
+
+bool useIsolatedReading() {
+  LOG_ERR("MIG", "Import incomplete; keeping originals and using isolated reading data");
+  reading_data::isolated = true;
+  if (!Storage.ensureDirectoryExists(reading_data::fallbackRoot)) {
+    LOG_ERR("MIG", "Cannot create reading-data directory; reading remains available");
+  }
+  failed = false;
+  return true;
+}
 
 uint32_t gccHash(const std::string& path) {
   const auto* data = reinterpret_cast<const uint8_t*>(path.data());
@@ -153,8 +164,8 @@ struct Migration {
     auto index = Storage.open((source + "/index.bin").c_str());
     if (!index) return false;
     uint8_t header[30];
-    const bool validHeader = readAt(index, 0, header, sizeof(header)) && !memcmp(header, "ITXT\3", 5) &&
-                             u32(header + 5) == fileSize;
+    const bool validHeader =
+        readAt(index, 0, header, sizeof(header)) && !memcmp(header, "ITXT\3", 5) && u32(header + 5) == fileSize;
     const uint32_t count = validHeader ? u32(header + 26) : 0;
     bool valid = page < count && uint64_t(count) * 4 + sizeof(header) == index.size();
     uint32_t previous = 0;
@@ -180,9 +191,8 @@ struct Migration {
   }
   bool readTextRecord(const std::string& path, const std::string& source, TextRecord& record) {
     const std::string identity = source + "/migration-source-path";
-    if (Storage.exists(identity.c_str()) &&
-        (readSmall(identity, io.b, sizeof(io.b)) != static_cast<int>(path.size()) ||
-         memcmp(io.b, path.data(), path.size())))
+    if (Storage.exists(identity.c_str()) && (readSmall(identity, io.b, sizeof(io.b)) != static_cast<int>(path.size()) ||
+                                             memcmp(io.b, path.data(), path.size())))
       return false;
     const int length = readSmall(source + "/progress.bin", record.receipt + 5, 6);
     if (length != 4 && length != 6) return false;
@@ -232,7 +242,8 @@ struct Migration {
       for (const char* suffix : {"", ".bak"}) {
         const std::string file = std::string("/") + stat + suffix;
         if ((!native.empty() && Storage.exists((native + file).c_str())) ||
-            (!preferred.empty() && Storage.exists((preferred + file).c_str()))) continue;
+            (!preferred.empty() && Storage.exists((preferred + file).c_str())))
+          continue;
         const std::string from = source + file;
         if (Storage.exists(from.c_str()) && !io.copy(from, target + file)) return false;
       }
@@ -320,8 +331,8 @@ struct Migration {
       if (changed[i]) {
         const std::string receipt = std::string(REPAIR_TARGET) + "/txt-receipts/" + keys[i];
         if (!copyTextStats(std::string(liveSource) + "/" + keys[i], target, native, i ? firstSource : std::string()) ||
-            !removeStaged(receipt) ||
-            !io.append(receipt, records[i].receipt, sizeof(records[i].receipt))) return false;
+            !removeStaged(receipt) || !io.append(receipt, records[i].receipt, sizeof(records[i].receipt)))
+          return false;
       }
       if (seen[i] && !retireTextCache(keys[i])) return false;
     }
@@ -1198,12 +1209,18 @@ struct Migration {
 }  // namespace legacy
 
 bool LegacyMigration::canPreviewSavedReaderPage() {
+  if (Storage.exists(reading_data::fallbackRoot)) return false;
   return legacy::marker(legacy::CHECKED) && !Storage.exists(legacy::Migration::REPAIR) &&
          !Storage.exists(legacy::Migration::SOURCE_BACKUP_PENDING) &&
          !Storage.exists(legacy::Migration::UPGRADE_BACKUP_PENDING);
 }
 
 bool LegacyMigration::run(bool checkedDeepSleepResume) {
+  if (Storage.exists(reading_data::fallbackRoot)) {
+    reading_data::isolated = true;
+    LOG_INF("MIG", "Using isolated reading data; old migration remains preserved");
+    return true;
+  }
 #ifdef SIMULATOR
   checkedDeepSleepResume = checkedDeepSleepResume || std::getenv("YACP_TEST_DEEP_RESUME");
 #endif
@@ -1218,31 +1235,30 @@ bool LegacyMigration::run(bool checkedDeepSleepResume) {
   auto migration = makeUniqueNoThrow<legacy::Migration>();
   if (!migration) {
     LOG_ERR("MIG", "Cannot allocate migration workspace");
-    legacy::failed = true;
-    return false;
+    return legacy::useIsolatedReading();
   }
   legacy::failed = !(Storage.exists(legacy::Migration::REPAIR) ? migration->recoverCurrent() : migration->run());
   if (!legacy::failed && !Storage.exists((std::string("/.crosspoint") + legacy::BOOK_MOVE).c_str()) &&
       !legacy::marker(checked)) {
     legacy::failed = !migration->io.append(checked, legacy::MARK, sizeof(legacy::MARK));
   }
-  if (legacy::failed) LOG_ERR("MIG", "Migration paused; original data retained. Restart to retry");
-  return !legacy::failed;
+  if (legacy::failed) return legacy::useIsolatedReading();
+  return true;
 }
 bool LegacyMigration::repairTextAfterBookMove() {
+  if (reading_data::isolated) return true;
   auto migration = makeUniqueNoThrow<legacy::Migration>();
   if (!migration) {
     LOG_ERR("MIG", "Cannot allocate migration workspace after book move");
-    legacy::failed = true;
-    return false;
+    return legacy::useIsolatedReading();
   }
   // Settings and recents are already loaded for book move recovery. Limit
   // this pass to positions and per-book statistics.
   migration->textOnly = true;
   legacy::failed = !migration->recoverNativeTextIfPresent() ||
                    !migration->io.append(legacy::CHECKED, legacy::MARK, sizeof(legacy::MARK));
-  if (legacy::failed) LOG_ERR("MIG", "Plain text migration paused after book move; data retained");
-  return !legacy::failed;
+  if (legacy::failed) return legacy::useIsolatedReading();
+  return true;
 }
 bool LegacyMigration::blocked() { return legacy::failed; }
 bool LegacyMigration::sourceBackupFailed() { return legacy::backupFailed; }

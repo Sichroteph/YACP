@@ -74,6 +74,8 @@ On Pro, the reading status bar shows whether the frontlight is on. This helps id
 
 When moving from an older YACP base, consult the [migration status](docs/yacp-migration.md). Keep the pre-update SD backup and the firmware for your exact model and variant if you might want to switch back.
 
+Older preferences and reading positions may not carry over when switching to the CrossPoint base. If an import or its backup fails on a readable card, YACP keeps access to the library and books using fresh reading data in `/.yacp-reading-v1`. New preferences and positions are saved there and reused after restart, while the old data and any unfinished migration stay preserved. Automatic import is skipped once this separate reading store exists. A folder named `pending` is an incomplete backup. Keep the complete pre-update card backup for rollback.
+
 ### Return to the previous firmware
 
 Reinstall the exact firmware you were using and boot it with the original SD card or a card restored from the complete pre-update backup. If you plan to try YACP on a second card, keep the original card intact. Restoring the backup takes reading positions, bookmarks and statistics back to the time of that backup.

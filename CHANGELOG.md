@@ -1,5 +1,17 @@
 # YACP changelog
 
+## 2.0 beta 3 (2026-11-27)
+
+YACP prioritizes battery efficiency, responsive reading and avoiding unnecessary work on the reading path.
+
+### Fixed
+
+- Keep library and book access available after a reading-data import or migration backup fails on a readable SD card, including migrations started by a previous beta. Preserve the old files and use a separate durable store for new preferences and positions.
+
+### Changed
+
+- Clarify that older preferences and positions may not carry over when switching to the CrossPoint base. Issue #16 remains open and its cause is unconfirmed.
+
 ## Unreleased: CrossPoint 2.0.0 synchronization (2026-11-15)
 
 YACP prioritizes battery efficiency, responsive reading and avoiding unnecessary work on the reading path.

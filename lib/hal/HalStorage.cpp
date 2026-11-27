@@ -2,6 +2,7 @@
 
 #include <FS.h>  // need to be included before SdFat.h for compatibility with FS.h's File class
 #include <Logging.h>
+#include <ReadingDataPath.h>
 #include <SDCardManager.h>
 #include <esp_heap_caps.h>
 #if FREEINK_CAP_USB_MSC
@@ -124,17 +125,17 @@ UsbDriveState HalStorage::usbDriveState() const {
   return SDCard.method(__VA_ARGS__);
 
 std::vector<String> HalStorage::listFiles(const char* path, int maxFiles) {
-  HAL_STORAGE_WRAPPED_CALL(listFiles, path, maxFiles);
+  HAL_STORAGE_WRAPPED_CALL(listFiles, reading_data::resolve(path), maxFiles);
 }
 
-String HalStorage::readFile(const char* path) { HAL_STORAGE_WRAPPED_CALL(readFile, path); }
+String HalStorage::readFile(const char* path) { HAL_STORAGE_WRAPPED_CALL(readFile, reading_data::resolve(path)); }
 
 bool HalStorage::readFileToStream(const char* path, Print& out, size_t chunkSize) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToStream, path, out, chunkSize);
+  HAL_STORAGE_WRAPPED_CALL(readFileToStream, reading_data::resolve(path), out, chunkSize);
 }
 
 size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t bufferSize, size_t maxBytes) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, path, buffer, bufferSize, maxBytes);
+  HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, reading_data::resolve(path), buffer, bufferSize, maxBytes);
 }
 
 // Composed of already-locked HalStorage/HalFile operations; needs no
@@ -157,10 +158,12 @@ bool HalStorage::readFileToString(const char* moduleName, const std::string& pat
 }
 
 bool HalStorage::writeFile(const char* path, const String& content) {
-  HAL_STORAGE_WRAPPED_CALL(writeFile, path, content);
+  HAL_STORAGE_WRAPPED_CALL(writeFile, reading_data::resolve(path), content);
 }
 
-bool HalStorage::ensureDirectoryExists(const char* path) { HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path); }
+bool HalStorage::ensureDirectoryExists(const char* path) {
+  HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, reading_data::resolve(path));
+}
 
 class HalFile::Impl {
  public:
@@ -186,28 +189,30 @@ HalFile& HalFile::operator=(HalFile&&) = default;
 
 HalFile HalStorage::open(const char* path, const oflag_t oflag) {
   StorageLock lock;  // ensure thread safety for the duration of this function
-  return HalFile(std::make_unique<HalFile::Impl>(SDCard.open(path, oflag)));
+  return HalFile(std::make_unique<HalFile::Impl>(SDCard.open(reading_data::resolve(path), oflag)));
 }
 
-bool HalStorage::mkdir(const char* path, const bool pFlag) { HAL_STORAGE_WRAPPED_CALL(mkdir, path, pFlag); }
+bool HalStorage::mkdir(const char* path, const bool pFlag) {
+  HAL_STORAGE_WRAPPED_CALL(mkdir, reading_data::resolve(path), pFlag);
+}
 
-bool HalStorage::exists(const char* path) { HAL_STORAGE_WRAPPED_CALL(exists, path); }
+bool HalStorage::exists(const char* path) { HAL_STORAGE_WRAPPED_CALL(exists, reading_data::resolve(path)); }
 
-bool HalStorage::remove(const char* path) { HAL_STORAGE_WRAPPED_CALL(remove, path); }
+bool HalStorage::remove(const char* path) { HAL_STORAGE_WRAPPED_CALL(remove, reading_data::resolve(path)); }
 bool HalStorage::rename(const char* oldPath, const char* newPath) {
-  HAL_STORAGE_WRAPPED_CALL(rename, oldPath, newPath);
+  HAL_STORAGE_WRAPPED_CALL(rename, reading_data::resolve(oldPath), reading_data::resolve(newPath, 1));
 }
 
 bool HalStorage::replaceFile(const char* tmpPath, const char* path) {
-  HAL_STORAGE_WRAPPED_CALL(replaceFile, tmpPath, path);
+  HAL_STORAGE_WRAPPED_CALL(replaceFile, reading_data::resolve(tmpPath), reading_data::resolve(path, 1));
 }
 
-bool HalStorage::rmdir(const char* path) { HAL_STORAGE_WRAPPED_CALL(rmdir, path); }
+bool HalStorage::rmdir(const char* path) { HAL_STORAGE_WRAPPED_CALL(rmdir, reading_data::resolve(path)); }
 
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
   StorageLock lock;  // ensure thread safety for the duration of this function
   FsFile fsFile;
-  bool ok = SDCard.openFileForRead(moduleName, path, fsFile);
+  bool ok = SDCard.openFileForRead(moduleName, reading_data::resolve(path), fsFile);
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
   return ok;
 }
@@ -223,7 +228,7 @@ bool HalStorage::openFileForRead(const char* moduleName, const String& path, Hal
 bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalFile& file) {
   StorageLock lock;  // ensure thread safety for the duration of this function
   FsFile fsFile;
-  bool ok = SDCard.openFileForWrite(moduleName, path, fsFile);
+  bool ok = SDCard.openFileForWrite(moduleName, reading_data::resolve(path), fsFile);
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
   return ok;
 }
@@ -236,7 +241,7 @@ bool HalStorage::openFileForWrite(const char* moduleName, const String& path, Ha
   return openFileForWrite(moduleName, path.c_str(), file);
 }
 
-bool HalStorage::removeDir(const char* path) { HAL_STORAGE_WRAPPED_CALL(removeDir, path); }
+bool HalStorage::removeDir(const char* path) { HAL_STORAGE_WRAPPED_CALL(removeDir, reading_data::resolve(path)); }
 
 // HalFile implementation
 // Allow doing file operations while ensuring thread safety via HalStorage's mutex.
@@ -275,7 +280,7 @@ int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
 size_t HalFile::write(const uint8_t* buf, size_t count) { HAL_FILE_WRAPPED_CALL(write, buf, count); }
 size_t HalFile::write(const void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(write, buf, count); }
 size_t HalFile::write(uint8_t b) { HAL_FILE_WRAPPED_CALL(write, b); }
-bool HalFile::rename(const char* newPath) { HAL_FILE_WRAPPED_CALL(rename, newPath); }
+bool HalFile::rename(const char* newPath) { HAL_FILE_WRAPPED_CALL(rename, reading_data::resolve(newPath)); }
 bool HalFile::isDirectory() const { HAL_FILE_FORWARD_CALL(isDirectory, ); }  // already thread-safe, no need to wrap
 void HalFile::rewindDirectory() { HAL_FILE_WRAPPED_CALL(rewindDirectory, ); }
 bool HalFile::close() { HAL_FILE_WRAPPED_CALL(close, ); }
