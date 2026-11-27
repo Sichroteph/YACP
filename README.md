@@ -23,6 +23,12 @@ YACP is designed to use less energy and perform less incidental work than its ba
 measured battery-life claim yet. Long-running current analysis continues until repeatable hardware measurements are
 available.
 
+## Back to your book
+
+See the X3 and X4 Pro return to the page after sleep in real time.
+
+https://github.com/user-attachments/assets/d42d8b0b-4af2-4ee9-be01-16b925b639be
+
 ## Direction
 
 In order, YACP aims to:
