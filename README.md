@@ -29,7 +29,7 @@ See the X3 and X4 Pro return to the page after sleep in real time.
 
 <table width="448"><tr><td width="448">
 
-https://github.com/user-attachments/assets/c0b0b0ab-c0db-4e1b-b2f4-e5991d310577
+https://github.com/user-attachments/assets/a6311005-3c9c-4c7f-bdca-b528743e2e34
 
 </td></tr></table>
 
