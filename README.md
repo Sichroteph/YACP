@@ -27,7 +27,11 @@ available.
 
 See the X3 and X4 Pro return to the page after sleep in real time.
 
+<table width="448"><tr><td width="448">
+
 https://github.com/user-attachments/assets/d42d8b0b-4af2-4ee9-be01-16b925b639be
+
+</td></tr></table>
 
 ## Direction
 
