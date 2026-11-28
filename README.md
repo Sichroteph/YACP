@@ -160,7 +160,12 @@ separate from the current wake-timing recording above:
 
 <video src="https://github.com/user-attachments/assets/a3de8027-e6e2-45ea-9f48-99801f550def" controls></video>
 
-### No-flash X3 screen maintenance
+### Magic Flash compatibility
+
+Magic Flash is available on the X3. On the original X4 and X4 Pro, it requires a UC8279 display with LUT variant `0x68`.
+Original X4 units with an SSD1677 use Classic refresh automatically. Check your display controller under **About > Display Controller**.
+
+### No-flash X3 screen maintenance (original implementation)
 
 Periodic screen maintenance can use the X3 OEM black-and-white reinforcement waveform instead of a flashing full
 refresh. The reinforcement is the page turn itself, not a second display update, so unchanged black and white pixels
